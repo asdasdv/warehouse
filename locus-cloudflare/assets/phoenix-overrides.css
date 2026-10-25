@@ -91,3 +91,33 @@ label input,label select{color:#22292c;border-color:#dfe4e5;background:#f8f9f9;b
 .inv-note{color:#879296}
 @media(max-width:1100px){.right{width:310px}.view-controls{right:330px}.left{width:235px}}
 @media(max-width:800px){.right{top:72px;height:auto;max-height:60%;width:270px;padding:16px;right:0}.view-controls{right:12px}.inv-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Figma "Phoenix Drafts" · home — white canvas, grey side panel with white cards, grey tiles */
+:root{--bg:#f4f4f4;--tile:#f4f4f4;--ink:#0b0b0b;--sub:#7a7a7a}
+body,main{background:#fff;color:var(--ink)}
+main{border-radius:0 0 28px 0}
+header{background:linear-gradient(#fff 42%,#fff0)}
+.rail{background:#fff;border-right:0}
+button{background:var(--tile);border:0;border-radius:10px;color:var(--ink)}
+button:hover{background:#e8e8e8}
+.header-actions button{background:var(--tile);border-radius:10px;padding:12px 16px;font-weight:500}
+.right{width:384px;padding:8px;background:var(--bg);border:0;box-shadow:none}
+.right.card,.card{background:#fff;border:0;border-radius:20px;box-shadow:none;padding:12px}
+.card.today,.history{margin-top:10px}
+.metric,.flow-counts>div,.list-row,.location-tile,.inv-metric{background:var(--tile);border:0;border-radius:12px}
+.list-row{border-bottom:0;margin-bottom:6px;padding:14px 12px;font-size:15px}
+.big-number{font-size:48px;letter-spacing:-1.5px;margin:14px 0 12px}
+.metric strong,.flow-counts b{font-size:30px;font-weight:600;letter-spacing:-.8px}
+.zone-bar{height:20px;gap:3px;margin-bottom:16px}
+.zone-bar span{border-radius:4px;opacity:1}
+.mosaic{border-radius:4px}
+.section-label{font-size:14px;color:var(--sub);letter-spacing:0;text-transform:none}
+.dock,#builderTools,#robotPanel,dialog,.inv-table-wrap{border:0;border-radius:20px}
+.dock{background:var(--tile);box-shadow:none}
+.view-controls button{background:var(--tile);border:0}
+.inv-top,.inv-table-wrap th,.inv-table-wrap td{border-color:#eee}
+.inv-table-wrap th{background:var(--tile);color:var(--sub);font-weight:500}
+.inv-tabs{background:var(--tile)}
+.inv-heading h1{font:600 36px Inter,Arial,sans-serif;letter-spacing:-1px}
+.inv-metric.selected{background:#fde7e7}
+.danger,#findProblem{background:#fde7e7;color:#e53935;border:0}
