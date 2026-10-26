@@ -355,3 +355,8 @@ dialog label.fg-search{flex-direction:row;align-items:center;gap:8px;color:var(-
 
 .inv-count{text-align:right;width:80px}.inv-table-wrap th:nth-child(3){text-align:right;width:80px}
 #occupancyLegend{display:none!important}
+/* "Unplaced" is hidden for now (home stat removed in phoenix-panel.js) */
+.inv-side,#invUnplacedBadge{display:none!important}
+.inventory-mode .ph-topbar{right:0}
+.inv-content{width:100%}
+.inv-metric{gap:4px}
