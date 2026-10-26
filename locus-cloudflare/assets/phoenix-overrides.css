@@ -268,3 +268,17 @@ dialog .section-label{margin:0;font-size:12px;letter-spacing:0;text-transform:no
 .hp-pages button.chosen{background:var(--brand);color:#fff}
 .hp-pages button:disabled{opacity:.4}
 .hp-pages span{color:var(--t2)}
+
+/* ===== Figma typography update: Text 14/1.4 Medium, Title 32, Hero 64 ===== */
+.header-actions button,#ship,#receive,.seeall,.zrow,.list-row,.stat p,.lbl{font-size:14px;line-height:1.4}
+.header-actions button,#ship,#receive{font-weight:500}
+.total b{font-size:64px;line-height:.95;letter-spacing:-2.56px}
+.stat b{font-size:32px;line-height:1;letter-spacing:-.8px}
+.stat{gap:16px}
+.rail{align-items:center}
+.rail .nav{width:36px;height:36px}
+.big-number{font-size:64px;line-height:.95;letter-spacing:-2.56px}
+.metric strong,.flow-counts b{font-size:32px;line-height:1;letter-spacing:-.8px}
+.inv-heading h1{font:600 64px/.95 Inter,Arial,sans-serif;letter-spacing:-2.56px}
+.inv-table-wrap th,.inv-table-wrap td,.inv-tabs button,.inv-toolbar input,.inv-row-name{font-size:14px}
+.header-actions button,#ship,#receive,.seeall{padding:8px 12px}
