@@ -96,7 +96,7 @@ $('#finishZone').onclick=()=>scene.finishZone();
 
 const builderTools=installBuilderTools(scene.builderContext,()=>state,a=>commit(()=>{applyLayoutEdit(state,a);log(state,'Layout updated',a.type);}),ps=>commit(()=>{for(const p of ps){const z=state.zones.find(z=>contains(z,p));addRack(state,z?.id,p.x,p.z,rackDraft);}}));
 
-let occupancyView=false;$('#occupancyView').onclick=()=>{occupancyView=!occupancyView;$('#occupancyLegend').hidden=!occupancyView;scene.setOccupancy(occupancyView);$('#occupancyView').setAttribute('aria-pressed',String(occupancyView));$('#occupancyView').textContent=occupancyView?'Occupancy: on':'Occupancy';toast(occupancyView?'Green: free addresses · Yellow: nearly full · Brown: full. Click a rack to choose an address.':'Occupancy overlay off');};
+let occupancyView=false;$('#occupancyView').onclick=()=>{occupancyView=!occupancyView;scene.setOccupancy(occupancyView);$('#occupancyView').setAttribute('aria-pressed',String(occupancyView));$('#occupancyView').textContent=occupancyView?'Occupancy: on':'Occupancy';};
 
 $('#findProblem').onclick=()=>{const issue=liveIssues(scene.robotics)[0];robotPanels.open('Alerts');if(issue)scene.focusIssue(issue.id);};setInterval(()=>{const issues=liveIssues(scene.robotics);$('#findProblem').hidden=!issues.length;$('#findProblem').textContent=`Find problem · ${issues.length}`;},1000);
 

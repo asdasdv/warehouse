@@ -354,3 +354,4 @@ dialog label.fg-search{flex-direction:row;align-items:center;gap:8px;color:var(-
 .fg-zones{gap:8px}
 
 .inv-count{text-align:right;width:80px}.inv-table-wrap th:nth-child(3){text-align:right;width:80px}
+#occupancyLegend{display:none!important}
