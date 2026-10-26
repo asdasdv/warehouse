@@ -282,3 +282,71 @@ dialog .section-label{margin:0;font-size:12px;letter-spacing:0;text-transform:no
 .inv-heading h1{font:600 64px/.95 Inter,Arial,sans-serif;letter-spacing:-2.56px}
 .inv-table-wrap th,.inv-table-wrap td,.inv-tabs button,.inv-toolbar input,.inv-row-name{font-size:14px}
 .header-actions button,#ship,#receive,.seeall{padding:8px 12px}
+
+/* ===== Figma page · Inventory ===== */
+.inventory-mode main{right:0;border-radius:0}
+.inventory-mode main>header{display:flex!important}
+#inventoryPage{z-index:5;inset:0;background:#fff;padding-top:62px;color:#000;font-family:Inter,Arial,sans-serif}
+#inventoryPage .inv-top,#inventoryPage .eyebrow,#inventoryPage .inv-live,#inventoryPage .inv-metric i{display:none!important}
+.inv-content{max-width:none;margin:0;padding:24px 8px 16px}
+.inv-heading{margin-bottom:24px}
+.inv-heading h1{margin:0;font:600 64px/.95 Inter,Arial,sans-serif;letter-spacing:-2.56px}
+.inv-heading p{margin:4px 0 0;font-size:14px;line-height:1.4;color:var(--t2);font-weight:500}
+.inv-metrics{grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+.inv-metric{background:var(--panel);border:0;border-radius:12px;padding:12px;min-height:112px;display:flex;flex-direction:column;gap:16px;align-items:flex-start;text-align:left}
+.inv-metric:hover{background:rgba(0,0,0,.07)}
+.inv-metric>span{font-size:14px;line-height:1.4;color:var(--t2)}
+.inv-metric strong{margin:0;font-size:32px;line-height:1;font-weight:600;letter-spacing:-.8px;color:#000}
+.inv-metric small{font-size:12px;line-height:1.35;color:var(--t2)}
+.inv-metric.selected{background:var(--danger-soft);border:0}
+.inv-toolbar{gap:8px;margin-bottom:16px}
+.inv-tabs{background:var(--panel);border-radius:12px;padding:4px;gap:4px}
+.inv-tabs button{background:transparent;border-radius:8px;height:28px;min-height:28px;padding:0 12px;font-size:12px;line-height:1.35;color:var(--t2)}
+.inv-tabs .chosen{background:#fff;color:#000;box-shadow:none}
+.inv-toolbar input{width:320px;height:36px;padding:0 12px;border:0;border-radius:12px;background:var(--panel);font:500 14px/1.4 Inter,Arial,sans-serif}
+.inv-table-wrap{border:0;border-radius:0;background:#fff;overflow:visible}
+.inv-table-wrap table{width:100%;border-collapse:collapse}
+.inv-table-wrap th{height:36px;padding:0 12px;background:transparent;color:var(--t2);font-size:14px;font-weight:500;text-align:left;border-bottom:1px solid var(--border)}
+.inv-table-wrap td{height:44px;padding:0 12px;font-size:14px;font-weight:500;border-bottom:1px solid var(--border)}
+.inv-count{text-align:left;width:100px}
+.inv-row-name{font-size:14px;font-weight:500;background:transparent!important}
+.inv-address{color:var(--t2)!important;font-size:14px!important}
+.inv-address em{background:var(--danger-soft);color:var(--danger);border-radius:999px;padding:2px 8px;font-size:12px;font-style:normal}
+.inv-expanded{background:var(--panel)}
+.inv-pagination{margin-top:16px;font-size:14px;line-height:1.4;color:var(--t2)}
+.inv-pagination button{width:32px;height:32px;padding:0;border-radius:8px;background:var(--panel);font-size:14px;color:#000}
+.inv-pagination .chosen,.inv-pagination .active{background:var(--brand);color:#fff}
+.inv-note{display:none}
+
+/* ===== Figma top bar: search pill, popovers, View menu ===== */
+.rail .dock,.dock{display:flex!important;position:relative;order:3;bottom:auto;left:auto;transform:none;width:auto;height:36px;padding:0 10px;margin:0;gap:8px;align-items:center;background:var(--panel);border:0;border-radius:12px;box-shadow:none;backdrop-filter:none;cursor:text}
+.dock .search-icon{width:16px;height:16px;font-size:0;background:url(/assets/icons/search.svg) center/16px no-repeat;flex:none}
+.dock input{width:0;padding:0;border:0;opacity:0;background:transparent;font:500 14px/1.4 Inter,Arial,sans-serif;color:#000;outline:0;transition:width .18s,opacity .18s}
+.dock:focus-within input{width:236px;opacity:1}
+.dock kbd{display:none;font:500 12px/1.35 Inter,Arial,sans-serif;color:rgba(0,0,0,.3);background:none;border:0;padding:0}
+.dock:focus-within kbd{display:block}
+.dock #results{position:absolute;left:0;top:44px;width:420px;max-height:416px;overflow:auto;cursor:default}
+.rail{gap:4px}
+.rail [data-robot-view="Live floor"]{order:4}.rail #historyAll{order:5}
+.rail .nav{background-color:transparent}
+/* glass popover (search results, View menu) */
+#results,#viewMenu{background:rgba(255,255,255,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:0;border-radius:16px;box-shadow:0 8px 32px rgba(0,0,0,.12);padding:8px}
+#results{gap:8px}
+#viewMenu{position:fixed;left:12px;top:62px;width:280px;z-index:20;display:flex;flex-direction:column;gap:4px}
+#viewMenu[hidden]{display:none}
+.vm-row{display:flex;align-items:center;justify-content:space-between;height:36px;padding:8px 12px;border-radius:8px;background:transparent;font:500 14px/1.4 Inter,Arial,sans-serif;color:#000;text-align:left;width:100%}
+.vm-row:hover{background:var(--panel)}
+.vm-div{height:1px;background:var(--border);margin:0}
+.vm-switch{position:relative;width:36px;height:20px;border-radius:999px;background:rgba(0,0,0,.15);transition:background .15s}
+.vm-switch::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.vm-switch.on{background:var(--brand)}.vm-switch.on::after{transform:translateX(16px)}
+.vm-open{width:16px;height:16px;font-style:normal;font-size:14px;line-height:16px;color:rgba(0,0,0,.5)}.vm-open::before{content:"↗"}
+.avatar{cursor:pointer;background:var(--panel)!important}
+.seeall{height:38px}
+.dock #results{bottom:auto;right:auto;height:auto}
+#results button{display:grid!important;grid-template-columns:1fr;gap:0;padding:12px;border-radius:12px;background:var(--panel);font:500 14px/1.4 Inter,Arial,sans-serif;color:#000}
+#results button small{font-size:12px;line-height:1.35;color:var(--t2)}
+#results p{padding:12px;color:var(--t2);font-size:14px;margin:0}
+#results button{flex:none;min-height:0}
+#results[hidden]{display:none!important}
+.inv-table-wrap td.inv-count,.inv-table-wrap th:nth-child(2){text-align:left}
