@@ -17,3 +17,91 @@
 .ph-live-tabs{position:absolute;z-index:12;top:70px;left:calc((100% - var(--panel))/2);transform:translateX(-50%);display:flex;background:#f5f5f5;border-radius:10px;padding:4px;gap:3px}.ph-live-tabs[hidden]{display:none}.ph-live-tabs button{border:0;border-radius:8px;background:transparent;padding:8px 13px;font:12px Inter,Arial,sans-serif;cursor:pointer}.ph-live-tabs button.active{background:#fff;box-shadow:0 1px 5px #0001}#robotPanel[data-page="Live floor"] .flow-policy,#robotPanel[data-page="Fleet"] .flow-policy,#robotPanel[data-page="Orders"] .flow-policy{display:none}#robotPanel .ph-subcaption{color:#888;font-size:12px;margin:14px 0 8px}#robotPanel[data-page="Live floor"] .robot-list,#robotPanel[data-page="Live floor"]>h3,#robotPanel[data-page="Live floor"]>.operation-message,#robotPanel[data-page="Live floor"]>.helper:not(:first-of-type){display:none}#robotPanel[data-page="Live floor"] .flow-counts{display:grid;grid-template-columns:1fr 1fr;gap:5px;margin:8px 0}#robotPanel[data-page="Live floor"] .flow-counts>div{min-height:72px;background:#f4f4f4;border-radius:11px;padding:10px;display:flex;flex-direction:column-reverse;justify-content:flex-end}#robotPanel[data-page="Live floor"] .flow-counts b{font-size:25px}#robotPanel[data-page="Live floor"] .flow-counts span{font-size:12px;color:#888}#robotPanel[data-page="Live floor"] .panel-actions{display:flex;gap:5px}#robotPanel[data-page="Live floor"] .panel-actions button{flex:1;font-size:11px;padding:7px 3px}#robotPanel .robot-station{position:relative;background:#f5f5f5;border:0;border-radius:10px;margin:5px 0;padding:10px 90px 10px 26px}#robotPanel .robot-station:before{content:'';position:absolute;left:10px;top:14px;width:10px;height:10px;background:#52c66b;border-radius:3px}#robotPanel .robot-station b{font-size:13px}#robotPanel .robot-station p{margin:3px 0 0;font-size:11px}#robotPanel .robot-station button{position:absolute;right:7px;top:13px;border:0;background:none;color:#888;font-size:11px;cursor:pointer}#robotPanel[data-page="Fleet"] .robot-list{display:grid;grid-template-columns:1fr 1fr;gap:5px}#robotPanel[data-page="Fleet"] .robot-list button{display:flex;flex-direction:column;align-items:flex-start;border:0;background:#f5f5f5;border-radius:10px;min-height:60px;text-align:left;padding:8px}#robotPanel[data-page="Fleet"] .robot-list button.chosen{background:#4ca8f8;color:#fff}#robotPanel[data-page="Fleet"] .robot-list button span,#robotPanel[data-page="Fleet"] .robot-list button small{font-size:11px}#robotPanel[data-page="Fleet"] .ph-fleet-tasks button{display:flex;flex-direction:column;align-items:flex-start;width:100%;background:#f5f5f5;border:0;border-radius:9px;padding:9px;margin-bottom:5px;text-align:left}#robotPanel[data-page="Fleet"] .ph-fleet-tasks strong{font-size:12px}#robotPanel[data-page="Fleet"] .ph-fleet-tasks small{font-size:10px;color:#888;margin-top:3px}
 
 #robotPanel[data-page="Live floor"] .panel-actions:has(#followRobot){display:none}
+
+/* ===== Figma "Phoenix Drafts" type + control update: Text 14/1.4, Caption 12/1.35, Title 32, Hero 64 ===== */
+:root{--panel-bg:rgba(0,0,0,.04);--t2:rgba(0,0,0,.5);--border-subtle:rgba(0,0,0,.1);--brand:#4ca8f8;--danger:#e94342;--danger-soft:rgba(233,67,66,.12)}
+.ph-actions button{height:36px;padding:8px 12px;font-size:14px;line-height:1.4;background:var(--panel-bg)}
+.ph-actions button:hover{background:rgba(0,0,0,.08)}
+.ph-topbar button,.ph-menu>summary{height:36px;min-width:36px;font-size:0;color:transparent}
+.ph-topbar .nav.active,.ph-topbar button:hover,.ph-menu>summary:hover,.ph-menu[open]>summary{background:var(--panel-bg)}
+.ph-nav .nav,#phSearchButton{background-repeat:no-repeat;background-position:center;background-size:16px 16px}
+.ph-nav .nav img,.ph-nav .nav svg,.ph-nav .nav span{display:none}
+#warehouse,#inventory{background-image:url(/assets/icons/grid.svg)}
+[data-robot-view="Live floor"]{background-image:url(/assets/icons/bolt.svg)}
+#historyAll{background-image:url(/assets/icons/clock.svg)}
+#phSearchButton{background-image:url(/assets/icons/search.svg)}
+.ph-menu>summary{position:relative}.ph-menu>summary::before{content:"···";font-size:14px;color:#000}
+.ph-total{font-size:64px;line-height:.95;letter-spacing:-2.56px;margin:0}
+.ph-total span{font-size:12px;line-height:1.35;color:var(--t2);letter-spacing:0}
+.ph-pair span,.ph-today span{font-size:14px;line-height:1.4;color:var(--t2)}
+.ph-pair strong,.ph-today strong{font-size:32px;line-height:1;letter-spacing:-.8px}
+.ph-today small{font-size:12px;line-height:1.35}
+.ph-section{font-size:14px;line-height:1.4;color:var(--t2);margin:0}
+.ph-row,.ph-row span{font-size:14px;line-height:1.4}.ph-row em{font-size:14px;color:var(--t2);font-style:normal}.ph-row small{font-size:12px;line-height:1.35;color:var(--t2)}
+.ph-wide{height:38px;margin-top:0;font-size:14px;line-height:1.4;border:1px solid var(--border-subtle);padding:8px 12px}
+.ph-card{gap:16px}
+h2,dialog h2{font-size:32px;line-height:1;letter-spacing:-.8px}
+.inv-unplaced-count{font-size:64px;line-height:.95;letter-spacing:-2.56px;color:var(--danger)}
+.ph-zonebar{overflow:visible;margin:0;border-radius:0}.ph-zonebar span{border-radius:4px;min-width:4px}
+.ph-actions button{font-size:14px;color:#000}
+.ph-nav .nav,#phSearchButton{font-size:0;color:transparent;width:36px}
+.ph-total{display:flex;align-items:flex-end;gap:8px}
+.ph-total span{padding-bottom:2px}
+.ph-nav .nav[data-robot-view="Live floor"]{background-image:url(/assets/icons/bolt.svg)}
+.ph-card{display:flex;flex-direction:column;gap:16px}
+.ph-today{display:grid!important;grid-template-columns:1fr 1fr;gap:8px}
+.ph-topbar .nav.active,.ph-topbar button:hover,.ph-menu>summary:hover,.ph-menu[open]>summary{background:none;background-color:var(--panel-bg)}
+.ph-nav .nav{background-color:transparent}
+.ph-nav .nav.active,.ph-nav .nav:hover{background-color:var(--panel-bg)}
+.ph-topbar .ph-nav .nav,.ph-topbar #phSearchButton{background-repeat:no-repeat;background-position:center;background-size:16px 16px}
+/* Inventory page type */
+#inventoryPage h1{font-size:64px;line-height:.95;letter-spacing:-2.56px;margin:0}
+#inventoryPage .inv-heading p{font-size:14px;line-height:1.4;color:var(--t2);font-weight:500}
+#inventoryPage .inv-heading button{font-size:14px;line-height:1.4;height:36px;padding:8px 12px;background:var(--danger-soft);color:var(--danger)}
+.inv-metric>span{font-size:14px;line-height:1.4;color:var(--t2)}
+#inventoryPage td{font-size:14px;font-weight:500}
+#inventoryPage td.inv-sku,#inventoryPage td.inv-address{color:var(--t2)}
+.inv-address{font-size:14px!important}.inv-address span,.inv-address em{font-size:12px}
+#inventoryPage .helper,.ph-card .helper{font-size:12px;line-height:1.35;color:var(--t2)}
+/* History page · Figma */
+#historyPage{padding:62px 12px 16px}
+.ph-history-head h1{font-size:64px;line-height:.95;letter-spacing:-2.56px;margin:24px 0 24px}
+.ph-history-tools{display:flex!important;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 24px;justify-content:flex-start}
+.ph-history-tabs{display:contents}
+.ph-history-tabs button{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:999px;background:var(--panel-bg);font-size:14px;line-height:1.4}
+.ph-history-tabs button.active{background:var(--brand);color:#fff}
+.ph-history-tabs small{font-size:12px;line-height:1.35;opacity:1;margin:0;color:var(--t2)}
+.ph-history-tabs button.active small{color:#fff}
+.ph-history-tools input{width:320px;height:36px;margin:0 0 0 8px;padding:0 12px;border-radius:12px;background:var(--panel-bg);font:500 14px/1.4 Inter,Arial,sans-serif}
+.ph-history-table{width:100%;border-collapse:collapse;font:500 14px/1.4 Inter,Arial,sans-serif}
+.ph-history-table th{height:36px;padding:0 12px;text-align:left;font-weight:500;color:var(--t2);border-bottom:1px solid var(--border-subtle)}
+.ph-history-table td{height:44px;padding:0 12px;border-bottom:1px solid var(--border-subtle);white-space:nowrap}
+.ph-history-table .sub{color:var(--t2)}
+.ph-history-foot{margin-top:24px;font:500 14px/1.4 Inter,Arial,sans-serif;color:var(--t2)}
+.ph-history-foot button{width:32px;height:32px;padding:0;border-radius:8px;background:var(--panel-bg);font-size:14px;color:#000}
+.ph-history-foot button.active{background:var(--brand);color:#fff}
+.ph-history-foot>div{gap:8px}
+/* Modals · Figma */
+dialog{border-radius:24px;padding:24px;box-shadow:0 8px 16px rgba(0,0,0,.16);border:0}
+dialog::backdrop{background:rgba(0,0,0,.2);backdrop-filter:none;-webkit-backdrop-filter:none}
+dialog label,dialog .helper{font-size:12px;line-height:1.35;color:var(--t2)}
+dialog button{font-size:14px;line-height:1.4}
+.flow-counts div{background:var(--panel-bg);border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:16px}
+.flow-counts div.danger{background:var(--danger-soft);color:var(--danger)}
+.flow-counts div.danger span{color:var(--danger)}
+.flow-counts span{font-size:14px;line-height:1.4;color:var(--t2);order:-1}
+.flow-counts b{font-size:32px;line-height:1;letter-spacing:-.8px}
+/* keep nav icons on active state */
+.ph-topbar .ph-nav .nav.active#warehouse,.ph-topbar .ph-nav .nav.active#inventory{background-image:url(/assets/icons/grid.svg)}
+.ph-topbar .ph-nav .nav.active[data-robot-view="Live floor"]{background-image:url(/assets/icons/bolt.svg)}
+.ph-topbar .ph-nav .nav.active#historyAll{background-image:url(/assets/icons/clock.svg)}
+#robotPanel .flow-counts div.danger{background:var(--danger-soft)}
+/* View menu popover · Figma */
+.ph-account-menu>div{width:280px;border-radius:16px;padding:8px;background:rgba(255,255,255,.8);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,.12);display:flex;flex-direction:column;gap:4px}
+.ph-account-menu>div>strong{display:none}
+.ph-account-menu>div button{height:36px!important;min-height:36px!important;margin:0!important;padding:8px 12px!important;border-radius:8px!important;font:500 14px/1.4 Inter,Arial,sans-serif!important;color:#000!important}
+.ph-account-menu>div button:hover{background:var(--panel-bg)!important}
+.ph-account-menu>div button[aria-pressed="true"]{background:transparent!important;color:var(--brand)!important}
+.ph-account-menu>div #edit{border-top:1px solid var(--border-subtle)!important;border-radius:0 0 8px 8px!important;margin-top:4px!important}
+.ph-account-menu>summary{background:var(--panel-bg);border:0;box-shadow:none}
+.ph-account-menu [data-robot-view]::after{content:none!important}

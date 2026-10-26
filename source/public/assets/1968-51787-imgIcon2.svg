@@ -1,0 +1,5 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="icon" opacity="0.55">
+<path id="Icon" d="M7.87817 2.24859L3.68901 8.83156C3.47718 9.16442 3.71629 9.6 4.11084 9.6H7.1C7.15523 9.6 7.2 9.64477 7.2 9.7V13.6138C7.2 14.1027 7.82928 14.301 8.10962 13.9005L12.2493 7.98673C12.4813 7.65534 12.2442 7.2 11.8397 7.2H8.9C8.84477 7.2 8.8 7.15523 8.8 7.1V2.51703C8.8 2.01681 8.14673 1.82657 7.87817 2.24859Z" stroke-width="1.5" stroke="black"/>
+</g>
+</svg>
