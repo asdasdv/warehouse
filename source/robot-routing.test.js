@@ -1,0 +1,3 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {createRouter} from './robot-routing.js';
+test('routes detour around expanded rack footprint',()=>{const r={x:0,z:0,width:10,depth:10},nav=createRouter([r]),path=nav.route({x:-16,z:0},{x:16,z:0});assert.ok(path?.length);for(const p of path)assert.ok(Math.abs(p.x)>6.8||Math.abs(p.z)>6.8);for(let i=1;i<path.length;i++)assert.equal(Math.abs(path[i].x-path[i-1].x)+Math.abs(path[i].z-path[i-1].z),2);});
+test('sealed interior cannot be reached',()=>{let racks=[{x:0,z:-10,width:30,depth:2},{x:0,z:10,width:30,depth:2},{x:-14,z:0,width:2,depth:20},{x:14,z:0,width:2,depth:20}];assert.equal(createRouter(racks).route({x:0,z:0},{x:30,z:0}),null);});
