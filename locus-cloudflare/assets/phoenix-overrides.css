@@ -247,3 +247,24 @@ dialog .section-label{margin:0;font-size:12px;letter-spacing:0;text-transform:no
 #robotPanel .flow-policy span,#robotPanel .flow-policy small{color:var(--t2)}
 #robotPanel .panel-actions button{white-space:normal}
 @media (max-width:1100px){#robotPanel{top:62px;height:calc(100% - 62px)}}
+
+/* ===== Figma page · History ===== */
+#historyPage{position:fixed;inset:0;z-index:5;background:#fff;padding-top:62px;overflow:auto;font-family:Inter,Arial,sans-serif;color:#000}
+.hp-content{padding:24px 16px 16px;display:flex;flex-direction:column;gap:24px}
+.hp-content h1{margin:0;font-size:64px;line-height:.95;font-weight:600;letter-spacing:-2.56px}
+.hp-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.hp-chip{display:flex;gap:8px;align-items:center;height:32px;padding:0 12px;border-radius:999px;background:var(--panel);font:500 14px/1.4 Inter,Arial,sans-serif;color:#000}
+.hp-chip small{font-size:12px;color:var(--t2)}
+.hp-chip.chosen{background:var(--brand);color:#fff}.hp-chip.chosen small{color:#fff}
+.hp-search{margin-left:8px;width:320px;height:36px;padding:0 12px;border:0;border-radius:12px;background:var(--panel);font:500 14px/1.4 Inter,Arial,sans-serif}
+.hp-table{width:100%;border-collapse:collapse;font:500 14px/1.4 Inter,Arial,sans-serif}
+.hp-table th{height:36px;padding:0 12px;text-align:left;font-weight:500;color:var(--t2);border-bottom:1px solid var(--border)}
+.hp-table td{height:44px;padding:0 12px;border-bottom:1px solid var(--border);white-space:nowrap}
+.hp-table .sub{color:var(--t2)}
+.hp-footer{display:flex;justify-content:space-between;align-items:center;font:500 14px/1.4 Inter,Arial,sans-serif}
+.hp-footer .sub{color:var(--t2)}
+.hp-pages{display:flex;gap:8px;align-items:center}
+.hp-pages button{width:32px;height:32px;padding:0;border-radius:8px;background:var(--panel);font:500 14px Inter,Arial,sans-serif}
+.hp-pages button.chosen{background:var(--brand);color:#fff}
+.hp-pages button:disabled{opacity:.4}
+.hp-pages span{color:var(--t2)}
