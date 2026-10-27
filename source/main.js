@@ -34,9 +34,9 @@ $('#app').innerHTML = `<main>
    <button class="nav" data-robot-view="Live floor" title="Live floor" aria-label="Live floor">${icon('bolt')}</button>
    <button class="nav" id="historyAll" title="Activity history" aria-label="Activity history">${icon('clock')}</button>
   </nav>
-  <div class="ph-actions"><button id="ship">Ship</button><button id="receive">Receive</button></div>
+  <div class="ph-actions"><button id="ship">Ship</button><button id="receive" class="primary">Receive</button></div>
  </div>
- <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button><div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
+ <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${['Zones', 'Robots', 'Labels'].map(name => `<button class="vm-row" data-vm="${name.toLowerCase()}" data-layer><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
  <aside class="right card" id="overview"></aside>
  <div id="editor" hidden><div><strong>Build mode</strong><span id="modeHint"></span></div><button data-mode="browse" class="chosen">Select</button><button data-mode="zone">Rectangle</button><button data-mode="polygon">Custom zone</button><button id="finishZone" hidden>Close zone</button><button data-mode="rack">Place racks</button><button id="undo">Undo</button><button id="topView">Top view</button><button id="done">Finish building</button></div>
  <div id="buildInfo" hidden><span class="eyebrow">Warehouse builder</span><h2>Make room for what’s next.</h2><p>Draw zones, then place racks. Changes last until you reload the page.</p><span class="rack-cap">Rack catalog</span><div id="rackCatalog"></div><div id="buildSelection"></div></div>
@@ -113,7 +113,7 @@ function renderPanel() {
   $('#allZones')?.addEventListener('click', () => { allZones = !allZones; renderPanel(); });
   $('#allRackBoxes')?.addEventListener('click', () => { allRackBoxes = !allRackBoxes; renderPanel(); });
   $('#showSelected')?.addEventListener('click', () => scene.select(selected, true));
-  view.querySelectorAll('[data-stat]').forEach(b => b.onclick = () => showHistory(['Received', 'Shipped', 'Moved'][Number(b.dataset.stat)]));
+  view.querySelectorAll('[data-stat]').forEach(b => b.onclick = () => b.dataset.stat === '3' ? (inventoryPage.open(), inventoryPage.showUnplaced()) : showHistory(['Received', 'Shipped', 'Moved'][Number(b.dataset.stat)]));
   view.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => pick({type: el.dataset.pick, id: el.dataset.id}));
   view.querySelector('[data-root]')?.addEventListener('click', () => pick(null));
   $('#moveSelection')?.addEventListener('click', movePhoenix);
@@ -344,13 +344,17 @@ $('#search').oninput = e => {
   const q = e.target.value.trim().toLowerCase(), el = $('#results');
   el.hidden = !q;
   if (!q) return;
+  const zoneOf = id => state.zones.find(z => z.id === id), rackZone = id => zoneOf(state.racks.find(r => r.id === id)?.zone);
+  const heldPlace = {receiving: 'Dock', transit: 'On robot', dispatch: 'Dispatch'};
+  // Boxes still at the dock or on a robot come first, marked red like in Inventory.
   const hits = [
-    ...state.zones.filter(z => z.name.toLowerCase().includes(q)).map(z => ({type: 'zone', id: z.id, label: z.name, sub: 'Zone'})),
-    ...state.racks.filter(r => r.id.toLowerCase().includes(q)).slice(0, 8).map(r => ({type: 'rack', id: r.id, label: `Rack ${r.id}`, sub: `Zone ${r.zone}`})),
-    ...state.boxes.filter(b => `${b.id} ${b.product}`.toLowerCase().includes(q)).slice(0, 15).map(b => ({type: 'box', id: b.id, label: b.product, sub: `${b.id} · ${b.rack} / ${b.location}`})),
+    ...state.zones.filter(z => z.name.toLowerCase().includes(q)).map(z => ({type: 'zone', id: z.id, label: z.name, sub: 'Zone', color: z.color})),
+    ...state.racks.filter(r => r.id.toLowerCase().includes(q)).slice(0, 8).map(r => ({type: 'rack', id: r.id, label: r.id, sub: zoneOf(r.zone)?.name || 'Rack', color: zoneOf(r.zone)?.color})),
+    ...sim.heldBoxes().filter(h => `${h.box.id} ${h.box.product}`.toLowerCase().includes(q)).map(h => ({held: h.kind, id: h.box.id, label: h.box.product, sub: h.box.id, value: heldPlace[h.kind], color: 'var(--danger)'})),
+    ...state.boxes.filter(b => `${b.id} ${b.product}`.toLowerCase().includes(q)).slice(0, 15).map(b => ({type: 'box', id: b.id, label: b.product, sub: b.id, value: `${b.rack} · ${b.location}`, color: rackZone(b.rack)?.color})),
   ].slice(0, 15);
-  el.innerHTML = hits.length ? hits.map(h => `<button data-type="${h.type}" data-id="${esc(h.id)}"><span>${esc(h.label)}</span><small>${esc(h.sub)}</small></button>`).join('') : '<p>No results. Try “A-01” or “Circuit”.</p>';
-  el.querySelectorAll('button').forEach(b => b.onclick = () => pick({type: b.dataset.type, id: b.dataset.id}));
+  el.innerHTML = hits.length ? hits.map(h => `<button class="ph-row" ${h.held ? `data-held="${h.held}"` : `data-type="${h.type}"`} data-id="${esc(h.id)}"><i style="background:${h.color || 'var(--brand)'}"></i><span>${esc(h.label)}<small>${esc(h.sub)}</small></span>${h.value ? `<em>${esc(h.value)}</em>` : ''}</button>`).join('') : '<p>No results. Try “A-01” or “Circuit”.</p>';
+  el.querySelectorAll('button').forEach(b => b.onclick = () => b.dataset.held ? robotPanels.open(b.dataset.held === 'transit' ? 'Fleet' : 'Live floor') : pick({type: b.dataset.type, id: b.dataset.id}));
 };
 const searchWrap = $('.ph-search');
 $('#phSearchButton').onclick = () => { $('#search').focus(); searchWrap.classList.add('is-open'); };
@@ -376,6 +380,12 @@ viewMenu.addEventListener('click', e => {
   const b = e.target.closest('[data-vm]');
   if (!b) return;
   if (b.dataset.vm === 'occ') return setOccupancy(!occupancyOn);
+  if (b.hasAttribute('data-layer')) {
+    const on = !scene.layer(b.dataset.vm);
+    scene.setLayer(b.dataset.vm, on);
+    b.querySelector('img').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`;
+    return;
+  }
   viewMenu.hidden = true;
   toggleEdit(true);
 });
