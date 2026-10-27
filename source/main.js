@@ -7,7 +7,7 @@ import {installBuilderTools} from './builder-tools.js';
 import {validateLayoutAccess, inaccessibleRacks} from './layout-access.js';
 import {applyLayoutEdit} from './layout-edit.js';
 import {contains} from './zone-shape.js';
-import {seed, products, addZone, addRack, updateRack, log} from './model.js';
+import {seed, products, itemOf, addZone, addRack, updateRack, log} from './model.js';
 import {templates, config, locations, validateConfig} from './storage.js';
 import {createScene} from './scene.js';
 import {placeChooser} from './choose-place.js';
@@ -149,7 +149,7 @@ function receivePhoenix(preset = {}) {
   if (!state.racks.length) return toast('Add a rack before receiving boxes.');
   const parts = selected?.type === 'location' ? selected.id.split('|') : null;
   let choice = preset.choice || (parts ? {rack: parts[0], loc: parts[1]} : null);
-  modal('Receive boxes', `<div class="ph-receive"><label>Product<select name="product" id="receiptProduct">${products.map(p => `<option>${esc(p)}</option>`).join('')}</select></label><label>Boxes<input name="qty" type="number" min="1" max="48" value="1" required></label><span class="ph-field-label">Place</span><div id="receiptSuggestions"></div><button type="button" class="ph-wide" id="chooseOther">Choose another place</button><p class="helper">Boxes arrive at Receiving; robots put them away.</p><button class="primary wide" type="submit">Confirm receipt</button></div>`, fd => {
+  modal('Receive boxes', `<div class="ph-receive"><label>Product<select name="product" id="receiptProduct">${products.map(p => `<option value="${esc(p)}">${esc(itemOf(p).sku)} · ${esc(p)}</option>`).join('')}</select></label><label>Boxes<input name="qty" type="number" min="1" max="48" value="1" required></label><span class="ph-field-label">Place</span><div id="receiptSuggestions"></div><button type="button" class="ph-wide" id="chooseOther">Choose another place</button><p class="helper">Boxes arrive at Receiving; robots put them away.</p><button class="primary wide" type="submit">Confirm receipt</button></div>`, fd => {
     const qty = Number(fd.get('qty')), product = fd.get('product');
     try { sim.receive(product, qty, choice); } catch (e) { $('#error').textContent = e.message; return; }
     $('#dialog').close();

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as T from 'three';
-import {seed} from './model.js';
+import {seed, products} from './model.js';
 import {inventorySnapshot} from './inventory-page.js';
 import {addWarehouseRobots} from './warehouse-robots.js';
 globalThis.document = {createElement: () => ({getContext: () => ({fillRect() {}, fillText() {}})})};
@@ -11,12 +11,12 @@ const ids = state => new Set(state.boxes.map(b => b.id));
 
 test('the simulation keeps receiving, storing and shipping on its own', () => {
   const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
-  const start = {received: state.today.received, shipped: state.today.shipped};
+  const start = {received: state.today.received, shipped: state.today.shipped, onSite: sim.dashboard(state).onSite, time: new Date().toISOString()};
   for (let minute = 0; minute < 10; minute++) {
     run(sim, 60);
     const d = sim.dashboard(state);
     assert.equal(d.onSite, Object.values(d.counts).reduce((a, b) => a + b, 0));
-    assert.equal(d.onSite, 24480 + (state.today.received - start.received) - (state.today.shipped - start.shipped));
+    assert.equal(d.onSite, start.onSite + (state.today.received - start.received) - (state.today.shipped - start.shipped));
     assert.equal(inventorySnapshot(state, sim).boxes.length, d.onSite);
     assert.equal(ids(state).size, state.boxes.length, 'no box is on two shelves');
     assert.ok(sim.stations.every(s => s.queue.length <= 6));
@@ -24,7 +24,8 @@ test('the simulation keeps receiving, storing and shipping on its own', () => {
   assert.ok(sim.flow.received > 10, 'robots put boxes away');
   assert.ok(sim.flow.shipped > 10, 'orders keep shipping');
   assert.ok(sim.book.orders.length > 0, 'new orders keep arriving');
-  assert.ok(state.history.some(e => e.type === 'Put away') && state.history.some(e => e.type === 'Shipped'));
+  const fresh = state.history.filter(e => e.time >= start.time);
+  assert.ok(fresh.some(e => e.type === 'Put away') && fresh.some(e => e.type === 'Shipped'));
 });
 
 test('boxes leave the shelf on pickup and land at the drop pose', () => {
@@ -55,14 +56,14 @@ test('Receive, Move and Ship from the UI become robot work', () => {
   assert.throws(() => sim.requestMove(box.id, target.id), /busy/);
   const shipped = state.boxes.find(b => b.rack === state.racks[5].id);
   const order = sim.shipBox(shipped.id);
-  sim.receive('Contactors', 3, null);
+  sim.receive(products[4], 3, null);
   const before = state.serial;
   run(sim, 240);
   assert.equal(sim.boxInfo(box.id).rack, target.id);
   assert.ok(order.shipped.includes(shipped.id));
   assert.equal(state.boxes.some(b => b.id === shipped.id), false);
   assert.ok(state.serial >= before + 3);
-  assert.throws(() => sim.receive('Contactors', 0), /1–48/);
+  assert.throws(() => sim.receive(products[4], 0), /1–48/);
 });
 
 test('layout changes re-plan robots instead of resetting the floor', () => {
