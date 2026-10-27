@@ -1,5 +1,0 @@
-<!doctype html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Locus — Warehouse</title>  <script type="module" crossorigin src="/assets/main-OUJg_tAT.js"></script>
-  <link rel="modulepreload" crossorigin href="/assets/modulepreload-polyfill-P2Xu9kJm.js">
-  <link rel="modulepreload" crossorigin href="/assets/OrbitControls-BFpWnHVP.js">
-  <link rel="stylesheet" crossorigin href="/assets/main-DU_XJjbe.css">
-</head><body><div id="app"></div></body></html>
