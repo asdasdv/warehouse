@@ -1,127 +1,398 @@
+import './figma.css';
 import {overviewHTML} from './phoenix-panel.js';
 import {installHistoryPage} from './phoenix-history.js';
 import {installInventoryPage} from './inventory-page.js';
-import {validateLayoutAccess} from './layout-access.js';
-import {liveIssues} from './operations-view.js';
-import {installBuilderTools} from './builder-tools.js';
-import {applyLayoutEdit} from './layout-edit.js';
-import {contains,zoneArea,polygonZone} from './zone-shape.js';
-import './figma.css';
 import {installRobotPanels} from './robot-panels.js';
-import {seed,products,receive,transact,addZone,addRack,updateRack,log} from './model.js';
-import {templates,config,locations,occupancy,migrate,validateConfig} from './storage.js';
+import {installBuilderTools} from './builder-tools.js';
+import {validateLayoutAccess, inaccessibleRacks} from './layout-access.js';
+import {applyLayoutEdit} from './layout-edit.js';
+import {contains} from './zone-shape.js';
+import {seed, products, addZone, addRack, updateRack, log} from './model.js';
+import {templates, config, locations, validateConfig} from './storage.js';
 import {createScene} from './scene.js';
 import {placeChooser} from './choose-place.js';
-const KEY='locus-warehouse-v1';let state;let loadError='';try{let raw=localStorage.getItem(KEY);if(raw){let original=JSON.parse(raw);state=migrate(original);if(original.version===1){if(!localStorage.getItem(KEY+'-before-locations'))localStorage.setItem(KEY+'-before-locations',raw);localStorage.setItem(KEY,JSON.stringify(state));}}else state=seed();}catch(e){loadError='Saved data could not be loaded. Your original save was kept. '+e.message;state=seed();}let selected=null,editing=false,mode='browse',undo=[],search='',rackDraft=config(templates.standard);
-const $=s=>document.querySelector(s),fmt=n=>n.toLocaleString('en-US'),esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-$('#app').innerHTML=`<nav class="rail"><button class="brand" title="Locus home">L.</button><button class="nav active" id="warehouse" title="Warehouse">◇</button><button class="nav" id="inventory" title="Inventory">▦</button><button class="nav" id="historyAll" title="Activity history">◷</button>${[['Orders','≡'],['Scenarios','⚑'],['Live floor','⌁'],['Tasks','☷'],['Fleet','▣'],['Stations','⊞'],['Alerts','!']].map(([name,icon])=>`<button class="nav" data-robot-view="${name}" title="${name}" aria-label="${name}">${icon}</button>`).join('')}<div class="rail-bottom"><button class="nav" id="settings" title="Layout and settings">⚙</button><span class="avatar">VL</span></div></nav><main><div id="scene"></div><div id="occupancyLegend" hidden>Storage addresses · <span style="color:#348b77">● Free space</span> · <span style="color:#a38519">● Nearly full</span> · <span style="color:#9b6336">● Full</span></div><header><div class="workspace-name"><span class="dot"></span> LOCUS <span class="slash">/</span> Assembly warehouse <span class="badge">LOCAL DEMO</span></div><div class="header-actions"><button id="findProblem" hidden>Find problem</button><button id="occupancyView" aria-pressed="false">Occupancy</button><button id="rackStyle" title="Switch rack appearance">Style: Raster</button><span id="saved">Saved on this browser</span><button id="edit">Edit layout ↗</button></div></header><aside class="left"><section class="card today"><div class="title"><h2>Today</h2><span class="muted">Live demo</span></div><div id="today"></div></section><section class="card history"><div class="title"><h2>History</h2><button id="allHistory" class="icon" title="Open history">↗</button></div><div id="events"></div><div class="card-note">Changes you make appear here.</div></section><div class="scene-note"><span>01 — ELECTRICAL COMPONENTS</span><p>A place for every box.</p></div></aside><aside class="right card" id="overview"></aside><div id="editor" hidden><div><strong>Build mode</strong><span id="modeHint">Select an object to inspect or remove it.</span></div><button data-mode="browse" class="chosen">Select</button><button data-mode="zone">Rectangle</button><button data-mode="polygon">Custom zone</button><button id="finishZone" hidden>Close zone</button><button data-mode="rack">Place racks</button><button id="undo">Undo</button><button id="topView">Top view</button><button id="done">Finish building</button></div><div id="buildInfo" hidden><span class="eyebrow">Warehouse builder</span><h2>Make room for what’s next.</h2><p>Draw zones, then place racks. Your layout saves automatically.</p><span class="rack-cap">Rack catalog</span><div id="rackCatalog"></div><div id="buildSelection"></div></div><div class="view-controls"><button id="home" title="Fit warehouse">⌂</button><button id="zoomIn" title="Zoom in">+</button><button id="zoomOut" title="Zoom out">−</button></div><div class="dock"><span class="search-icon">⌕</span><input id="search" placeholder="Search product, box or location…" autocomplete="off"><kbd>⌘ K</kbd><button id="ship">Ship ↗</button><button id="receive" class="primary">Receive +</button><div id="results" hidden></div></div><footer><span id="footerCount"></span><span>Drag to orbit · Scroll to zoom · Right-drag to pan</span></footer><div id="toast" role="status"></div><dialog id="dialog"></dialog></main>`;
-const scene=createScene($('#scene'),()=>state,pick,draw);
-function persist(){if(loadError){toast(loadError);return;}try{localStorage.setItem(KEY,JSON.stringify(state));$('#saved').textContent='Saved on this browser';}catch{$('#saved').textContent='Storage full — export a backup';toast('Browser storage is full. Export a backup in Settings.');}}
-function commit(fn){let snapshot=JSON.stringify(state);try{fn();validateLayoutAccess(JSON.parse(snapshot).racks,state.racks);undo.push(snapshot);undo=undo.slice(-10);persist();refresh();return true;}catch(e){state=JSON.parse(snapshot);toast(e.message);if($('#dialog')?.open&&$('#error'))$('#error').textContent=e.message;return false;}}
-function toast(t){$('#toast').textContent=t;$('#toast').classList.add('visible');clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('#toast').classList.remove('visible'),4000);}
-function savedState(){return state;}
-function liveState(){return scene.robotics.dashboard(state);}
-function boxesFor(sel=selected){const state=editing?savedState():liveState();if(!sel)return state.boxes;if(sel.type==='location'){let [rack,location]=sel.id.split('|');return state.boxes.filter(b=>b.rack===rack&&b.location===location);}if(sel.type==='box')return state.boxes.filter(b=>b.id===sel.id);if(sel.type==='rack')return state.boxes.filter(b=>b.rack===sel.id);let ids=new Set(state.racks.filter(r=>r.zone===sel.id).map(r=>r.id));return state.boxes.filter(b=>ids.has(b.rack));}
-function zoneCounts(){const state=liveState();let rmap=new Map(state.racks.map(r=>[r.id,r.zone])),c={};state.boxes.forEach(b=>c[rmap.get(b.rack)]=(c[rmap.get(b.rack)]||0)+1);return c;}
-function pick(s){$('#results').hidden=true;historyPage?.close();inventoryPage?.close();if(s?.type==='box'&&!editing){robotPanels.openBox(s.id);return;}if(s?.type==='robot'){robotPanels.open('Live floor',s.id);return;}robotPanels.close();$('#inventory').classList.remove('active');selected=s;scene.rebuild();scene.select(s,!editing);renderPanel();renderBuildSelection();$('#results').hidden=true;}
-function refresh(){scene.rebuild();scene.select(selected,false);renderPanel();renderBuildSelection();renderActivity();$('#footerCount').textContent=`${state.zones.length} zones · ${state.racks.length} racks · ${fmt(liveState().onSite)} boxes on site`;}
-function renderActivity(){const state=liveState();let t=state.today,total=t.shipped+t.received;$('#today').innerHTML=`<div class="mosaic" style="--share:${t.shipped/(total||1)*100}%"></div><div class="metric"><div><i class="marker yellow"></i><strong>${fmt(t.shipped)}</strong></div><span>OUTBOUND</span></div><div class="metric"><div><i class="marker purple"></i><strong>${fmt(t.received)}</strong></div><span>INBOUND</span></div><small>Boxes processed today</small>`;
-$('#events').innerHTML=state.history.length?state.history.slice(0,4).map((e,i)=>`<details ${i===0?'open':''}><summary>${esc(e.type)}<time>${new Date(e.time).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</time></summary><p>${esc(e.detail)}</p></details>`).join(''):'<div class="empty-history">No new activity yet.<br>Receive or move boxes to start.</div>';}
-function row(label,value,type,id,color){return `<button class="list-row" data-pick="${type}" data-id="${esc(id)}"><span>${color?`<i style="background:${color}"></i>`:''}${esc(label)}</span><span>${fmt(value)} <b>↗</b></span></button>`;}
-let allZones=false,allRackBoxes=false,lastPanelHTML="";
-function renderPanel(){const panelScroll=$('#overview').scrollTop,listScroll=$('#overview .ph-list')?.scrollTop||0,gridOpen=$('#overview details')?.open;const state=liveState();let sel=selected,bs=boxesFor(),c=zoneCounts(),html='';if(!sel){html=`<div class="title"><h2>Overview</h2><span class="muted">Warehouse</span></div><div class="big-number">${fmt(state.onSite)}<span>BOXES ON SITE</span></div><div class="live-counts"><span>${fmt(state.counts.stored)} on shelves</span><span>${state.counts.receiving} receiving</span><span>${state.counts.transit} in transit</span><span>${state.counts.dispatch} at dispatch</span></div><div class="zone-bar">${state.zones.map(z=>`<span title="${esc(z.name)}: ${fmt(c[z.id]||0)} boxes" style="flex:${c[z.id]||.001};background:${z.color}"></span>`).join('')}</div><div class="section-label">BOXES BY ZONE <span>${state.zones.length} ZONES</span></div><div class="scroll-list">${state.zones.map(z=>row(z.name,c[z.id]||0,'zone',z.id,z.color)).join('')}</div><p class="helper">Select a zone to explore its racks.</p>`;
-}else if(sel.type==='zone'){let z=state.zones.find(z=>z.id===sel.id);if(!z){selected=null;return renderPanel();}let rs=state.racks.filter(r=>r.zone===z.id);html=`<button class="breadcrumb" data-root>Warehouse /</button><div class="title"><h2>${esc(z.name)}</h2><i class="zone-dot" style="background:${z.color}"></i></div><div class="big-number">${fmt(bs.length)}<span>BOXES IN THIS ZONE</span></div><div class="submetrics"><span><b>${rs.length}</b> racks</span><span><b>${Math.round(zoneArea(z))}</b> m²</span></div><div class="section-label">RACKS <span>BOXES</span></div><div class="scroll-list">${rs.map(r=>row(r.id,bs.filter(b=>b.rack===r.id).length,'rack',r.id)).join('')||'<p class="helper">No racks yet. Add one in Edit layout.</p>'}</div>`;
-}else if(sel.type==='rack'){let r=state.racks.find(r=>r.id===sel.id);if(!r){selected=null;return renderPanel();}let occ=occupancy(state,r.id),total=r.shelves*r.places;html=`<button class="breadcrumb" data-pick="zone" data-id="${esc(r.zone)}">Warehouse / Zone ${esc(r.zone)} /</button><div class="title"><h2>Rack ${esc(r.id)}</h2></div><div class="big-number">${fmt(bs.length)}<span>BOXES IN STOCK</span></div><div class="capacity"><i style="width:${occ.size/total*100}%"></i></div><div class="section-label">${occ.size} OF ${total} LOCATIONS OCCUPIED</div><p class="rack-dimensions">${r.width} × ${r.depth} × ${r.height} m · ${r.shelves} shelves</p><div class="location-grid" style="--cols:${r.places}">${locations(r).map(loc=>{let n=occ.get(loc)?.length||0;return `<button class="location-tile ${n?'occupied':''}" data-pick="location" data-id="${esc(r.id+'|'+loc)}" title="${loc}: ${n} boxes"><small>${loc}</small><b>${n||'—'}</b></button>`;}).join('')}</div><p class="helper">Each cell is a storage address. Box sizes in 3D are schematic; physical fit is confirmed on site.</p><div class="panel-actions"><button id="moveSelection" ${!bs.length?'disabled':''}>Move boxes</button><button id="receiveHere">Receive +</button></div>`;
-}else if(sel.type==='location'){let [rid,loc]=sel.id.split('|'),r=state.racks.find(r=>r.id===rid);if(!r||!locations(r).includes(loc)){selected=null;return renderPanel();}html=`<button class="breadcrumb" data-pick="rack" data-id="${esc(rid)}">Rack ${esc(rid)} /</button><div class="title"><h2>${esc(loc)}</h2></div><div class="big-number">${fmt(bs.length)}<span>BOXES AT THIS LOCATION</span></div><h3>${bs.length?esc(bs[0].product):'Empty location'}</h3>${(()=>{const info=scene.robotics.locationInfo(rid,loc);return `<p class="helper">${info.incoming?info.incoming+' incoming · '+info.robots.join(', '):bs.length?'Occupied — same component only':'Available for a component'}<br>${info.reachable?'Robot access available':'Robot route unavailable'}<br>Approx. ${(r.width/r.places).toFixed(1)} × ${r.depth.toFixed(1)} m footprint per address</p>`;})()}<div class="scroll-list boxes">${bs.map(b=>row(b.id,'','box',b.id)).join('')}</div><p class="helper">One component type per location. Several whole boxes can share this address.</p><div class="panel-actions"><button id="moveSelection" ${!bs.length?'disabled':''}>Move</button><button id="receiveHere">Receive +</button></div>`;
-}else{let b=bs[0];if(!b){selected=null;return renderPanel();}html=`<button class="breadcrumb" data-pick="location" data-id="${esc(b.rack+'|'+b.location)}">Rack ${esc(b.rack)} / ${esc(b.location)} /</button><div class="title"><h2>Box details</h2></div><div class="box-illustration">▱</div><h3>${esc(b.product)}</h3><p class="box-id">${esc(b.id)}</p><div class="facts"><div>Rack <b>${esc(b.rack)}</b></div><div>Location <b>${esc(b.location)}</b></div><div>Unit <b>1 sealed box</b></div></div><div class="panel-actions"><button id="moveSelection">Move</button><button id="shipSelection" class="primary">Ship ↗</button></div>`;}
-html=overviewHTML(state,sel,allZones,allRackBoxes)??html;if(html===lastPanelHTML)return;lastPanelHTML=html;$('#overview').innerHTML=html;$('#overview').classList.toggle('home',!sel);$('#overview').scrollTop=panelScroll;if($('#overview .ph-list'))$('#overview .ph-list').scrollTop=listScroll;if($('#overview details'))$('#overview details').open=!!gridOpen;$('#allZones')?.addEventListener('click',()=>{allZones=!allZones;renderPanel();});$('#allRackBoxes')?.addEventListener('click',()=>{allRackBoxes=!allRackBoxes;lastPanelHTML='';renderPanel();});$('#showSelected')?.addEventListener('click',()=>scene.select(selected,true));$('#overview').querySelectorAll('[data-stat]').forEach(b=>b.onclick=()=>{const i=Number(b.dataset.stat);if(i===3){inventory();inventoryPage.showUnplaced();}else showHistory(['Received','Shipped','Moved'][i]);});$('#overview').querySelectorAll('[data-pick]').forEach(el=>el.onclick=()=>pick({type:el.dataset.pick,id:el.dataset.id}));$('[data-root]')?.addEventListener('click',()=>pick(null));$('#moveSelection')?.addEventListener('click',()=>operation('Moved'));$('#shipSelection')?.addEventListener('click',()=>operation('Shipped'));$('#receiveHere')?.addEventListener('click',()=>operation('Received'));}
-function modal(title,body,onSubmit){let d=$('#dialog');d.innerHTML=`<form><div class="title"><h2>${title}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div>${body}<p class="form-error" id="error"></p></form>`;$('#closeDialog').onclick=()=>d.close();d.querySelector('form').onsubmit=e=>{e.preventDefault();onSubmit?.(new FormData(e.target));};if(!d.open)d.showModal();}
-function rackOptions(value){return state.racks.map(r=>`<option value="${esc(r.id)}" ${r.id===value?'selected':''}>${esc(r.id)} · ${r.shelves*r.places} locations</option>`).join('');}
-function locationOptions(rack,product,value,source=false){let r=state.racks.find(r=>r.id===rack);if(!r)return '';let occ=occupancy(state,rack);return locations(r).map(loc=>{let bs=occ.get(loc)||[],disabled=source?!bs.length:bs.length&&bs[0].product!==product;return `<option value="${loc}" ${loc===value?'selected':''} ${disabled?'disabled':''}>${loc} · ${bs.length?bs.length+' boxes · '+esc(bs[0].product):'Empty'}</option>`;}).join('');}
-const zoneColor=rid=>state.zones.find(z=>z.id===state.racks.find(r=>r.id===rid)?.zone)?.color||'#82c0fa';
-function receivePhoenix(preset={}){
- if(!state.racks.length)return toast('Add a rack before receiving boxes.');
- const parts=selected?.type==='location'?selected.id.split('|'):null;let choice=preset.choice||(parts?{rack:parts[0],loc:parts[1]}:null);
- modal('Receive boxes',`<div class="ph-receive"><label>Product<select name="product" id="receiptProduct">${products.map(p=>`<option>${esc(p)}</option>`).join('')}</select></label><label>Boxes<input name="qty" type="number" min="1" max="10000" value="1" required></label><span class="ph-field-label">Place</span><div id="receiptSuggestions"></div><button type="button" class="ph-wide" id="chooseOther">Choose another place</button><p class="helper">Confirm the boxes physically fit. Dimensions and load capacity are not checked automatically.</p><button class="primary wide" type="submit">Confirm receipt</button></div>`,fd=>{const qty=Number(fd.get('qty')),product=fd.get('product');if(!choice?.rack||!choice?.loc||!Number.isInteger(qty)||qty<1){$('#error').textContent='Select a valid place and number of boxes.';return;}if(commit(()=>receive(state,choice.rack,product,qty,choice.loc))){$('#dialog').close();toast(`Received · ${qty} ${qty===1?'box':'boxes'}`);}});
- const suggested=()=>{const product=$('#receiptProduct').value,candidates=[];for(const rack of state.racks){const occ=occupancy(state,rack.id);for(const loc of locations(rack)){const bs=occ.get(loc)||[];if(bs.length&&bs[0].product!==product)continue;candidates.push({rack:rack.id,loc,count:bs.length,score:bs.length?0:1});}}candidates.sort((a,b)=>a.score-b.score||a.count-b.count||a.rack.localeCompare(b.rack));if(choice&&!candidates.some(c=>c.rack===choice.rack&&c.loc===choice.loc))choice=null;if(!choice)choice=candidates[0]||null;let list=candidates.slice(0,3);if(choice&&!list.some(c=>c.rack===choice.rack&&c.loc===choice.loc)){const bs=occupancy(state,choice.rack).get(choice.loc)||[];list=[{rack:choice.rack,loc:choice.loc,count:bs.length,picked:true},...list.slice(0,2)];}return list;};
- const render=()=>{$('#receiptSuggestions').innerHTML=suggested().map((c,i)=>`<button type="button" class="ph-place-option ${choice?.rack===c.rack&&choice.loc===c.loc?'chosen':''}" data-rack="${esc(c.rack)}" data-loc="${esc(c.loc)}"><i style="background:${zoneColor(c.rack)}"></i><span><strong>${esc(c.rack)} · ${esc(c.loc)}</strong><small>${c.picked?(c.count?'Same product is here':'Empty address'):`${i===0?'Recommended · ':''}${c.count?(i===0?'same':'Same')+' product is here':i===0?'next free address':i===1?'Next free address on the same rack':'Rack with the most free places'}`}</small></span><em>${c.count?c.count+' '+(c.count===1?'box':'boxes'):'Empty'}</em></button>`).join('')||'<p class="helper">No compatible storage address. Add a rack in the layout builder.</p>';$('#receiptSuggestions').querySelectorAll('button').forEach(b=>b.onclick=()=>{choice={rack:b.dataset.rack,loc:b.dataset.loc};render();});};
- if(preset.product)$('#receiptProduct').value=preset.product;if(preset.qty)$('#dialog [name=qty]').value=preset.qty;$('#receiptProduct').onchange=()=>{choice=null;render();};$('#chooseOther').onclick=()=>{const keep={product:$('#receiptProduct').value,qty:$('#dialog [name=qty]').value,choice};placeChooser({dialog:$('#dialog'),state,product:keep.product,onPick:c=>receivePhoenix({...keep,choice:c}),onBack:()=>receivePhoenix(keep),onMap:()=>{$('#dialog').close();toast('Select an address on the map, then press Receive.');}});};render();
+
+// Concept demo: everything lives in memory and the robot simulation always runs.
+// A reload starts the demo warehouse again.
+const state = seed();
+let selected = null, editing = false, undo = [], rackDraft = config(templates.standard);
+let allZones = false, allRackBoxes = false, lastPanelHTML = '', occupancyOn = false;
+
+const $ = s => document.querySelector(s);
+const fmt = n => n.toLocaleString('en-US');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+const icon = name => `<img class="fg-ic" src="/assets/fg/${name}.svg" alt="">`;
+
+$('#app').innerHTML = `<main>
+ <div id="scene"></div>
+ <div class="ph-topbar">
+  <div class="ph-account"><button class="ph-avatar-btn" aria-label="View menu"><img src="/assets/fg/avatar-face.svg" alt=""></button></div>
+  <nav class="ph-nav" aria-label="Main navigation">
+   <button class="nav active" id="warehouse" title="Warehouse" aria-label="Warehouse">${icon('grid')}</button>
+   <button class="nav" id="inventory" title="Inventory" aria-label="Inventory">${icon('cube')}</button>
+   <div class="ph-search"><button type="button" id="phSearchButton" aria-label="Search warehouse">${icon('search')}</button><input id="search" placeholder="Search product, box or location…" autocomplete="off"><kbd>⌘K</kbd><div id="results" hidden></div></div>
+   <button class="nav" data-robot-view="Live floor" title="Live floor" aria-label="Live floor">${icon('bolt')}</button>
+   <button class="nav" id="historyAll" title="Activity history" aria-label="Activity history">${icon('clock')}</button>
+  </nav>
+  <div class="ph-actions"><button id="ship">Ship</button><button id="receive">Receive</button></div>
+ </div>
+ <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button><div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
+ <aside class="right card" id="overview"></aside>
+ <div id="editor" hidden><div><strong>Build mode</strong><span id="modeHint"></span></div><button data-mode="browse" class="chosen">Select</button><button data-mode="zone">Rectangle</button><button data-mode="polygon">Custom zone</button><button id="finishZone" hidden>Close zone</button><button data-mode="rack">Place racks</button><button id="undo">Undo</button><button id="topView">Top view</button><button id="done">Finish building</button></div>
+ <div id="buildInfo" hidden><span class="eyebrow">Warehouse builder</span><h2>Make room for what’s next.</h2><p>Draw zones, then place racks. Changes last until you reload the page.</p><span class="rack-cap">Rack catalog</span><div id="rackCatalog"></div><div id="buildSelection"></div></div>
+ <div id="toast" role="status"></div>
+ <dialog id="dialog"></dialog>
+</main>`;
+
+const scene = createScene($('#scene'), () => state, pick, draw);
+const sim = scene.robotics;
+const live = () => sim.dashboard(state);
+
+function toast(text) {
+  $('#toast').textContent = text; $('#toast').classList.add('visible');
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => $('#toast').classList.remove('visible'), 4000);
 }
-function movePhoenix(preset={}){
- const sourceBox=selected?.type==='box'?state.boxes.find(b=>b.id===selected.id):selected?.type==='location'?state.boxes.find(b=>b.rack===selected.id.split('|')[0]&&b.location===selected.id.split('|')[1]):selected?.type==='rack'?state.boxes.find(b=>b.rack===selected.id):null;
- if(!sourceBox)return toast('Choose a box or occupied address first.');
- const source=state.boxes.filter(b=>b.rack===sourceBox.rack&&b.location===sourceBox.location),rack=state.racks.find(r=>r.id===sourceBox.rack);let choice=null;
- const candidates=[];for(const r of state.racks){const occ=occupancy(state,r.id);for(const loc of locations(r)){const bs=occ.get(loc)||[];if(r.id===sourceBox.rack&&loc===sourceBox.location||bs.length&&bs[0].product!==sourceBox.product)continue;candidates.push({rack:r.id,loc,count:bs.length,dist:Math.hypot(r.x-rack.x,r.z-rack.z)});}}candidates.sort((a,b)=>a.dist-b.dist||a.count-b.count);choice=preset.choice||candidates[0]||null;
- modal('Move boxes',`<div class="ph-receive"><span class="ph-field-label">From</span><div class="ph-place-option"><i></i><span><strong>${esc(sourceBox.product)}</strong><small>${esc(sourceBox.rack)} · ${esc(sourceBox.location)}</small></span><em>${source.length} boxes</em></div><label>Boxes to move<input name="qty" type="number" min="1" max="${source.length}" value="1" required></label><span class="ph-field-label">To</span><div id="moveSuggestions"></div><button type="button" class="ph-wide" id="chooseOther">Choose another place</button><button class="primary wide" type="submit">Confirm move</button></div>`,fd=>{const qty=Number(fd.get('qty'));if(!choice||!Number.isInteger(qty)||qty<1||qty>source.length){$('#error').textContent='Select a destination and valid number of boxes.';return;}if(commit(()=>transact(state,source.slice(0,qty).map(b=>b.id),'Moved',choice.rack,choice.loc))){$('#dialog').close();toast(`Moved · ${qty} ${qty===1?'box':'boxes'}`);}});
- const shownCandidates=()=>choice&&!candidates.slice(0,1).some(c=>c.rack===choice.rack&&c.loc===choice.loc)?[{rack:choice.rack,loc:choice.loc,count:(occupancy(state,choice.rack).get(choice.loc)||[]).length}]:candidates.slice(0,1);
- const render=()=>{$('#moveSuggestions').innerHTML=shownCandidates().map(c=>`<button type="button" class="ph-place-option ${choice?.rack===c.rack&&choice.loc===c.loc?'chosen':''}" data-rack="${esc(c.rack)}" data-loc="${esc(c.loc)}"><i style="background:${zoneColor(c.rack)}"></i><span><strong>${esc(c.rack)} · ${esc(c.loc)}</strong><small>Recommended · ${c.count?'same product is here':'closest free address'}</small></span><em>${c.count?c.count+' boxes':'Empty'}</em></button>`).join('')||'<p class="helper">No compatible destination.</p>';$('#moveSuggestions').querySelectorAll('button').forEach(b=>b.onclick=()=>{choice={rack:b.dataset.rack,loc:b.dataset.loc};render();});};
- if(preset.qty)$('#dialog [name=qty]').value=preset.qty;$('#chooseOther').onclick=()=>{const keep={qty:$('#dialog [name=qty]').value,choice};placeChooser({dialog:$('#dialog'),state,product:sourceBox.product,exclude:{rack:sourceBox.rack,loc:sourceBox.location},onPick:c=>movePhoenix({...keep,choice:c}),onBack:()=>movePhoenix(keep),onMap:()=>{$('#dialog').close();toast('Select a destination address on the map, then press Move.');}});};render();
+
+// ---------- layout changes (with session undo) ----------
+const layoutSnapshot = () => JSON.stringify({zones: state.zones, racks: state.racks});
+function commit(fn) {
+  const before = layoutSnapshot();
+  try {
+    fn();
+    validateLayoutAccess(JSON.parse(before).racks, state.racks);
+  } catch (e) {
+    Object.assign(state, JSON.parse(before));
+    toast(e.message);
+    if ($('#dialog').open && $('#error')) $('#error').textContent = e.message;
+    return false;
+  }
+  undo.push(before); undo = undo.slice(-10);
+  refresh();
+  return true;
 }
-function operation(type){if(type==='Received')return receivePhoenix();if(type==='Moved')return movePhoenix();if(!state.racks.length)return toast('Add a rack before receiving boxes.');let b=selected?.type==='box'?state.boxes.find(b=>b.id===selected.id):null,parts=selected?.type==='location'?selected.id.split('|'):null,initial=selected?.type==='rack'?selected.id:parts?.[0]||b?.rack,initialLoc=parts?.[1]||b?.location;let receiving=type==='Received',moving=type==='Moved';modal(receiving?'Receive boxes':moving?'Move boxes':'Ship boxes',`<p class="helper">${receiving?'Choose an address for whole boxes.':moving?'Move boxes to a new storage address.':'Confirm the boxes leaving this warehouse.'}</p><label>${receiving?'Destination':'Source'} rack<select name="rack" id="sourceRack">${rackOptions(initial)}</select></label>${receiving?`<label>Component<select name="product" id="receiptProduct">${products.map(p=>`<option>${p}</option>`).join('')}</select></label>`:''}<label>${receiving?'Storage':'Source'} location<select name="location" id="sourceLocation"></select></label>${b&&!receiving?`<p class="helper">Selected box: <strong>${b.id}</strong></p>`:''}<label>Quantity (boxes)<input name="qty" type="number" min="1" max="10000" required value="1" ${b&&!receiving?'readonly':''}></label>${moving?`<label>Destination rack<select name="target" id="targetRack">${rackOptions(initial)}</select></label><label>Destination location<select name="targetLocation" id="targetLocation"></select></label>`:''}${receiving||moving?'<p class="helper">Confirm that these boxes physically fit. Dimensions and load capacity are not checked automatically.</p>':''}<button class="primary wide" type="submit">Confirm ${receiving?'receipt':moving?'move':'shipment'}</button>`,fd=>{let qty=Number(fd.get('qty')),rack=b&&!receiving?b.rack:fd.get('rack'),loc=b&&!receiving?b.location:fd.get('location'),p=fd.get('product'),ids=b&&!receiving?[b.id]:state.boxes.filter(b=>b.rack===rack&&b.location===loc).slice(0,qty).map(b=>b.id);if(!Number.isInteger(qty)||qty<1||(!receiving&&ids.length!==qty)){$('#error').textContent='Not enough boxes at the selected address.';return;}let ok=commit(()=>{if(receiving)receive(state,rack,p,qty,loc);else transact(state,ids,type,fd.get('target'),fd.get('targetLocation'));});if(ok){$('#dialog').close();if(moving)scene.select(selected,true);toast(`${type} · ${qty} ${qty===1?'box':'boxes'}`);}});
-let chooseAvailable=el=>{if(el.selectedOptions[0]?.disabled||!el.value)el.value=[...el.options].find(o=>!o.disabled)?.value||'';};
-let targetUpdate=()=>{if(!moving)return;let product=b?.product||state.boxes.find(b=>b.rack===$('#sourceRack').value&&b.location===$('#sourceLocation').value)?.product;$('#targetLocation').innerHTML=locationOptions($('#targetRack').value,product,$('#targetLocation').value);chooseAvailable($('#targetLocation'));};
-let sourceUpdate=(preferred)=>{let product=receiving?$('#receiptProduct').value:null;$('#sourceLocation').innerHTML=locationOptions($('#sourceRack').value,product,preferred,!receiving);chooseAvailable($('#sourceLocation'));targetUpdate();};
-$('#sourceRack').onchange=()=>sourceUpdate();$('#sourceLocation').onchange=targetUpdate;if(receiving){let existing=state.boxes.find(x=>x.rack===initial&&x.location===initialLoc);if(existing&&products.includes(existing.product))$('#receiptProduct').value=existing.product;$('#receiptProduct').onchange=()=>sourceUpdate($('#sourceLocation').value);}if(moving)$('#targetRack').onchange=targetUpdate;sourceUpdate(initialLoc);if(b&&!receiving){$('#sourceRack').disabled=true;$('#sourceLocation').disabled=true;}
+function undoLast() {
+  if (!undo.length) return toast('Nothing to undo.');
+  const prev = JSON.parse(undo.at(-1)), racks = new Map(prev.racks.map(r => [r.id, r]));
+  if (state.boxes.some(b => !racks.has(b.rack) || !locations(racks.get(b.rack)).includes(b.location)))
+    return toast('Can’t undo: robots already stored boxes where this change would remove space.');
+  undo.pop();
+  state.zones = prev.zones; state.racks = prev.racks; selected = null;
+  refresh(); toast('Last change undone.');
 }
-function rackFields(c){return `<label>Template<select id="templateChoice"><option value="custom">Custom</option>${Object.entries(templates).map(([k,t])=>`<option value="${k}">${t.label}</option>`).join('')}</select></label><div class="rack-fields">${[['width','Width (m)'],['depth','Depth (m)'],['height','Height (m)'],['shelves','Shelves'],['places','Locations / shelf']].map(([k,label])=>`<label>${label}<input name="${k}" type="number" min="1" max="${k==='shelves'||k==='places'?12:20}" step="${k==='shelves'||k==='places'?1:.1}" value="${c[k]}" required></label>`).join('')}</div><p class="helper" id="locationTotal">${c.shelves*c.places} storage locations. No fixed box limit.</p>`;}
-function configureRack(id=null){let r=id?state.racks.find(r=>r.id===id):rackDraft;modal(id?'Configure '+esc(id):'Rack to place',rackFields(config(r))+`<p class="helper">${id?'Existing box addresses stay unchanged. Empty locations before removing them.':'These settings apply to new racks you place.'}</p><button class="primary wide">${id?'Save rack':'Use this rack'}</button>`,fd=>{let c=Object.fromEntries(['width','depth','height','shelves','places'].map(k=>[k,Number(fd.get(k))]));try{validateConfig(c);if(id){if(!commit(()=>updateRack(state,id,c)))return;}else{rackDraft=c;scene.setRackConfig(c);renderCatalog();}$('#dialog').close();}catch(e){$('#error').textContent=e.message;}});$('#templateChoice').onchange=e=>{let t=templates[e.target.value];if(t){for(let k of ['width','depth','height','shelves','places'])$('#dialog').querySelector(`[name="${k}"]`).value=t[k];$('#locationTotal').textContent=t.shelves*t.places+' storage locations. No fixed box limit.';}};$('#dialog').querySelectorAll('input').forEach(el=>el.oninput=()=>{$('#locationTotal').textContent=Number($('#dialog [name="shelves"]').value)*Number($('#dialog [name="places"]').value)+' storage locations. No fixed box limit.';});}
-function renderCatalog(){$('#rackCatalog').innerHTML=`${Object.entries(templates).map(([k,t])=>`<button data-template="${k}" class="fg-tmpl ${['width','depth','height','shelves','places'].every(p=>rackDraft[p]===t[p])?'chosen':''}"><i></i><span>${t.label}</span><em>${t.width} × ${t.depth} × ${t.height} m</em></button>`).join('')}<button id="draftConfigure" class="outline">Customize dimensions</button>`;$('#rackCatalog').querySelectorAll('[data-template]').forEach(b=>b.onclick=()=>{rackDraft=config(templates[b.dataset.template]);scene.setRackConfig(rackDraft);renderCatalog();});$('#draftConfigure').onclick=()=>configureRack();}
-function setMode(m){mode=m;scene.setMode(m);if(editing&&m==='browse')builderTools.select();$('#finishZone').hidden=m!=='polygon';document.querySelectorAll('[data-mode]').forEach(b=>b.classList.toggle('chosen',b.dataset.mode===m));$('#modeHint').textContent=m==='polygon'?'Click corners · Enter to close · Backspace undo corner · Esc cancel':m==='zone'?'Drag on empty ground · Right-drag to pan · Scroll to zoom':m==='rack'?'Click repeatedly to place · Snap to neighbours · Alt disables snap · Red = blocked':'Select an object to inspect or remove it.';}
-function renderBuildSelection(){let s=selected,el=$('#buildSelection');if(!editing||!s){el.innerHTML='';return;}el.innerHTML=`<div class="build-object"><strong>${s.type==='zone'?esc(state.zones.find(z=>z.id===s.id)?.name||s.id):'Rack '+esc(s.id)}</strong><p>Selected on the plan</p>${s.type==='zone'?'<button id="buildRename">Rename</button>':''}${s.type==='rack'?'<button id="buildConfigure">Configure rack</button>':''}<button id="buildDelete">Remove empty object</button></div>`;$('#buildConfigure')?.addEventListener('click',()=>configureRack(s.id));$('#buildRename')?.addEventListener('click',renameZone);$('#buildDelete')?.addEventListener('click',removeSelected);}
-function toggleEdit(value){if(value){robotPanels.close();occupancyView=false;$('#occupancyLegend').hidden=true;$('#occupancyView').setAttribute('aria-pressed','false');$('#occupancyView').textContent='Occupancy';}editing=value;document.body.classList.toggle('building',value);$('#editor').hidden=!value;$('#buildInfo').hidden=!value;$('#edit').classList.toggle('active',value);$('#results').hidden=true;scene.setBuilding(value);setMode('browse');builderTools.setEnabled(value);if(selected?.type==='box'||selected?.type==='location')selected=null;scene.rebuild();scene.select(selected,false);renderPanel();renderBuildSelection();}
-function draw(type,p){let id;if(commit(()=>{if(type==='zone')id=addZone(state,p);else {let z=state.zones.find(z=>contains(z,p));id=addRack(state,z?.id,p.x,p.z,rackDraft);}})){selected={type,id};scene.select(selected,false);renderBuildSelection();toast(type==='zone'?'Zone created. Draw another or choose Place racks.':'Rack placed. Click to place the next one.');return true;}return false;}
-function removeSelected(){let s=selected;if(boxesFor().length){toast('Move or ship all boxes before deleting this layout object.');return;}modal('Remove '+(s.type==='zone'?'zone':'rack'),`<p>Remove ${esc(s.id)}${s.type==='zone'?' and its empty racks':''}? You can undo this change.</p><button class="danger wide" type="submit">Remove</button>`,()=>{commit(()=>{if(s.type==='zone'){state.racks=state.racks.filter(r=>r.zone!==s.id);state.zones=state.zones.filter(z=>z.id!==s.id);}else state.racks=state.racks.filter(r=>r.id!==s.id);log(state,'Layout updated',`Removed ${s.id}`);selected=null;});$('#dialog').close();});}
-function renameZone(){let z=state.zones.find(z=>z.id===selected.id);modal('Rename zone',`<label>Name<input name="name" value="${esc(z.name)}" maxlength="40" required></label><button class="primary wide">Save name</button>`,fd=>{let name=fd.get('name').trim();if(!name)return;commit(()=>z.name=name);$('#dialog').close();});}
-function showHistory(type=null){if(editing)toggleEdit(false);robotPanels.close();inventoryPage.close();historyPage.open(typeof type==='string'?type:'All');}
-function inventory(){if(editing)toggleEdit(false);historyPage.close();robotPanels.close();inventoryPage.open();}
-function settings(){modal('Workspace',`<p class="helper">Local prototype. Inventory and layout are saved in this browser. Export a backup before moving to another browser or computer.</p><button type="button" class="wide" id="settingsEdit">Edit warehouse layout ↗</button><button type="button" class="wide" id="export">Export backup ↓</button><button type="button" class="wide" id="resetDemo">Reset demo warehouse</button><label>Import backup<input type="file" id="import" accept=".json"></label><p class="helper">Demo quantities are illustrative. No live warehouse system is connected.</p>`);$('#settingsEdit').onclick=()=>{$('#dialog').close();toggleEdit(true);};$('#export').onclick=()=>{let a=document.createElement('a'),url=URL.createObjectURL(new Blob([JSON.stringify(state)],{type:'application/json'}));a.href=url;a.download='locus-warehouse-backup.json';a.click();URL.revokeObjectURL(url);};$('#resetDemo').onclick=()=>{$('#dialog').close();modal('Reset demo warehouse','<p>This replaces the warehouse saved in this browser. Export a backup first if you want to keep it.</p><button class="danger wide" type="submit">Reset demo</button>',()=>{localStorage.setItem(KEY,JSON.stringify(seed()));location.reload();});};$('#import').onchange=async e=>{try{let data=JSON.parse(await e.target.files[0].text());data=migrate(data);validate(data);commit(()=>{state=data;loadError='';selected=null;});$('#dialog').close();toast('Backup imported. Undo is available in Edit layout.');}catch(e){$('#error').textContent='Invalid backup: '+e.message;}};}
-function validate(d){if(d.version!==2||!Array.isArray(d.zones)||!Array.isArray(d.racks)||!Array.isArray(d.boxes)||!Array.isArray(d.history)||!Number.isInteger(d.serial)||!Number.isFinite(d.today?.received)||!Number.isFinite(d.today?.shipped))throw Error('Unsupported file');let zs=new Set(),rs=new Set(),bs=new Set();for(let z of d.zones){if(typeof z.id!=='string'||typeof z.name!=='string'||!/^#[0-9a-f]{6}$/i.test(z.color)||![z.x,z.z,z.w,z.d].every(Number.isFinite)||z.w<=0||z.d<=0||zs.has(z.id))throw Error('Invalid zone');if(z.points)polygonZone(z.points);zs.add(z.id);}for(let r of d.racks){if(typeof r.id!=='string'||rs.has(r.id)||!zs.has(r.zone)||![r.x,r.z].every(Number.isFinite)||!Number.isInteger(r.shelves)||!Number.isInteger(r.places))throw Error('Invalid rack');validateConfig(r);rs.add(r.id);}for(let b of d.boxes){if(typeof b.id!=='string'||bs.has(b.id)||!rs.has(b.rack)||typeof b.product!=='string')throw Error('Invalid box');if(!locations(d.racks.find(r=>r.id===b.rack)).includes(b.location))throw Error('Invalid box location');bs.add(b.id);}let content=new Map();for(let b of d.boxes){let k=b.rack+'|'+b.location;if(content.has(k)&&content.get(k)!==b.product)throw Error('Mixed components at one location');content.set(k,b.product);}if(d.boxes.length>100000)throw Error('Too many boxes');if(d.boxes.some(b=>/^BX-\d+$/.test(b.id)&&Number(b.id.slice(3))>d.serial))throw Error('Invalid box serial counter');}
-$('#search').oninput=e=>{const state=liveState();search=e.target.value.trim().toLowerCase();let el=$('#results');el.hidden=!search;if(!search)return;let hits=[...state.zones.filter(z=>z.name.toLowerCase().includes(search)).map(z=>({type:'zone',id:z.id,label:z.name,sub:'Zone'})),...state.racks.filter(r=>r.id.toLowerCase().includes(search)).slice(0,8).map(r=>({type:'rack',id:r.id,label:`Rack ${r.id}`,sub:`Zone ${r.zone}`})),...state.boxes.filter(b=>`${b.id} ${b.product}`.toLowerCase().includes(search)).slice(0,15).map(b=>({type:'box',id:b.id,label:b.product,sub:`${b.id} · ${b.rack} / ${b.location}`}))].slice(0,15);el.innerHTML=hits.length?hits.map(h=>`<button data-type="${h.type}" data-id="${esc(h.id)}"><span>${esc(h.label)}</span><small>${esc(h.sub)}</small></button>`).join(''):'<p>No results. Try “A-01” or “Circuit”.</p>';el.querySelectorAll('button').forEach(b=>b.onclick=()=>pick({type:b.dataset.type,id:b.dataset.id}));};
-$('#receive').onclick=()=>operation('Received');$('#ship').onclick=()=>robotPanels.open('Orders');$('#edit').onclick=()=>toggleEdit(!editing);$('#topView').onclick=()=>scene.topView();$('#done').onclick=()=>toggleEdit(false);document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>setMode(b.dataset.mode));$('#undo').onclick=()=>{if(!undo.length)return toast('Nothing to undo.');state=JSON.parse(undo.pop());selected=null;persist();refresh();toast('Last change undone.');};$('#home').onclick=()=>pick(null);$('.brand').onclick=()=>pick(null);$('#warehouse').onclick=()=>pick(null);$('#zoomIn').onclick=()=>scene.zoom(.8);$('#zoomOut').onclick=()=>scene.zoom(1.25);$('#settings').onclick=settings;$('#inventory').onclick=inventory;$('#historyAll').onclick=showHistory;$('#allHistory').onclick=showHistory;document.addEventListener('keydown',e=>{if(!editing&&(e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();$('#search').focus();}if(e.key==='Escape'){$('#results').hidden=true;if(mode!=='browse')setMode('browse');}});
-const robotPanels=installRobotPanels(scene,()=>{if(editing)toggleEdit(false);historyPage?.close();inventoryPage?.close();},()=>state,id=>{selected={type:'box',id};movePhoenix();});
-scene.setRackConfig(rackDraft);renderCatalog();refresh();if(loadError)toast(loadError);
 
-let dashboardRevision=-1;
-setInterval(()=>{
- if(editing||scene.robotics.revision===dashboardRevision)return;dashboardRevision=scene.robotics.revision;
- const scroll=$('#overview .scroll-list')?.scrollTop||0;
- renderPanel();renderActivity();
- const list=$('#overview .scroll-list');if(list)list.scrollTop=scroll;
- const live=liveState();$('#footerCount').textContent=`${state.zones.length} zones · ${state.racks.length} racks · ${fmt(live.onSite)} boxes on site`;
-},500);
+// ---------- selection and right panel ----------
+function exists(sel) {
+  if (!sel) return true;
+  if (sel.type === 'zone') return state.zones.some(z => z.id === sel.id);
+  if (sel.type === 'rack') return state.racks.some(r => r.id === sel.id);
+  if (sel.type === 'location') { const [rid, loc] = sel.id.split('|'), r = state.racks.find(r => r.id === rid); return !!r && locations(r).includes(loc); }
+  return state.boxes.some(b => b.id === sel.id);
+}
+function pick(s) {
+  $('#results').hidden = true; historyPage?.close(); inventoryPage?.close();
+  if (s?.type === 'box' && !editing) return robotPanels.openBox(s.id);
+  if (s?.type === 'robot') return robotPanels.open('Live floor', s.id);
+  robotPanels.close(); $('#inventory').classList.remove('active');
+  selected = s;
+  scene.select(s, !editing); renderPanel(); renderBuildSelection();
+}
+function refresh() {
+  if (!exists(selected)) selected = null;
+  scene.rebuild(); scene.select(selected, false); renderPanel(); renderBuildSelection();
+}
+function renderPanel() {
+  const view = $('#overview');
+  if (!exists(selected)) selected = null;
+  const panelScroll = view.scrollTop, listScroll = view.querySelector('.ph-list')?.scrollTop || 0, gridOpen = view.querySelector('details')?.open;
+  const html = overviewHTML(live(), selected?.type === 'box' ? null : selected, allZones, allRackBoxes, inaccessibleRacks(state.racks));
+  if (html === lastPanelHTML) return;
+  lastPanelHTML = html; view.innerHTML = html; view.classList.toggle('home', !selected);
+  view.scrollTop = panelScroll;
+  if (view.querySelector('.ph-list')) view.querySelector('.ph-list').scrollTop = listScroll;
+  if (view.querySelector('details')) view.querySelector('details').open = !!gridOpen;
+  $('#allZones')?.addEventListener('click', () => { allZones = !allZones; renderPanel(); });
+  $('#allRackBoxes')?.addEventListener('click', () => { allRackBoxes = !allRackBoxes; renderPanel(); });
+  $('#showSelected')?.addEventListener('click', () => scene.select(selected, true));
+  view.querySelectorAll('[data-stat]').forEach(b => b.onclick = () => showHistory(['Received', 'Shipped', 'Moved'][Number(b.dataset.stat)]));
+  view.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => pick({type: el.dataset.pick, id: el.dataset.id}));
+  view.querySelector('[data-root]')?.addEventListener('click', () => pick(null));
+  $('#moveSelection')?.addEventListener('click', movePhoenix);
+  $('#receiveHere')?.addEventListener('click', () => receivePhoenix());
+}
 
-function syncRackStyle(){const b=$('#rackStyle');b.textContent=scene.rackStyle==='raster'?'Style: Raster':'Style: Original 3D';b.setAttribute('aria-pressed',String(scene.rackStyle==='raster'));}syncRackStyle();$('#rackStyle').onclick=()=>{scene.setRackStyle(scene.rackStyle==='raster'?'original':'raster');syncRackStyle();};
+// ---------- dialogs: Receive and Move hand work to the robots ----------
+function modal(title, body, onSubmit) {
+  const d = $('#dialog');
+  d.innerHTML = `<form><div class="title"><h2>${title}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div>${body}<p class="form-error" id="error"></p></form>`;
+  $('#closeDialog').onclick = () => d.close();
+  d.querySelector('form').onsubmit = e => { e.preventDefault(); onSubmit?.(new FormData(e.target)); };
+  if (!d.open) d.showModal();
+}
+function addressMap() {
+  const m = new Map();
+  for (const b of state.boxes) { const k = b.rack + '|' + b.location, a = m.get(k); if (a) a.count++; else m.set(k, {product: b.product, count: 1}); }
+  return m;
+}
+const zoneColor = rid => state.zones.find(z => z.id === state.racks.find(r => r.id === rid)?.zone)?.color || '#82c0fa';
+function placeButton(c, note) {
+  return `<button type="button" class="ph-place-option" data-rack="${esc(c.rack)}" data-loc="${esc(c.loc)}"><i style="background:${zoneColor(c.rack)}"></i><span><strong>${esc(c.rack)} · ${esc(c.loc)}</strong><small>${note}</small></span><em>${c.count ? c.count + (c.count === 1 ? ' box' : ' boxes') : 'Empty'}</em></button>`;
+}
+function bindPlaces(container, getChoice, setChoice) {
+  container.querySelectorAll('button').forEach(b => {
+    const c = getChoice();
+    b.classList.toggle('chosen', c?.rack === b.dataset.rack && c.loc === b.dataset.loc);
+    b.onclick = () => setChoice({rack: b.dataset.rack, loc: b.dataset.loc});
+  });
+}
 
-$('#finishZone').onclick=()=>scene.finishZone();
+function receivePhoenix(preset = {}) {
+  if (!state.racks.length) return toast('Add a rack before receiving boxes.');
+  const parts = selected?.type === 'location' ? selected.id.split('|') : null;
+  let choice = preset.choice || (parts ? {rack: parts[0], loc: parts[1]} : null);
+  modal('Receive boxes', `<div class="ph-receive"><label>Product<select name="product" id="receiptProduct">${products.map(p => `<option>${esc(p)}</option>`).join('')}</select></label><label>Boxes<input name="qty" type="number" min="1" max="48" value="1" required></label><span class="ph-field-label">Place</span><div id="receiptSuggestions"></div><button type="button" class="ph-wide" id="chooseOther">Choose another place</button><p class="helper">Boxes arrive at Receiving; robots put them away.</p><button class="primary wide" type="submit">Confirm receipt</button></div>`, fd => {
+    const qty = Number(fd.get('qty')), product = fd.get('product');
+    try { sim.receive(product, qty, choice); } catch (e) { $('#error').textContent = e.message; return; }
+    $('#dialog').close();
+    toast(`${qty} ${qty === 1 ? 'box' : 'boxes'} arriving at Receiving · robots will store ${choice ? `at ${choice.rack} / ${choice.loc}` : 'them'}`);
+  });
+  const suggestions = () => {
+    const product = $('#receiptProduct').value, map = addressMap(), candidates = [];
+    for (const rack of state.racks) for (const loc of locations(rack)) {
+      const a = map.get(rack.id + '|' + loc);
+      if (a && a.product !== product) continue;
+      candidates.push({rack: rack.id, loc, count: a?.count || 0});
+    }
+    candidates.sort((a, b) => (b.count > 0) - (a.count > 0) || a.count - b.count || a.rack.localeCompare(b.rack));
+    if (choice && !candidates.some(c => c.rack === choice.rack && c.loc === choice.loc)) choice = null;
+    if (!choice) choice = candidates[0] || null;
+    const list = candidates.slice(0, 3);
+    if (choice && !list.some(c => c.rack === choice.rack && c.loc === choice.loc)) list.unshift(candidates.find(c => c.rack === choice.rack && c.loc === choice.loc));
+    return list.slice(0, 3);
+  };
+  const render = () => {
+    const box = $('#receiptSuggestions');
+    box.innerHTML = suggestions().map((c, i) => placeButton(c, i === 0 ? `Recommended · ${c.count ? 'same product is here' : 'free address'}` : c.count ? 'Same product is here' : 'Free address')).join('') || '<p class="helper">No compatible storage address.</p>';
+    bindPlaces(box, () => choice, c => { choice = c; render(); });
+  };
+  if (preset.product) $('#receiptProduct').value = preset.product;
+  if (preset.qty) $('#dialog [name=qty]').value = preset.qty;
+  $('#receiptProduct').onchange = () => { choice = null; render(); };
+  $('#chooseOther').onclick = () => {
+    const keep = {product: $('#receiptProduct').value, qty: $('#dialog [name=qty]').value, choice};
+    placeChooser({dialog: $('#dialog'), state, product: keep.product, onPick: c => receivePhoenix({...keep, choice: c}), onBack: () => receivePhoenix(keep),
+      onMap: () => { $('#dialog').close(); toast('Select an address on the map, then press Receive.'); }});
+  };
+  render();
+}
 
-const builderTools=installBuilderTools(scene.builderContext,()=>state,a=>commit(()=>{applyLayoutEdit(state,a);log(state,'Layout updated',a.type);}),ps=>commit(()=>{for(const p of ps){const z=state.zones.find(z=>contains(z,p));addRack(state,z?.id,p.x,p.z,rackDraft);}}));
+function movePhoenix(preset = {}) {
+  const at = (rack, loc) => state.boxes.filter(b => b.rack === rack && b.location === loc);
+  let first = null;
+  if (selected?.type === 'box') first = state.boxes.find(b => b.id === selected.id);
+  else if (selected?.type === 'location') { const [rack, loc] = selected.id.split('|'); first = at(rack, loc)[0]; }
+  else if (selected?.type === 'rack') first = state.boxes.find(b => b.rack === selected.id);
+  if (!first) return toast('Choose a box or an occupied address first.');
+  const source = at(first.rack, first.location).filter(b => sim.boxInfo(b.id)?.actionable);
+  if (!source.length) return toast('These boxes are already busy with robot work.');
+  if (selected?.type === 'box' && source.includes(first)) source.splice(source.indexOf(first), 1), source.unshift(first);
+  const from = state.racks.find(r => r.id === first.rack), map = addressMap(), candidates = [];
+  for (const r of state.racks) for (const loc of locations(r)) {
+    const a = map.get(r.id + '|' + loc);
+    if (r.id === first.rack && loc === first.location || a && a.product !== first.product) continue;
+    candidates.push({rack: r.id, loc, count: a?.count || 0, dist: Math.hypot(r.x - from.x, r.z - from.z)});
+  }
+  candidates.sort((a, b) => a.dist - b.dist || a.count - b.count);
+  let choice = preset.choice || candidates[0] || null;
+  modal('Move boxes', `<div class="ph-receive"><span class="ph-field-label">From</span><div class="ph-place-option"><i></i><span><strong>${esc(first.product)}</strong><small>${esc(first.rack)} · ${esc(first.location)}</small></span><em>${source.length} available</em></div><label>Boxes to move<input name="qty" type="number" min="1" max="${source.length}" value="1" required></label><span class="ph-field-label">To</span><div id="moveSuggestions"></div><button type="button" class="ph-wide" id="chooseOther">Choose another place</button><button class="primary wide" type="submit">Confirm move</button></div>`, fd => {
+    const qty = Number(fd.get('qty'));
+    if (!choice || !Number.isInteger(qty) || qty < 1 || qty > source.length) { $('#error').textContent = 'Select a destination and a valid number of boxes.'; return; }
+    try { sim.requestMove(source.slice(0, qty).map(b => b.id), choice.rack, choice.loc); } catch (e) { $('#error').textContent = e.message; return; }
+    $('#dialog').close();
+    toast(`Robots will move ${qty} ${qty === 1 ? 'box' : 'boxes'} to ${choice.rack} / ${choice.loc}`);
+  });
+  const render = () => {
+    const box = $('#moveSuggestions');
+    const shown = choice && !(candidates[0]?.rack === choice.rack && candidates[0]?.loc === choice.loc)
+      ? [{...choice, count: map.get(choice.rack + '|' + choice.loc)?.count || 0}] : candidates.slice(0, 1);
+    box.innerHTML = shown.map(c => placeButton(c, `Recommended · ${c.count ? 'same product is here' : 'closest free address'}`)).join('') || '<p class="helper">No compatible destination.</p>';
+    bindPlaces(box, () => choice, c => { choice = c; render(); });
+  };
+  if (preset.qty) $('#dialog [name=qty]').value = preset.qty;
+  $('#chooseOther').onclick = () => {
+    const keep = {qty: $('#dialog [name=qty]').value, choice};
+    placeChooser({dialog: $('#dialog'), state, product: first.product, exclude: {rack: first.rack, loc: first.location},
+      onPick: c => movePhoenix({...keep, choice: c}), onBack: () => movePhoenix(keep),
+      onMap: () => { $('#dialog').close(); toast('Select a destination address on the map, then press Move.'); }});
+  };
+  render();
+}
 
-let occupancyView=false;$('#occupancyView').onclick=()=>{occupancyView=!occupancyView;scene.setOccupancy(occupancyView);$('#occupancyView').setAttribute('aria-pressed',String(occupancyView));$('#occupancyView').textContent=occupancyView?'Occupancy: on':'Occupancy';};
+// ---------- build mode ----------
+function rackFields(c) {
+  const fields = [['width', 'Width (m)'], ['depth', 'Depth (m)'], ['height', 'Height (m)'], ['shelves', 'Shelves'], ['places', 'Locations / shelf']];
+  return `<label>Template<select id="templateChoice"><option value="custom">Custom</option>${Object.entries(templates).map(([k, t]) => `<option value="${k}">${t.label}</option>`).join('')}</select></label><div class="rack-fields">${fields.map(([k, label]) => {
+    const whole = k === 'shelves' || k === 'places';
+    return `<label>${label}<input name="${k}" type="number" min="1" max="${whole ? 12 : 20}" step="${whole ? 1 : .1}" value="${c[k]}" required></label>`;
+  }).join('')}</div><p class="helper" id="locationTotal">${c.shelves * c.places} storage locations.</p>`;
+}
+function configureRack(id = null) {
+  const r = id ? state.racks.find(r => r.id === id) : rackDraft;
+  modal(id ? 'Configure ' + esc(id) : 'Rack to place', rackFields(config(r)) + `<p class="helper">${id ? 'Empty locations before removing them.' : 'These settings apply to new racks you place.'}</p><button class="primary wide">${id ? 'Save rack' : 'Use this rack'}</button>`, fd => {
+    const c = Object.fromEntries(['width', 'depth', 'height', 'shelves', 'places'].map(k => [k, Number(fd.get(k))]));
+    try {
+      validateConfig(c);
+      if (id) { if (!commit(() => updateRack(state, id, c))) return; }
+      else { rackDraft = c; scene.setRackConfig(c); renderCatalog(); }
+      $('#dialog').close();
+    } catch (e) { $('#error').textContent = e.message; }
+  });
+  const total = () => $('#locationTotal').textContent = Number($('#dialog [name="shelves"]').value) * Number($('#dialog [name="places"]').value) + ' storage locations.';
+  $('#templateChoice').onchange = e => {
+    const t = templates[e.target.value];
+    if (t) { for (const k of ['width', 'depth', 'height', 'shelves', 'places']) $('#dialog').querySelector(`[name="${k}"]`).value = t[k]; total(); }
+  };
+  $('#dialog').querySelectorAll('input').forEach(el => el.oninput = total);
+}
+function renderCatalog() {
+  $('#rackCatalog').innerHTML = `${Object.entries(templates).map(([k, t]) => `<button data-template="${k}" class="fg-tmpl ${['width', 'depth', 'height', 'shelves', 'places'].every(p => rackDraft[p] === t[p]) ? 'chosen' : ''}"><i></i><span>${t.label}</span><em>${t.width} × ${t.depth} × ${t.height} m</em></button>`).join('')}<button id="draftConfigure" class="outline">Customize dimensions</button>`;
+  $('#rackCatalog').querySelectorAll('[data-template]').forEach(b => b.onclick = () => { rackDraft = config(templates[b.dataset.template]); scene.setRackConfig(rackDraft); renderCatalog(); });
+  $('#draftConfigure').onclick = () => configureRack();
+}
+const hints = {
+  polygon: 'Click corners · Enter to close · Backspace undo corner · Esc cancel',
+  zone: 'Drag on empty ground · Right-drag to pan · Scroll to zoom',
+  rack: 'Click repeatedly to place · Snap to neighbours · Alt disables snap · Red = blocked',
+  browse: 'Select an object to inspect or remove it.',
+};
+function setMode(m) {
+  scene.setMode(m);
+  if (editing && m === 'browse') builderTools.select();
+  $('#finishZone').hidden = m !== 'polygon';
+  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('chosen', b.dataset.mode === m));
+  $('#modeHint').textContent = hints[m];
+}
+function renderBuildSelection() {
+  const s = selected, el = $('#buildSelection');
+  if (!editing || !s || !['zone', 'rack'].includes(s.type)) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="build-object"><strong>${s.type === 'zone' ? esc(state.zones.find(z => z.id === s.id)?.name || s.id) : 'Rack ' + esc(s.id)}</strong><p>Selected on the plan</p>${s.type === 'zone' ? '<button id="buildRename">Rename</button>' : '<button id="buildConfigure">Configure rack</button>'}<button id="buildDelete">Remove empty object</button></div>`;
+  $('#buildConfigure')?.addEventListener('click', () => configureRack(s.id));
+  $('#buildRename')?.addEventListener('click', renameZone);
+  $('#buildDelete')?.addEventListener('click', removeSelected);
+}
+function toggleEdit(value) {
+  if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); }
+  editing = value;
+  document.body.classList.toggle('building', value);
+  $('#editor').hidden = !value; $('#buildInfo').hidden = !value; $('#results').hidden = true;
+  scene.setBuilding(value); setMode('browse'); builderTools.setEnabled(value);
+  if (selected && !['zone', 'rack'].includes(selected.type)) selected = null;
+  refresh();
+}
+function draw(type, p) {
+  let id;
+  const ok = commit(() => {
+    if (type === 'zone') id = addZone(state, p);
+    else id = addRack(state, state.zones.find(z => contains(z, p))?.id, p.x, p.z, rackDraft);
+  });
+  if (!ok) return false;
+  selected = {type, id}; scene.select(selected, false); renderBuildSelection();
+  toast(type === 'zone' ? 'Zone created. Draw another or choose Place racks.' : 'Rack placed. Click to place the next one.');
+  return true;
+}
+function removeSelected() {
+  const s = selected;
+  const racks = s.type === 'zone' ? new Set(state.racks.filter(r => r.zone === s.id).map(r => r.id)) : new Set([s.id]);
+  if (state.boxes.some(b => racks.has(b.rack))) return toast('Move or ship all boxes before deleting this layout object.');
+  modal('Remove ' + (s.type === 'zone' ? 'zone' : 'rack'), `<p>Remove ${esc(s.id)}${s.type === 'zone' ? ' and its empty racks' : ''}? You can undo this change.</p><button class="danger wide" type="submit">Remove</button>`, () => {
+    commit(() => {
+      state.racks = state.racks.filter(r => !racks.has(r.id));
+      if (s.type === 'zone') state.zones = state.zones.filter(z => z.id !== s.id);
+      log(state, 'Layout updated', `Removed ${s.id}`); selected = null;
+    });
+    $('#dialog').close();
+  });
+}
+function renameZone() {
+  const id = selected.id, z = state.zones.find(z => z.id === id);
+  modal('Rename zone', `<label>Name<input name="name" value="${esc(z.name)}" maxlength="40" required></label><button class="primary wide">Save name</button>`, fd => {
+    const name = fd.get('name').trim();
+    if (!name) return;
+    commit(() => { state.zones.find(z => z.id === id).name = name; });
+    $('#dialog').close();
+  });
+}
 
-$('#findProblem').onclick=()=>{const issue=liveIssues(scene.robotics)[0];robotPanels.open('Alerts');if(issue)scene.focusIssue(issue.id);};setInterval(()=>{const issues=liveIssues(scene.robotics);$('#findProblem').hidden=!issues.length;$('#findProblem').textContent=`Find problem · ${issues.length}`;},1000);
+// ---------- pages ----------
+function showHistory(type) { if (editing) toggleEdit(false); robotPanels.close(); inventoryPage.close(); historyPage.open(typeof type === 'string' ? type : 'All'); }
+function showInventory() { if (editing) toggleEdit(false); historyPage.close(); robotPanels.close(); inventoryPage.open(); }
+function setOccupancy(on) {
+  occupancyOn = on; scene.setOccupancy(on);
+  $('#vmSwitch').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`;
+}
 
-const inventoryPage=installInventoryPage({getState:()=>state,sim:scene.robotics,onShip:()=>robotPanels.open('Orders'),onReceive:()=>operation('Received'),onHistory:showHistory,onLocation:(kind,id)=>{if(kind==='stored')pick({type:'rack',id});else robotPanels.open(kind==='transit'?'Fleet':'Stations');}});
-const historyPage=installHistoryPage({getState:liveState});
+const robotPanels = installRobotPanels(scene, () => { if (editing) toggleEdit(false); historyPage?.close(); inventoryPage?.close(); }, () => state,
+  id => { selected = {type: 'box', id}; movePhoenix(); });
+const historyPage = installHistoryPage({getState: live});
+const inventoryPage = installInventoryPage({getState: () => state, sim, onShip: () => robotPanels.open('Orders'), onReceive: () => receivePhoenix(), onHistory: showHistory,
+  onLocation: (kind, id) => { if (kind === 'stored') pick({type: 'rack', id}); else robotPanels.open(kind === 'transit' ? 'Fleet' : 'Live floor'); }});
+const builderTools = installBuilderTools(scene.builderContext, () => state,
+  a => commit(() => { applyLayoutEdit(state, a); log(state, 'Layout updated', a.type); }),
+  points => commit(() => { for (const p of points) addRack(state, state.zones.find(z => contains(z, p))?.id, p.x, p.z, rackDraft); }));
 
-// Keep the working controls while arranging the shell as in Phoenix Drafts.
-const topbar=document.createElement('div');topbar.className='ph-topbar';topbar.innerHTML='<div class="ph-account"></div><nav class="ph-nav" aria-label="Main navigation"></nav><div class="ph-actions"></div>';document.querySelector('main').append(topbar);
-const fgIcon=name=>`<img class="fg-ic" src="/assets/fg/${name}.svg" alt="">`;
-const nav=topbar.querySelector('.ph-nav');
-const navIcon=(b,icon)=>{b.innerHTML=fgIcon(icon);b.setAttribute('aria-label',b.title);nav.append(b);};
-navIcon($('#warehouse'),'grid');navIcon($('#inventory'),'cube');
-const searchWrap=document.createElement('div');searchWrap.className='ph-search';searchWrap.innerHTML=`<button type="button" id="phSearchButton" aria-label="Search warehouse">${fgIcon('search')}</button>`;nav.append(searchWrap);searchWrap.append($('#search'),$('#results'));
-const kbd=document.createElement('kbd');kbd.textContent='⌘K';$('#search').after(kbd);
-$('#phSearchButton').onclick=()=>{$('#search').focus();searchWrap.classList.add('is-open');};$('#search').addEventListener('focus',()=>searchWrap.classList.add('is-open'));$('#search').addEventListener('blur',()=>setTimeout(()=>{if(!$('#search').value)searchWrap.classList.remove('is-open');},180));
-const liveButton=document.querySelector('[data-robot-view="Live floor"]');liveButton.title='Live floor';navIcon(liveButton,'bolt');
-navIcon($('#historyAll'),'clock');
-const avatar=document.createElement('button');avatar.className='ph-avatar-btn';avatar.setAttribute('aria-label','View menu');avatar.innerHTML='<img src="/assets/fg/avatar-face.svg" alt="">';topbar.querySelector('.ph-account').append(avatar);
-const viewMenu=document.createElement('div');viewMenu.id='viewMenu';viewMenu.hidden=true;viewMenu.innerHTML=`<button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button><div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${fgIcon('open')}</button>`;document.querySelector('main').append(viewMenu);
-const syncViewMenu=()=>{$('#vmSwitch').src='/assets/fg/switch-'+($('#occupancyView').getAttribute('aria-pressed')==='true'?'on':'off')+'.svg';};
-avatar.addEventListener('click',e=>{e.stopPropagation();syncViewMenu();viewMenu.hidden=!viewMenu.hidden;});
-viewMenu.addEventListener('click',e=>{const b=e.target.closest('[data-vm]');if(!b)return;const k=b.dataset.vm;if(k==='occ'){$('#occupancyView').click();syncViewMenu();return;}viewMenu.hidden=true;inventoryPage.close();historyPage.close();if(k==='edit')$('#edit').click();});
-document.addEventListener('click',e=>{if(e.isTrusted&&!viewMenu.hidden&&!viewMenu.contains(e.target))viewMenu.hidden=true;});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')viewMenu.hidden=true;});
-for(const id of ['ship','receive']){const b=$('#'+id);b.textContent=id==='ship'?'Ship':'Receive';b.classList.remove('primary');topbar.querySelector('.ph-actions').append(b);}
-nav.addEventListener('click',e=>{const b=e.target.closest('button');if(b&&b.id!=='inventory')inventoryPage.close();},true);
+// ---------- search ----------
+$('#search').oninput = e => {
+  const q = e.target.value.trim().toLowerCase(), el = $('#results');
+  el.hidden = !q;
+  if (!q) return;
+  const hits = [
+    ...state.zones.filter(z => z.name.toLowerCase().includes(q)).map(z => ({type: 'zone', id: z.id, label: z.name, sub: 'Zone'})),
+    ...state.racks.filter(r => r.id.toLowerCase().includes(q)).slice(0, 8).map(r => ({type: 'rack', id: r.id, label: `Rack ${r.id}`, sub: `Zone ${r.zone}`})),
+    ...state.boxes.filter(b => `${b.id} ${b.product}`.toLowerCase().includes(q)).slice(0, 15).map(b => ({type: 'box', id: b.id, label: b.product, sub: `${b.id} · ${b.rack} / ${b.location}`})),
+  ].slice(0, 15);
+  el.innerHTML = hits.length ? hits.map(h => `<button data-type="${h.type}" data-id="${esc(h.id)}"><span>${esc(h.label)}</span><small>${esc(h.sub)}</small></button>`).join('') : '<p>No results. Try “A-01” or “Circuit”.</p>';
+  el.querySelectorAll('button').forEach(b => b.onclick = () => pick({type: b.dataset.type, id: b.dataset.id}));
+};
+const searchWrap = $('.ph-search');
+$('#phSearchButton').onclick = () => { $('#search').focus(); searchWrap.classList.add('is-open'); };
+$('#search').addEventListener('focus', () => searchWrap.classList.add('is-open'));
+$('#search').addEventListener('blur', () => setTimeout(() => { if (!$('#search').value) searchWrap.classList.remove('is-open'); }, 180));
 
-$('#ship').onclick=()=>{inventoryPage.close();robotPanels.open('Orders');};
+// ---------- controls ----------
+$('#receive').onclick = () => { inventoryPage.close(); receivePhoenix(); };
+$('#ship').onclick = () => { inventoryPage.close(); robotPanels.open('Orders'); };
+$('#warehouse').onclick = () => pick(null);
+$('#inventory').onclick = showInventory;
+$('#historyAll').onclick = showHistory;
+$('#topView').onclick = () => scene.topView();
+$('#done').onclick = () => toggleEdit(false);
+$('#undo').onclick = undoLast;
+$('#finishZone').onclick = () => scene.finishZone();
+document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$('.ph-nav').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b.id !== 'inventory') inventoryPage.close(); }, true);
+
+const viewMenu = $('#viewMenu');
+$('.ph-avatar-btn').addEventListener('click', e => { e.stopPropagation(); viewMenu.hidden = !viewMenu.hidden; });
+viewMenu.addEventListener('click', e => {
+  const b = e.target.closest('[data-vm]');
+  if (!b) return;
+  if (b.dataset.vm === 'occ') return setOccupancy(!occupancyOn);
+  viewMenu.hidden = true;
+  toggleEdit(true);
+});
+document.addEventListener('click', e => { if (!viewMenu.hidden && !viewMenu.contains(e.target)) viewMenu.hidden = true; });
+document.addEventListener('keydown', e => {
+  if (!editing && (e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); $('#search').focus(); }
+  if (e.key === 'Escape') { $('#results').hidden = true; viewMenu.hidden = true; if (editing) setMode('browse'); }
+});
+
+scene.setRackConfig(rackDraft);
+renderCatalog();
+refresh();
+
+// The panel follows the simulation.
+let seenRevision = -1;
+setInterval(() => {
+  if (editing || sim.revision === seenRevision) return;
+  seenRevision = sim.revision;
+  renderPanel();
+}, 500);

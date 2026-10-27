@@ -4,62 +4,73 @@ import * as T from 'three';
 import {seed} from './model.js';
 import {inventorySnapshot} from './inventory-page.js';
 import {addWarehouseRobots} from './warehouse-robots.js';
-globalThis.document={createElement:()=>({getContext:()=>({fillRect(){},fillText(){}})})};
-test('box handoffs preserve identity and vacant shelf positions',()=>{
- const state=seed(),originalCount=state.boxes.length,sim=addWarehouseRobots(new T.Scene(),()=>state);
- let loading=0,delivery=0,relocation=0;
- for(let i=0;i<2600;i++){
-  const before=sim.robots.map(r=>({r,stage:r.stage,task:r.task}));
-  sim.update(.1);
-  for(const {r,stage,task} of before){
-   if(r.task&&r.stage==='Loading'&&r.timer>0){
-    loading++;assert.equal(sim.displayLayout().some(p=>p.box.id===r.boxId),false);
-    assert.equal(sim.visualState(state).boxes.some(b=>b.id===r.boxId),false);
-    assert.equal(r.cargo.visible,true);
-   }
-   if(task&&stage==='Unloading'&&!r.task){
-    delivery++;assert.equal(r.cargo.visible,false);
-    if(task.target){relocation++;const p=sim.displayLayout().find(p=>p.box.id===task.box.id);assert.equal(p.box.rack,task.target.id);assert.equal(p.x,task.drop.x);}
-   }
+globalThis.document = {createElement: () => ({getContext: () => ({fillRect() {}, fillText() {}})})};
+
+const run = (sim, seconds) => { for (let i = 0; i < seconds * 10; i++) sim.update(.1); };
+const ids = state => new Set(state.boxes.map(b => b.id));
+
+test('the simulation keeps receiving, storing and shipping on its own', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  const start = {received: state.today.received, shipped: state.today.shipped};
+  for (let minute = 0; minute < 10; minute++) {
+    run(sim, 60);
+    const d = sim.dashboard(state);
+    assert.equal(d.onSite, Object.values(d.counts).reduce((a, b) => a + b, 0));
+    assert.equal(d.onSite, 24480 + (state.today.received - start.received) - (state.today.shipped - start.shipped));
+    assert.equal(inventorySnapshot(state, sim).boxes.length, d.onSite);
+    assert.equal(ids(state).size, state.boxes.length, 'no box is on two shelves');
+    assert.ok(sim.stations.every(s => s.queue.length <= 6));
   }
- }
- assert.ok(loading);assert.ok(delivery);assert.ok(relocation);
- assert.equal(state.boxes.length,originalCount);
+  assert.ok(sim.flow.received > 10, 'robots put boxes away');
+  assert.ok(sim.flow.shipped > 10, 'orders keep shipping');
+  assert.ok(sim.book.orders.length > 0, 'new orders keep arriving');
+  assert.ok(state.history.some(e => e.type === 'Put away') && state.history.some(e => e.type === 'Shipped'));
 });
 
-test('continuous receiving, storage and shipping with bounded queues and pause',()=>{
- const state=seed(),original=JSON.stringify(state),sim=addWarehouseRobots(new T.Scene(),()=>state);
- let sawNewOnShelf=false,sawNewOutbound=false,newOrder=null;
- for(let i=0;i<6000;i++){
-  sim.update(.1);
-  if(i%100===0){
-   const fresh=sim.displayLayout().find(p=>p.box.id.startsWith('IN-')&&sim.boxInfo(p.box.id)?.actionable);sawNewOnShelf ||= !!fresh;if(fresh&&!newOrder)newOrder=sim.book.create(fresh.box.product,1,'Urgent',fresh.box.id);
-   sawNewOutbound ||= sim.stations.some(s=>s.kind==='outbound'&&s.queue.some(q=>q.box.id.startsWith('IN-')));
-   assert.ok(sim.stations.every(s=>s.queue.length<=6));
-   const d=sim.dashboard(state);
-   assert.equal(d.onSite,Object.values(d.counts).reduce((a,b)=>a+b,0));
-   assert.equal(d.onSite,state.boxes.length+(d.today.received-state.today.received)-(d.today.shipped-state.today.shipped));
-   assert.equal(d.boxes.length,d.counts.stored);
-   assert.equal(inventorySnapshot(state,sim).boxes.length,d.onSite);
-   assert.ok(d.history.length>=state.history.length);
-
+test('boxes leave the shelf on pickup and land at the drop pose', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  let loads = 0, drops = 0;
+  for (let i = 0; i < 2000; i++) {
+    const before = sim.robots.map(r => ({r, stage: r.stage, task: r.task}));
+    sim.update(.1);
+    for (const {r, stage, task} of before) {
+      if (r.task && r.stage === 'Loading' && r.timer > 0 && r.task.source) {
+        loads++; assert.equal(state.boxes.includes(r.task.box), false); assert.equal(r.cargo.visible, true);
+      }
+      if (task?.target && stage === 'Unloading' && !r.task) {
+        drops++; const b = state.boxes.find(b => b.id === task.box.id);
+        assert.equal(b.rack, task.target.id); assert.equal(b.location, task.slot);
+      }
+    }
   }
- }
- assert.ok(sim.flow.received>0);assert.ok(sim.flow.shipped>0);assert.ok(sawNewOnShelf);assert.ok(sawNewOutbound);
- sim.toggle();const paused=JSON.stringify(sim.flow);for(let i=0;i<300;i++)sim.update(.1);assert.equal(JSON.stringify(sim.flow),paused);
- assert.equal(JSON.stringify(state),original);
+  assert.ok(loads && drops);
 });
 
-test('manual transfer and reversible scenarios do not invent shipping orders',()=>{
- const state=seed();state.racks=state.racks.slice(0,6);state.racks.forEach((r,i)=>{r.x=i*18;r.z=0;});state.boxes=state.boxes.filter(b=>b.rack===state.racks[0].id).slice(0,4);
- const sim=addWarehouseRobots(new T.Scene(),()=>state);sim.displayLayout();sim.book.clear();
- const id=state.boxes[0].id,target=state.racks[5].id;sim.requestMove(id,target);
- for(let i=0;i<1400;i++)sim.update(.1);
- assert.equal(sim.boxInfo(id).rack,target);assert.equal(sim.flow.shipped,0);
- sim.scenario('Large delivery');assert.equal(sim.flow.bulkRemaining,24);
- sim.scenario('Robot unavailable');assert.equal(sim.flow.unavailable,1);
- sim.scenario('Shipping peak');assert.equal(sim.book.orders[0].priority,'Urgent');
- for(let i=0;i<15;i++)sim.update(.1);
- sim.scenario('Blocked aisle');assert.equal(sim.flow.blockedAisle,true);
- sim.scenario('Restore');assert.equal(sim.flow.blockedAisle,false);assert.equal(sim.flow.unavailable,0);assert.equal(sim.flow.bulkRemaining,0);
+test('Receive, Move and Ship from the UI become robot work', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  sim.update(.1);
+  const box = state.boxes.find(b => b.rack === state.racks[0].id), target = state.racks[200];
+  sim.requestMove(box.id, target.id);
+  assert.equal(sim.boxInfo(box.id).status, 'Transfer queued');
+  assert.throws(() => sim.requestMove(box.id, target.id), /busy/);
+  const shipped = state.boxes.find(b => b.rack === state.racks[5].id);
+  const order = sim.shipBox(shipped.id);
+  sim.receive('Contactors', 3, null);
+  const before = state.serial;
+  run(sim, 240);
+  assert.equal(sim.boxInfo(box.id).rack, target.id);
+  assert.ok(order.shipped.includes(shipped.id));
+  assert.equal(state.boxes.some(b => b.id === shipped.id), false);
+  assert.ok(state.serial >= before + 3);
+  assert.throws(() => sim.receive('Contactors', 0), /1–48/);
+});
+
+test('layout changes re-plan robots instead of resetting the floor', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  run(sim, 120);
+  const delivered = sim.delivered, stock = sim.dashboard(state).onSite;
+  for (const r of state.racks.filter(r => r.zone === 'R')) r.x += 2; // shift a zone's racks
+  run(sim, 60);
+  assert.ok(sim.delivered > delivered, 'work continues');
+  assert.ok(Math.abs(sim.dashboard(state).onSite - stock) < 40, 'stock is not reset');
 });

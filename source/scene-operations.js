@@ -3,7 +3,7 @@ export function sceneOperations(scene,sim,getState){
  const group=new T.Group(),heat=new T.Group();scene.add(group,heat);let orderId=null,occupancy=false,elapsed=1;
  const dispose=g=>{while(g.children.length){let o=g.children[0];g.remove(o);o.geometry?.dispose();o.material?.dispose();}};
  function outline(p,color){const h=new T.Box3Helper(new T.Box3(new T.Vector3(p.x-p.w/2,p.y-p.h/2,p.z-p.d/2),new T.Vector3(p.x+p.w/2,p.y+p.h/2,p.z+p.d/2)),color);h.material.depthTest=false;h.renderOrder=25;group.add(h);}
- function update(dt){elapsed+=dt;if(elapsed<.5)return;elapsed=0;if(!occupancy&&!orderId)return;dispose(group);dispose(heat);const s=sim.visualState(getState());
+ function update(dt){elapsed+=dt;if(elapsed<.5)return;elapsed=0;if(!occupancy&&!orderId)return;dispose(group);dispose(heat);const s=getState();
  if(occupancy){const counts=new Map();for(const b of s.boxes){if(!counts.has(b.rack))counts.set(b.rack,new Set());counts.get(b.rack).add(b.location);}for(const r of s.racks){const ratio=(counts.get(r.id)?.size||0)/(r.shelves*r.places),color=ratio>=1?0xc99055:ratio>.75?0xe2bc4d:0x67b3a1;let m=new T.Mesh(new T.BoxGeometry(r.width+.3,.12,r.depth+.3),new T.MeshBasicMaterial({color,transparent:true,opacity:.85,depthWrite:false}));m.position.set(r.x,r.height+.2,r.z);heat.add(m);}}
  const o=sim.book.orders.find(o=>o.id===orderId);if(!o)return;
  for(const id of o.allocated){if(o.shipped.includes(id))continue;const p=sim.boxPose(id);if(p)outline(p,0xe4b800);}

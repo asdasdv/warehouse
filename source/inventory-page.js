@@ -1,10 +1,7 @@
 export function inventorySnapshot(state,sim){
- const live=sim.dashboard(state),all=new Map(live.boxes.map(b=>[b.id,{...b,place:`${b.rack} · ${b.location}`,kind:'stored'}]));
- for(const s of sim.stations)for(const q of s.queue)if(q.arrived)all.set(q.box.id,{...q.box,place:s.id,kind:s.kind==='inbound'?'receiving':'dispatch'});
- for(const r of sim.robots)if(r.task&&['Transporting','Unloading'].includes(r.stage))all.set(r.task.box.id,{...r.task.box,place:r.id+' · In transit',kind:'transit'});
- // Loading boxes have left the shelf before their transport stage starts.
- for(const r of sim.robots)if(r.task&&!all.has(r.task.box.id))all.set(r.task.box.id,{...r.task.box,place:r.id+' · In transit',kind:'transit'});
- return {live,boxes:[...all.values()]};
+ const live=sim.dashboard(state),boxes=live.boxes.map(b=>({...b,place:`${b.rack} · ${b.location}`,kind:'stored'}));
+ for(const h of sim.heldBoxes())boxes.push({...h.box,rack:'',place:h.place,kind:h.kind});
+ return {live,boxes};
 }
 export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation}){
  const el=document.createElement('section');el.id='inventoryPage';el.hidden=true;document.querySelector('main').append(el);
@@ -25,7 +22,6 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  }
  $('#invUnplacedBadge').onclick=()=>{waiting=!waiting;page=0;expanded=null;render();};$('#invPutAway').onclick=()=>{close();onLocation('receiving','');};
  $('#invSearch').oninput=e=>{query=e.target.value;page=0;expanded=null;render();};el.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{mode=b.dataset.view;page=0;expanded=null;el.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('chosen',x===b));render();});$('#invFilter').onclick=()=>{waiting=false;page=0;render();};$('#invPrev').onclick=()=>{page--;render();};$('#invNext').onclick=()=>{page++;render();};$('#invShip').onclick=()=>{close();onShip();};$('#invReceive').onclick=onReceive;
- document.querySelector('.rail').addEventListener('click',e=>{if(e.target.closest('button')?.id!=='inventory')close();},true);
  setInterval(()=>{if(active)render();},1000);
  return {close,showUnplaced(){waiting=true;page=0;render();},open(){active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
 }
