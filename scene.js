@@ -1,0 +1,19 @@
+const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+export function installHistoryPage({getState,onClose}){
+  const page=document.createElement('section');
+  page.id='historyPage';page.hidden=true;document.querySelector('main').append(page);
+  let filter='All',query='',index=0;
+  const tabs=['All','Received','Put away','Shipped','Moved','System'];
+  function cells(e){if(e.box)return {box:e.box,product:e.product,route:`${e.from} → ${e.to}`};let parts=e.detail.split(' · '),box=/^(BX|IN|OUT)-\d+$/.test(parts[0])?parts.shift():'—',rest=parts.join(' · '),product,route;if(rest.includes(' → ')){[product,route]=rest.split(' → ');}else{product=parts.shift()||rest;route=parts.join(' · ')||'—';}return {box,product,route};}
+  function kind(e){return tabs.includes(e.type)?e.type:'System';}
+  function visible(){const events=getState().history||[];return events.filter(e=>(filter==='All'||kind(e)===filter)&&`${e.type} ${e.detail}`.toLowerCase().includes(query));}
+  function render(){if(page.hidden)return;const events=getState().history||[],rows=visible(),pages=Math.max(1,Math.ceil(rows.length/10));index=Math.min(index,pages-1);
+    page.innerHTML=`<div class="ph-history-head"><h1>History</h1></div><div class="ph-history-tools"><div class="ph-history-tabs">${tabs.map(t=>`<button data-filter="${t}" class="${filter===t?'active':''}">${t} <small>${t==='All'?events.length:events.filter(e=>kind(e)===t).length}</small></button>`).join('')}</div><input id="historySearch" type="search" placeholder="Search box, product or place…" value="${esc(query)}" aria-label="Search history"></div><table class="ph-history-table"><thead><tr><th>Time</th><th>Event</th><th>Box</th><th>Product</th><th>From → to</th></tr></thead><tbody>${rows.slice(index*10,index*10+10).map(e=>{const c=cells(e);return `<tr><td class="sub">${new Date(e.time).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).replace(',',' ·')}</td><td>${esc(e.type)}</td><td class="sub">${esc(c.box)}</td><td>${esc(c.product)}</td><td class="sub">${esc(c.route)}</td></tr>`;}).join('')||'<tr><td colspan="5" class="sub">No matching events yet.</td></tr>'}</tbody></table><div class="ph-history-foot"><span>Showing ${rows.length?index*10+1:0}–${Math.min((index+1)*10,rows.length)} of ${rows.length} events</span><div><button id="historyPrev" ${index===0?'disabled':''}>‹</button>${Array.from({length:Math.min(pages,5)},(_,i)=>`<button data-page="${i}" class="${i===index?'active':''}">${i+1}</button>`).join('')}${pages>5?'<span>…</span>':''}<button id="historyNext" ${index>=pages-1?'disabled':''}>›</button></div></div>`;
+    page.querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;index=0;render();});page.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{index=+b.dataset.page;render();});page.querySelector('#historySearch').oninput=e=>{query=e.target.value.toLowerCase();index=0;const pos=e.target.selectionStart;render();const input=page.querySelector('#historySearch');input.focus();input.setSelectionRange(pos,pos);};page.querySelector('#historyPrev').onclick=()=>{index--;render();};page.querySelector('#historyNext').onclick=()=>{index++;render();};
+  }
+  function open(type='All'){filter=tabs.includes(type)?type:'All';index=0;page.hidden=false;document.body.classList.add('history-mode');render();}
+  function close(){page.hidden=true;document.body.classList.remove('history-mode');onClose?.();}
+  setInterval(()=>{if(!page.hidden&&document.activeElement?.id!=='historySearch')render();},2000);
+  return {open,close,render,isOpen:()=>!page.hidden};
+}
