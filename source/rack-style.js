@@ -1,3 +1,5 @@
+import {assetParts,cartonObject} from './warehouse-assets.js';
+import {palletHeight,palletBaseOffset} from './rack-levels.js';
 import {shelfBase} from './rack-levels.js';
 import * as T from 'three';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -12,9 +14,9 @@ for(let p of rackParts({width:6,depth:4,height:7.3,shelves:5,places:4})){if(p.ki
 if(p.kind==='beam'&&p.size[0]>1)p.size[0]-=.26;
 if(p.kind==='beam'&&Math.abs(p.p[0])===3){p.p[0]-=Math.sign(p.p[0])*.15;p.size[2]-=.24;}
 if(p.kind==='deck'){if(Math.abs(p.p[0])>2){p.size[0]-=.10;p.p[0]-=Math.sign(p.p[0])*.05;}p.size[2]-=.12;}
-let m=new T.Mesh(geom,p.kind==='deck'?accent:p.kind==='beam'?beam:p.kind==='brace'?dark:frame);if(p.from){let a=new T.Vector3(...p.from),b=new T.Vector3(...p.to),d=b.clone().sub(a);m.position.copy(a.add(b).multiplyScalar(.5));m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.clone().normalize());m.scale.set(p.thickness,d.length(),p.thickness);}else{m.position.set(...p.p);m.scale.set(...p.size);}m.castShadow=true;m.receiveShadow=true;rack.add(m);}
+let m=new T.Mesh(p.kind==='pallet'?assetParts.pallet[0].geometry:geom,p.kind==='pallet'?assetParts.pallet[0].material:p.kind==='deck'?accent:p.kind==='beam'?beam:p.kind==='brace'?dark:frame);if(p.from){let a=new T.Vector3(...p.from),b=new T.Vector3(...p.to),d=b.clone().sub(a);m.position.copy(a.add(b).multiplyScalar(.5));m.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),d.clone().normalize());m.scale.set(p.thickness,d.length(),p.thickness);}else{m.position.set(...p.p);m.scale.set(...p.size);}m.castShadow=true;m.receiveShadow=true;rack.add(m);}
 
-let cargo=new T.Group();scene.add(cargo);let carton=new T.MeshStandardMaterial({color:'#e2dfd4',roughness:1});for(let y=0;y<5;y++)for(let x=0;x<4;x++){if((x+y)%4===0)continue;let b=new T.Mesh(geom,carton);b.position.set(-2.2+x*1.45,shelfBase({height:7.3,shelves:5},y)+.61,.3);b.scale.set(1.1,.98,1.8);b.castShadow=true;b.receiveShadow=true;cargo.add(b);}cargo.visible=false;
+let cargo=new T.Group();scene.add(cargo);for(let y=0;y<5;y++)for(let x=0;x<4;x++){if((x+y)%4===0)continue;cartonObject(cargo,-2.2+x*1.45,shelfBase({height:7.3,shelves:5},y)+palletBaseOffset+palletHeight({height:7.3,shelves:5})+.49,.3,1.1,.98,1.8);}cargo.visible=false;
 const read=document.createElement('canvas'),readCtx=read.getContext('2d',{willReadFrequently:true});
 function resize(){w=view.clientWidth;h=view.clientHeight;out.width=w*2;out.height=h*2;camera.left=-9*w/h;camera.right=9*w/h;camera.top=9;camera.bottom=-9;camera.updateProjectionMatrix();dirty=true;}
 new ResizeObserver(resize).observe(view);controls.addEventListener('change',()=>dirty=true);

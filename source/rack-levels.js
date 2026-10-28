@@ -4,3 +4,8 @@ export function rackLevels(r){
  return {base,gap:(r.height-base)/r.shelves};
 }
 export function shelfBase(r,index){const {base,gap}=rackLevels(r);return base+index*gap;}
+
+export function palletHeight(r){return Math.min(.16,rackLevels(r).gap*.13);}
+
+// Keep timber off the steel surface to avoid coplanar depth flicker.
+export const palletBaseOffset=.13;

@@ -1,3 +1,4 @@
+import {cartonObject,robotObject} from './warehouse-assets.js';
 import * as T from 'three';
 import {locations, boxLayout} from './storage.js';
 import {products as catalog} from './model.js';
@@ -164,10 +165,8 @@ export function addWarehouseRobots(scene, getState) {
   for (let i = 0; i < ROBOTS; i++) {
     const g = new T.Group(), id = `AMR-0${i + 1}`;
     group.add(g);
-    box(g, 0, .7, 0, 2.6, 1.1, 3.4, yellow); box(g, 0, 1.35, 0, 2.3, .22, 2.8, black);
-    for (const x of [-1.2, 1.2]) for (const z of [-1, 1]) box(g, x, .35, z, .35, .65, .8, black);
-    box(g, 0, 1.58, 1.35, .6, .25, .35, green); box(g, 0, 3, -1.1, .25, 5.2, .3, silver);
-    const cargo = box(g, 0, 2.1, 0, 1.7, 1.3, 1.9, boxMat); box(cargo, 0, .51, 0, .12, .02, 1.01, silver); cargo.visible = false;
+    robotObject(g);
+    const cargo = cartonObject(g,0,2.1,0,1.7,1.3,1.9); cargo.visible=false;
     label(g, id, 0, 4, 0);
     const hit = box(g, 0, 1.7, 0, 3.1, 3.5, 3.8, new T.MeshBasicMaterial({visible: false}));
     hit.userData = {type: 'robot', id}; hits.push(hit);
@@ -210,8 +209,7 @@ export function addWarehouseRobots(scene, getState) {
     const s = getState();
     const b = {id: `BX-${String(++s.serial).padStart(6, '0')}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
     const slot = freeSlot(st), local = localPose(slot, arrivalSize());
-    const mesh = box(st.g, local.x, local.y, local.z, local.w, local.h, local.d, boxMat);
-    box(mesh, 0, .51, 0, .12, .02, 1.01, silver);
+    const mesh = cartonObject(st.g, local.x, local.y, local.z, local.w, local.h, local.d);
     const q = {box: b, slot, local, mesh, age: 0, arrived: true, target: item.target || null, taken: false};
     st.queue.push(q);
     held.set(b.id, {box: b, where: 'receiving', place: st.id});
@@ -337,7 +335,7 @@ export function addWarehouseRobots(scene, getState) {
     if (t.transfer) t.transfer.status = 'In progress';
     if (t.outStation) {
       const slot = freeSlot(t.outStation), local = localPose(slot, t.pickup);
-      const mesh = box(t.outStation.g, local.x, local.y, local.z, local.w, local.h, local.d, boxMat);
+      const mesh = cartonObject(t.outStation.g, local.x, local.y, local.z, local.w, local.h, local.d);
       mesh.visible = false;
       t.output = {box: t.box, slot, local, mesh, age: 0, arrived: false};
       t.outStation.queue.push(t.output);

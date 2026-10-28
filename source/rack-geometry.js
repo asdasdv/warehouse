@@ -1,4 +1,4 @@
-import {rackLevels} from './rack-levels.js';
+import {rackLevels,palletHeight,palletBaseOffset} from './rack-levels.js';
 // One parametric construction for placed racks and placement previews.
 // Dimensions and addresses stay in the inventory model; these are visual parts.
 export function rackParts(r){
@@ -25,11 +25,12 @@ export function rackParts(r){
   }
   for(let s=0;s<r.shelves;s++){
     let y=base+s*gap;
-    for(const z of [-d/2,d/2])add('beam',0,y+.02,z,w,.18,.12);
-    for(const x of [-w/2,w/2])add('beam',x,y+.025,0,.10,.17,d);
+    for(const z of [-d/2,d/2])add('beam',0,y+.02,z,Math.max(.1,w-.20),.18,.12);
+    for(const x of [-w/2,w/2])add('beam',x,y+.025,0,.10,.17,Math.max(.1,d-.20));
     // Thin steel deck with visible seams and individual storage bays.
     for(let p=0;p<r.places;p++){
       let cell=w/r.places,x=-w/2+(p+.5)*cell;
+      add('pallet',x,y+palletBaseOffset+palletHeight(r)/2,0,cell*.94,palletHeight(r),d*.94);
       add('deck',x,y+.09,0,cell-.025,.05,Math.max(.1,d-.15));
       add('beam',x,y-.015,0,.06,.12,Math.max(.1,d-.2));
     }
