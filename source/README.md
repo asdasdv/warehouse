@@ -27,3 +27,11 @@ npm run build   # сборка в dist/
 
 Главные файлы: `main.js` (интерфейс), `warehouse-robots.js` (симуляция — единственный источник
 данных о коробках), `scene.js` (3D), `model.js` / `storage.js` (склад, адреса, стеллажи).
+
+### Blender models
+
+`assets/warehouse-models.json` contains the evaluated carton, pallet and Airis meshes exported from the warehouse Blender scene. `scripts/export-blender-assets.py` regenerates them; set `LOCUS_ASSET_OUTPUT` to the absolute output JSON path before running the script in Blender. The source objects are `Главная коробка`, `Главный поддон` and `Робот • без груза`. Export does not change the scene.
+
+Carton tape and handling symbols are geometry. Robot wheels, flush LEDs and its single black platform come from Blender. Geometry and materials are shared across clones; shelf cargo is instanced by material. Pallet bevels are omitted at warehouse scale to reduce triangles; warm wood grain is recreated in the web shader. Blender procedural cardboard bump is not exported. Racks remain parametric to preserve editable dimensions and storage addresses, with uniform grey metal and pallets sized to each address. Cargo placement and robot handoffs share the pallet support height.
+
+Run `npm test` and `npm run build`, then copy the contents of `dist/` to `../locus-cloudflare/` for the existing Cloudflare Pages deployment.

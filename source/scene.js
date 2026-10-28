@@ -1,3 +1,5 @@
+import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
+import {assetParts,assetGeometries,assetMaterials} from './warehouse-assets.js';
 import {validateLayoutAccess} from './layout-access.js';
 import {sceneOperations} from './scene-operations.js';
 import {zonePoints,contains,snapRack,polygonZone} from './zone-shape.js';
@@ -16,6 +18,7 @@ const robotics=addWarehouseRobots(scene,getBaseState);
 const operations=sceneOperations(scene,robotics,getBaseState);
 const camera=new T.PerspectiveCamera(38,1,.1,1500);camera.position.set(150,260,290);
 const renderer=new T.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));container.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
+const environment=new RoomEnvironment();const pmrem=new T.PMREMGenerator(renderer);scene.environment=pmrem.fromScene(environment,.04).texture;scene.environmentIntensity=.65;environment.dispose();pmrem.dispose();
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.46;controls.minDistance=8;controls.maxDistance=700;controls.target.set(0,0,0);
 scene.add(new T.HemisphereLight(0xffffff,0xa4abb1,1.35));
 const sun=new T.DirectionalLight(0xfffaf1,3.2);sun.castShadow=true;const shadowResolution=Math.min(2048,renderer.capabilities.maxTextureSize);sun.shadow.mapSize.set(shadowResolution,shadowResolution);sun.shadow.bias=-.0002;sun.shadow.normalBias=.025;sun.shadow.radius=3;sun.shadow.camera.near=.5;sun.shadow.camera.far=900;scene.add(sun,sun.target);
@@ -40,9 +43,10 @@ let world=new T.Group(),detail=new T.Group(),selection=new T.Group();scene.add(w
 const mat=(c)=>new T.MeshStandardMaterial({color:c,roughness:.8});
 const geometry=new T.BoxGeometry(1,1,1),cartonGeometry=new RoundedBoxGeometry(1,1,1,1,.035);
 const materials={frame:new T.MeshStandardMaterial({color:'#626d74',metalness:.45,roughness:.5}),beam:new T.MeshStandardMaterial({color:'#8f9a9f',metalness:.35,roughness:.58}),deck:new T.MeshStandardMaterial({color:'#c6cdce',metalness:.25,roughness:.75}),brace:new T.MeshStandardMaterial({color:'#919ca3',metalness:.5,roughness:.45}),hardware:mat('#39444c'),box:mat('#ffffff'),tape:mat('#a87942')};
+for(const kind of ['frame','beam','deck','brace','hardware']) { materials[kind].color.setRGB(.29,.30,.31); materials[kind].metalness=.85; materials[kind].roughness=.44; }
 // Keep the original materials intact so the comparison can switch instantly.
 const originalRackMaterials={...materials};
-let rasterStyle=true;const layers={zones:true,robots:true,labels:true};
+let rasterStyle=false;const layers={zones:true,robots:true,labels:true};
 const rasterRackMaterials={};
 for(const kind of ['frame','beam','deck','brace','hardware','box','tape']){
  const m=materials[kind].clone();
@@ -64,18 +68,29 @@ for(const kind of ['frame','beam','deck','brace','hardware','box','tape']){
 }
 function applyRackStyle(){for(const kind of Object.keys(rasterRackMaterials))materials[kind]=rasterStyle?rasterRackMaterials[kind]:originalRackMaterials[kind];}
 applyRackStyle();
-const sharedMaterials=new Set([...Object.values(originalRackMaterials),...Object.values(rasterRackMaterials)]);
+const sharedMaterials=new Set([...Object.values(originalRackMaterials),...Object.values(rasterRackMaterials),...assetMaterials]);
 let cv=document.createElement('canvas');cv.width=128;cv.height=80;let ctx=cv.getContext('2d');ctx.fillStyle='#f4f4ed';ctx.fillRect(0,0,128,80);ctx.fillStyle='#39434b';ctx.font='bold 12px Arial';ctx.fillText('LOCUS',9,17);ctx.font='7px Arial';ctx.fillText('COMPONENTS / STOCK',9,29);for(let i=0;i<39;i++)ctx.fillRect(9+i*2.8,39,i%3===0?2:1,25);const labelTexture=new T.CanvasTexture(cv);materials.label=new T.MeshStandardMaterial({map:labelTexture,roughness:1});sharedMaterials.add(materials.label);
 function mesh(g,x,y,z,w,h,d,m){let o=new T.Mesh(geometry,m);o.position.set(x,y,z);o.scale.set(w,h,d);g.add(o);return o;}
-function clear(g){while(g.children.length){let c=g.children[0];g.remove(c);if(c.geometry&&c.geometry!==geometry&&c.geometry!==cartonGeometry)c.geometry.dispose();if(c.isInstancedMesh)c.dispose();if(c.material&&!sharedMaterials.has(c.material)){c.material.map?.dispose();c.material.dispose();}}}
+function clear(g){while(g.children.length){let c=g.children[0];g.remove(c);if(c.geometry&&c.geometry!==geometry&&c.geometry!==cartonGeometry&&!assetGeometries.has(c.geometry))c.geometry.dispose();if(c.isInstancedMesh)c.dispose();if(c.material&&!sharedMaterials.has(c.material)){c.material.map?.dispose();c.material.dispose();}}}
 function partTransform(obj,part,x=0,z=0){obj.quaternion.identity();if(part.from){let a=new T.Vector3(...part.from),b=new T.Vector3(...part.to),delta=b.clone().sub(a);obj.position.copy(a.add(b).multiplyScalar(.5));obj.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),delta.clone().normalize());obj.scale.set(part.thickness,delta.length(),part.thickness);}else {obj.position.set(...part.p);obj.scale.set(...part.size);}obj.position.x+=x;obj.position.z+=z;obj.updateMatrix();}
-function cargoMeshes(layout,group,selectedId=null,selectedLoc=null,closeUp=false){let obj=new T.Object3D(),body=new T.InstancedMesh(closeUp?cartonGeometry:geometry,materials.box,layout.length),tape=new T.InstancedMesh(geometry,materials.tape,layout.length),labels=new T.InstancedMesh(new T.PlaneGeometry(1,1),materials.label,layout.length);body.castShadow=closeUp;body.receiveShadow=true;
-layout.forEach((p,i)=>{obj.position.set(p.x,p.y,p.z);obj.scale.set(p.w,p.h,p.d);obj.updateMatrix();body.setMatrixAt(i,obj.matrix);let chosen=p.box.id===selectedId||selectedLoc&&p.box.location===selectedLoc;body.setColorAt(i,new T.Color(chosen?'#f1d63e':i%4===0?'#b98249':i%3===0?'#d2a16a':'#c39157'));obj.position.set(p.x,p.y+p.h/2+.003,p.z);obj.scale.set(p.w*.13,.006,p.d*.98);obj.updateMatrix();tape.setMatrixAt(i,obj.matrix);obj.position.set(p.x+p.w*.14,p.y-p.h*.02,p.z+p.d/2+.006);obj.scale.set(p.w*.48,p.h*.35,1);obj.updateMatrix();labels.setMatrixAt(i,obj.matrix);});tape.userData.fineDetail=true;labels.userData.fineDetail=true;group.add(body,tape,labels);return {body,tape,labels};}
+function cargoMeshes(layout,group,selectedId=null,selectedLoc=null,closeUp=false){
+ const obj=new T.Object3D(), result={};
+ assetParts.carton.forEach((part,index)=>{
+  const inst=new T.InstancedMesh(part.geometry,part.material,layout.length);
+  inst.castShadow=closeUp;inst.receiveShadow=true;
+  layout.forEach((p,i)=>{obj.position.set(p.x,p.y,p.z);obj.scale.set(p.w,p.h,p.d);obj.updateMatrix();inst.setMatrixAt(i,obj.matrix);
+   const chosen=p.box.id===selectedId||selectedLoc&&p.box.location===selectedLoc;
+   inst.setColorAt(i,new T.Color(chosen?'#ffe46b':'#ffffff'));
+  });
+  if(index)inst.userData.fineDetail=true;
+  group.add(inst);result[index===0?'body':`part${index}`]=inst;
+ });return result;
+}
 function label(text,x,z,color='#72796c'){let cv=document.createElement('canvas');cv.width=512;cv.height=96;let ctx=cv.getContext('2d');ctx.font='500 44px Arial';ctx.fillStyle=color;ctx.textAlign='center';ctx.fillText(text,256,64);let tx=new T.CanvasTexture(cv),sp=new T.Sprite(new T.SpriteMaterial({map:tx,depthTest:false,transparent:true}));sp.position.set(x,.6,z);sp.scale.set(18,3.4,1);sp.userData.label=true;world.add(sp);}
 function rebuild(){clearHover();clear(world);clear(detail);clear(selection);targets=[];const s=getState();updateLighting(s);for(const a of s.zones){let m=new T.MeshBasicMaterial({color:a.color,transparent:true,opacity:.055,side:T.DoubleSide,depthWrite:false});let shape=new T.Shape(zonePoints(a).map(p=>new T.Vector2(p.x,-p.z)));let o=new T.Mesh(new T.ShapeGeometry(shape),m);o.rotation.x=-Math.PI/2;o.position.y=.015;o.userData={type:'zone',id:a.id};o.receiveShadow=true;o.renderOrder=3;world.add(o);targets.push(o);let outline=new T.LineLoop(new T.BufferGeometry().setFromPoints(zonePoints(a).map(p=>new T.Vector3(p.x,.035,p.z))),new T.LineBasicMaterial({color:a.color,transparent:true,opacity:.28}));outline.userData.zoneOutline=true;world.add(outline);label(a.name,a.x+a.w/2,a.z+2);}
 // Shared instance batches keep the whole warehouse interactive.
 const batches={};for(const r of s.racks)for(const part of rackParts(r)){(batches[part.kind]??=[]).push({r,part});}
-let dummy=new T.Object3D();for(const [kind,items] of Object.entries(batches)){let inst=new T.InstancedMesh(geometry,materials[kind],items.length);items.forEach(({r,part},i)=>{partTransform(dummy,part,r.x,r.z);inst.setMatrixAt(i,dummy.matrix);});inst.castShadow=true;inst.receiveShadow=true;inst.userData.partKind=kind;world.add(inst);}
+let dummy=new T.Object3D();for(const [kind,items] of Object.entries(batches)){let inst=new T.InstancedMesh(kind==='pallet'?assetParts.pallet[0].geometry:geometry,kind==='pallet'?assetParts.pallet[0].material:materials[kind],items.length);items.forEach(({r,part},i)=>{partTransform(dummy,part,r.x,r.z);inst.setMatrixAt(i,dummy.matrix);});inst.castShadow=true;inst.receiveShadow=true;inst.userData.partKind=kind;world.add(inst);}
 let rackHits=new T.InstancedMesh(geometry,new T.MeshBasicMaterial({visible:false}),s.racks.length);dummy.quaternion.identity();s.racks.forEach((r,i)=>{dummy.position.set(r.x,r.height/2,r.z);dummy.scale.set(r.width,r.height,r.depth);dummy.updateMatrix();rackHits.setMatrixAt(i,dummy.matrix);});rackHits.userData={type:'racks'};world.add(rackHits);targets.push(rackHits);
 rebuildCargo();}
 // Every box on the shelves, one instanced batch. Rebuilt alone when robots move stock.
@@ -102,7 +117,7 @@ let preview=new T.Mesh(new T.PlaneGeometry(1,1),new T.MeshBasicMaterial({color:0
 const hover=new T.Group();scene.add(hover);let hoverKey='',lastPointer=null;
 const tooltip=document.createElement('div');tooltip.className='scene-tooltip';tooltip.hidden=true;container.append(tooltip);
 const ghost=new T.Group();scene.add(ghost);const ghostMaterial=new T.MeshBasicMaterial({color:0x88a866,transparent:true,opacity:.45,depthWrite:false});
-function updateGhost(){while(ghost.children.length)ghost.remove(ghost.children[0]);let obj=new T.Object3D();for(let part of rackParts(rackConfig)){if(part.kind==='hardware')continue;partTransform(obj,part);let m=new T.Mesh(geometry,ghostMaterial);m.position.copy(obj.position);m.quaternion.copy(obj.quaternion);m.scale.copy(obj.scale);ghost.add(m);}}
+function updateGhost(){while(ghost.children.length)ghost.remove(ghost.children[0]);let obj=new T.Object3D();for(let part of rackParts(rackConfig)){if(part.kind==='hardware')continue;partTransform(obj,part);let m=new T.Mesh(part.kind==='pallet'?assetParts.pallet[0].geometry:geometry,ghostMaterial);m.position.copy(obj.position);m.quaternion.copy(obj.quaternion);m.scale.copy(obj.scale);ghost.add(m);}}
 updateGhost();ghost.visible=false;
 function clearHover(){clear(hover);hoverKey='';tooltip.hidden=true;}
 function hit(e){cast(e);let hits=ray.intersectObjects(building?targets.filter(t=>!t.userData.detail):[...targets,...(layers.robots?robotics.hits:[])],false);let first=hits[0];if(first?.object.userData.type==='racks'){let rid=getState().racks[first.instanceId]?.id;let detailHit=hits.find(h=>h.object.userData.type==='boxes'&&h.object.userData.racks?.[h.instanceId]===rid)||cargoHit(rid);if(detailHit)first=detailHit;}return first;}
