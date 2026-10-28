@@ -41,3 +41,9 @@ Run `npm test` and `npm run build`, then copy the contents of `dist/` to `../loc
 The warehouse overview uses 12-triangle carton silhouettes; selecting a rack restores its Blender carton details. Pallets use two shared instance batches, with detailed boards within 45 scene units of the camera or on the selected rack. LOD matrices refresh after 2 units of camera movement or a selection change. This reduces overview carton/pallet geometry from 5,059,368 to 379,752 triangles on the seeded 24,446-box, 7,200-pallet layout (92%; excludes rack steelwork, robots and extra shadow passes). This is a geometry budget, not a measured FPS guarantee.
 
 Cargo buffers are reused between inventory changes, growing only when needed. Shadows update at most 20 times per second; camera and robot motion retain the display frame rate. `warehouse-lod.test.js` covers LOD transitions, resource reuse, bounds and the seeded geometry budget.
+
+### Cloudflare Workers Builds
+
+The repository root contains `wrangler.jsonc` for the existing Worker `warehouse`. It serves the committed `locus-cloudflare/` directory. Set the Workers Builds root directory to the repository root; the deployment command is `npx wrangler deploy`. No build command is required when deploying the committed bundle. For preview branches, use `npx wrangler versions upload`.
+
+Validate the deployment configuration from the repository root with `npx wrangler deploy --dry-run`. This checks packaging without publishing. If a Cloudflare check fails before a build log is produced, inspect the account/build settings in the Cloudflare dashboard; local application tests cannot validate those settings.
