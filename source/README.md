@@ -35,3 +35,9 @@ npm run build   # сборка в dist/
 Carton tape and handling symbols are geometry. Robot wheels, flush LEDs and its single black platform come from Blender. Geometry and materials are shared across clones; shelf cargo is instanced by material. Pallet bevels are omitted at warehouse scale to reduce triangles; warm wood grain is recreated in the web shader. Blender procedural cardboard bump is not exported. Racks remain parametric to preserve editable dimensions and storage addresses, with uniform grey metal and pallets sized to each address. Cargo placement and robot handoffs share the pallet support height.
 
 Run `npm test` and `npm run build`, then copy the contents of `dist/` to `../locus-cloudflare/` for the existing Cloudflare Pages deployment.
+
+### Rendering budget
+
+The warehouse overview uses 12-triangle carton silhouettes; selecting a rack restores its Blender carton details. Pallets use two shared instance batches, with detailed boards within 45 scene units of the camera or on the selected rack. LOD matrices refresh after 2 units of camera movement or a selection change. This reduces overview carton/pallet geometry from 5,059,368 to 379,752 triangles on the seeded 24,446-box, 7,200-pallet layout (92%; excludes rack steelwork, robots and extra shadow passes). This is a geometry budget, not a measured FPS guarantee.
+
+Cargo buffers are reused between inventory changes, growing only when needed. Shadows update at most 20 times per second; camera and robot motion retain the display frame rate. `warehouse-lod.test.js` covers LOD transitions, resource reuse, bounds and the seeded geometry budget.
