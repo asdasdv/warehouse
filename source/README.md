@@ -44,6 +44,6 @@ Cargo buffers are reused between inventory changes, growing only when needed. Sh
 
 ### Cloudflare Workers Builds
 
-The repository root contains `wrangler.jsonc` for the existing Worker `warehouse`. It serves the committed `locus-cloudflare/` directory. Set the Workers Builds root directory to the repository root; the deployment command is `npx wrangler deploy`. No build command is required when deploying the committed bundle. For preview branches, use `npx wrangler versions upload`.
+The repository root contains `wrangler.jsonc` for the existing Worker `warehouse`. It serves the committed `locus-cloudflare/` directory. Set the Workers Builds root directory to the repository root; the deployment command is `npx wrangler deploy`. No build command is required when deploying the committed bundle. The configured preview-branch command is `npx wrangler preview`; it requires the top-level `previews: {}` block in `wrangler.jsonc`. Assets and compatibility settings remain at the top level.
 
 Validate the deployment configuration from the repository root with `npx wrangler deploy --dry-run`. This checks packaging without publishing. If a Cloudflare check fails before a build log is produced, inspect the account/build settings in the Cloudflare dashboard; local application tests cannot validate those settings.
