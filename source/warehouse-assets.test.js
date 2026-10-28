@@ -4,7 +4,7 @@ import * as T from 'three';
 import {assetParts,robotObject,cartonObject} from './warehouse-assets.js';
 import {rackParts} from './rack-geometry.js';
 import {boxLayout,templates} from './storage.js';
-import {shelfBase,palletHeight} from './rack-levels.js';
+import {shelfBase,palletHeight,palletBaseOffset} from './rack-levels.js';
 
 test('Blender meshes have valid indexed triangles and normalized complete bounds',()=>{
  for(const [name,parts] of Object.entries(assetParts)) {
@@ -25,7 +25,7 @@ test('cartons sit on pallet tops and remain below the next shelf',()=>{
   assert.equal(pallets.length,r.shelves*r.places);
   for(let shelf=1;shelf<=r.shelves;shelf++){
    const pose=boxLayout(r,[{id:'test',location:`S${shelf}-P1`}])[0];
-   assert.ok(Math.abs(pose.y-pose.h/2-(shelfBase(r,shelf-1)+.115+palletHeight(r)))<1e-7);
+   assert.ok(Math.abs(pose.y-pose.h/2-(shelfBase(r,shelf-1)+palletBaseOffset+palletHeight(r)))<1e-7);
    assert.ok(pose.y+pose.h/2<shelfBase(r,shelf));
   }
  }

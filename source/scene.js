@@ -17,12 +17,12 @@ const getState=getBaseState;
 const scene=new T.Scene();scene.background=new T.Color('#f7f8f6');scene.fog=new T.Fog('#f7f8f6',600,1200);
 const robotics=addWarehouseRobots(scene,getBaseState);
 const operations=sceneOperations(scene,robotics,getBaseState);
-const camera=new T.PerspectiveCamera(38,1,.1,1500);camera.position.set(150,260,290);
-const renderer=new T.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));container.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.type=T.PCFShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
+const camera=new T.PerspectiveCamera(38,1,1,1500);camera.position.set(150,260,290);
+const renderer=new T.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));container.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.autoUpdate=false;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
 const environment=new RoomEnvironment();const pmrem=new T.PMREMGenerator(renderer);scene.environment=pmrem.fromScene(environment,.04).texture;scene.environmentIntensity=.65;environment.dispose();pmrem.dispose();
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.46;controls.minDistance=8;controls.maxDistance=700;controls.target.set(0,0,0);
 scene.add(new T.HemisphereLight(0xffffff,0xa4abb1,1.35));
-const sun=new T.DirectionalLight(0xfffaf1,3.2);sun.castShadow=true;const shadowResolution=Math.min(2048,renderer.capabilities.maxTextureSize);sun.shadow.mapSize.set(shadowResolution,shadowResolution);sun.shadow.bias=-.0002;sun.shadow.normalBias=.025;sun.shadow.radius=3;sun.shadow.camera.near=.5;sun.shadow.camera.far=900;scene.add(sun,sun.target);
+const sun=new T.DirectionalLight(0xfffaf1,3.2);sun.castShadow=true;const shadowResolution=Math.min(2048,renderer.capabilities.maxTextureSize);sun.shadow.mapSize.set(shadowResolution,shadowResolution);sun.shadow.bias=-.00005;sun.shadow.normalBias=.06;sun.shadow.radius=3;sun.shadow.camera.near=.5;sun.shadow.camera.far=900;scene.add(sun,sun.target);
 const fillLight=new T.DirectionalLight(0xdce8ff,1.1);fillLight.position.set(-80,60,-40);scene.add(fillLight);
 // Draw ground and its shadow in one opaque pass. Two near-coplanar planes
 // lose depth precision at warehouse scale and flicker as the camera rotates.

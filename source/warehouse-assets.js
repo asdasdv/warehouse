@@ -19,7 +19,8 @@ export const assetParts = Object.fromEntries(Object.entries(models).map(([key, a
       shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\ntimberPosition=position;');
       shader.fragmentShader='varying vec3 timberPosition;\n'+shader.fragmentShader;
       shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
-        float grain=sin(timberPosition.x*420.0+sin(timberPosition.z*22.0)*2.5);
+        float phase=timberPosition.x*420.0+sin(timberPosition.z*22.0)*2.5;
+        float grain=sin(phase)*(1.0-smoothstep(.7,3.0,fwidth(phase)));
         diffuseColor.rgb*=.94+.06*grain;`);
     };
     material.customProgramCacheKey=()=> 'blender-timber-v1';
