@@ -151,7 +151,7 @@ function modal(title, body, onSubmit) {
 function dialogFrame({title, back, body, onBack, onSubmit}) {
   const d = $('#dialog');
   d.className = '';
-  d.innerHTML = `<form class="lc-dialog">${back ? `<div class="lc-dlg-top"><button type="button" class="lc-back" id="dlgBack"><img src="/assets/fg/chevron-right.svg" alt="">${esc(back)}</button><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2>` : `<div class="lc-dlg-head"><h2>${esc(title)}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div>`}${body}<p class="lc-error" id="error"></p></form>`;
+  d.innerHTML = `<form class="lc-dialog">${back ? `<div class="lc-dlg-top"><button type="button" class="lc-back" id="dlgBack"><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2>` : `<div class="lc-dlg-head"><h2>${esc(title)}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div>`}${body}<p class="lc-error" id="error"></p></form>`;
   $('#closeDialog').onclick = () => d.close();
   if (back) $('#dlgBack').onclick = onBack;
   const form = d.querySelector('form');

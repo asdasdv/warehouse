@@ -127,9 +127,10 @@ dialog{border-radius:24px;padding:24px}
 dialog::backdrop{background:var(--surface-scrim)}
 .lc-dialog{display:flex;flex-direction:column;gap:16px}
 .lc-dlg-top{display:flex;align-items:center;justify-content:space-between;min-height:16px}
-.lc-back{display:flex;align-items:center;gap:4px;background:none;padding:0;font-size:12px;line-height:1.35;color:var(--content-secondary)}
-.lc-back:hover{background:none;color:var(--content-primary)}
-.lc-back img{width:12px;height:12px;transform:scaleX(-1);opacity:.6}
+/* Back button (Figma component "Back button"): ghost button, grey bg + primary text on hover. */
+.lc-back{display:flex;align-items:center;gap:4px;padding:4px 8px 4px 4px;margin-left:-4px;border-radius:8px;background:none;font-size:12px;line-height:1.35;color:var(--content-secondary)}
+.lc-back:hover{background:var(--surface-secondary);color:var(--content-primary)}
+.lc-back:hover .fg-ic{opacity:1}
 .lc-dlg-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .lc-dlg-head h2,.lc-dialog h2{font-size:32px;line-height:1;font-weight:600;letter-spacing:-.8px}
 .lc-sub{font-size:12px;line-height:1.35;color:var(--content-secondary);margin-top:-8px}
