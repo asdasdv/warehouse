@@ -127,7 +127,9 @@ function renderPanel() {
   lastPanelHTML = html; view.innerHTML = html; view.classList.toggle('home', !selected);
   view.scrollTop = scroll;
   bindPicks(view);
-  scene.preview(null);
+  // Keep the 3D outline for the row still under the pointer after a re-render.
+  const hovered = view.querySelector('.lc-row[data-pick]:hover');
+  scene.preview(hovered ? {type: hovered.dataset.pick, id: hovered.dataset.id} : null);
   // Hovering a row outlines that zone, rack, shelf, cell or box in 3D.
   if (!view.dataset.hover) {
     view.dataset.hover = '1';
@@ -189,7 +191,9 @@ function productField(form, {value, list, onPick, onCreate}) {
     box.querySelector('#createNew')?.addEventListener('mousedown', e => { e.preventDefault(); onCreate(input.value.trim()); });
   };
   input.value = value || '';
-  input.onfocus = show; input.oninput = show;
+  input.onfocus = show;
+  // Editing the text drops the picked product until a name from the list is chosen again.
+  input.oninput = () => { if (!list().includes(input.value)) onPick(''); show(); };
   input.onblur = () => setTimeout(() => { box.hidden = true; if (list().includes(input.value)) onPick(input.value); }, 150);
 }
 const productInput = placeholder => `<div class="lc-input">${icon('search')}<input id="productInput" placeholder="${placeholder}" autocomplete="off"></div><div class="lc-suggest" id="productSuggest" hidden></div>`;
@@ -283,7 +287,7 @@ function shipDialog(preset = {}) {
     form.querySelector('#inStock').textContent = product ? `${plural(n, 'box', 'boxes')} in stock` : '';
     form.querySelector('#submitBtn').textContent = `Ship ${plural(qty, 'box', 'boxes')}`;
   };
-  productField(form, {value: product, list: () => sim.products().sort(), onPick: p => { product = p; render(); }});
+  productField(form, {value: product, list: () => sim.products().sort(), onPick: p => { if (p !== product) { product = p; render(); } }});
   bindStepper(form, n => { qty = n; render(); });
   form.querySelector('#station').onchange = e => { station = e.target.value; };
   render();
@@ -379,7 +383,8 @@ function renderBuildSelection() {
   $('#buildDelete')?.addEventListener('click', removeSelected);
 }
 function toggleEdit(value) {
-  if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); }
+  // A toast's action (View robots / View history) would leave the editor half-open, so it goes away first.
+  if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); $('#toast').classList.remove('visible'); }
   editing = value;
   document.body.classList.toggle('building', value);
   $('#results').hidden = true;

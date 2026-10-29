@@ -33,6 +33,6 @@ export function installBuilderTools(api,getState,edit,addRow){
  },true);
  canvas.addEventListener('pointerup',e=>{if(!enabled||api.mode()!=='builder'||e.button!==0)return;e.stopImmediatePropagation();controls.enabled=true;const d=drag;drag=null;if(!d)return;if(d.kind==='move'&&(d.dx||d.dz))edit({type:'move',ids:[...ids],dx:d.dx||0,dz:d.dz||0});if(d.kind==='row'&&d.positions){if(addRow(d.positions))help(`${d.positions.length} racks placed. Drag to add another row.`);}if(d.kind==='marquee'&&d.end)for(const r of getState().racks)if(r.x>=Math.min(d.p.x,d.end.x)&&r.x<=Math.max(d.p.x,d.end.x)&&r.z>=Math.min(d.p.z,d.end.z)&&r.z<=Math.max(d.p.z,d.end.z))ids.add(r.id);if(d.next)edit({type:'zone',id:zoneId,points:d.next});draw();},true);
  canvas.addEventListener('pointercancel',()=>{drag=null;controls.enabled=true;draw();});
- document.addEventListener('keydown',e=>{if(!enabled||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;if(e.key.toLowerCase()==='r'&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();action('rotate');}if(e.key==='Escape'){drag=null;copy=false;controls.enabled=true;draw();}});
+ document.addEventListener('keydown',e=>{if(!enabled||/INPUT|SELECT|TEXTAREA/.test(e.target.tagName))return;/* R (rotate) is handled by the layout editor, which is always open while building. */if(e.key==='Escape'){drag=null;copy=false;controls.enabled=true;draw();}});
  return {setEnabled(v){enabled=v;panel.hidden=!v;ids.clear();zoneId=null;clear();if(v)setTool('select');},select:()=>setTool('select'),tool:setTool};
 }

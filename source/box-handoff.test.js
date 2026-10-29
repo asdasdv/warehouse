@@ -94,3 +94,28 @@ test('user tasks show robot progress and can be cancelled before pickup', () => 
   const done = sim.takeFinished().filter(f => f.kind === 'Ship');
   assert.ok(done.length >= 1 && done.every(f => f.place === 'Dispatch 2'));
 });
+
+test('received boxes waiting for dock space show as cancellable tasks', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  sim.update(.1);
+  const product = state.boxes[0].product, before = sim.tasks().filter(t => t.kind === 'Receive').length;
+  for (let i = 0; i < 12; i++) sim.addArrival();
+  sim.receive(product, 3);
+  const mine = sim.tasks().filter(t => t.kind === 'Receive');
+  assert.equal(mine.length, before + 3, 'every received box is visible right away');
+  sim.cancelTask(mine.at(-1).id);
+  assert.equal(sim.tasks().filter(t => t.kind === 'Receive').length, before + 2);
+});
+
+test('a move whose cell fills up goes to another cell on that rack instead of waiting forever', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  sim.update(.1);
+  const box = state.boxes.find(b => sim.boxInfo(b.id)?.actionable);
+  const target = state.racks.find(r => r.id !== box.rack && state.boxes.filter(b => b.rack === r.id).length < r.shelves * r.places * 2 - 4);
+  const full = state.boxes.filter(b => b.rack === target.id).map(b => b.location).find((l, _, all) => all.filter(x => x === l).length >= 2);
+  assert.ok(full, "found a full cell");
+  sim.requestMove(box.id, target.id, full);
+  run(sim, 400);
+  assert.equal(sim.tasks().some(t => t.id === box.id), false, 'no task left waiting');
+  assert.equal(state.boxes.find(b => b.id === box.id)?.rack, target.id);
+});

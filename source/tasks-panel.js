@@ -28,6 +28,7 @@ export function installTasksPanel(sim, toast, {onHistory}) {
     }
     for (const f of sim.takeFinished()) {
       if (f.kind === 'Move') toast(`${f.box.id} moved`, `Now at ${f.place} · ${f.robot} is free again`);
+      if (f.kind === 'MoveFailed') toast(`${f.box.id} was not moved`, `${f.place} has no free cell left · the box stays where it was`);
       if (f.kind === 'Ship') toast(`${f.box.id} shipped`, `${f.robot} delivered it to ${f.place}`, {label: 'View history', run: onHistory});
     }
   }
