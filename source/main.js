@@ -6,6 +6,7 @@ import {installInventoryPage} from './inventory-page.js';
 import {installRobotPanels} from './robot-panels.js';
 import {installTasksPanel} from './tasks-panel.js';
 import {installBuilderTools} from './builder-tools.js';
+import {installLayoutEditor} from './layout-editor.js';
 import {validateLayoutAccess} from './layout-access.js';
 import {applyLayoutEdit} from './layout-edit.js';
 import {contains} from './zone-shape.js';
@@ -63,6 +64,8 @@ function toast(title, text = '', action = null) {
 // ---------- layout changes (with session undo) ----------
 const layoutSnapshot = () => JSON.stringify({zones: state.zones, racks: state.racks});
 function commit(fn) {
+  // While the layout editor is open, edits join its draft (undo, redo, save or discard).
+  if (layoutEditor?.isOpen) return layoutEditor.apply(fn);
   const before = layoutSnapshot();
   try {
     fn();
@@ -100,7 +103,8 @@ function exists(sel) {
 const sceneSel = s => s?.type === 'shelf' ? {type: 'rack', id: s.id.split('|')[0]} : s;
 function pick(s) {
   $('#results').hidden = true; historyPage?.close(); inventoryPage?.close();
-  if (s?.type === 'box' && !editing) return robotPanels.openBox(s.id);
+  if (editing) { selected = s?.type === 'zone' || s?.type === 'rack' ? s : null; scene.select(sceneSel(selected), false); return layoutEditor.select(selected); }
+  if (s?.type === 'box') return robotPanels.openBox(s.id);
   if (s?.type === 'robot') return robotPanels.open('Fleet', s.id);
   robotPanels.close(); setNav('warehouse');
   selected = s;
@@ -369,9 +373,10 @@ function toggleEdit(value) {
   if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); }
   editing = value;
   document.body.classList.toggle('building', value);
-  $('#editor').hidden = !value; $('#buildInfo').hidden = !value; $('#results').hidden = true;
+  $('#results').hidden = true;
   scene.setBuilding(value); setMode('browse'); builderTools.setEnabled(value);
-  if (selected && !['zone', 'rack'].includes(selected.type)) selected = null;
+  selected = null;
+  if (value) layoutEditor.open();
   refresh();
 }
 function draw(type, p) {
@@ -382,7 +387,7 @@ function draw(type, p) {
   });
   if (!ok) return false;
   selected = {type, id}; scene.select(selected, false); renderBuildSelection();
-  toast(type === 'zone' ? 'Zone created. Draw another or choose Place racks.' : 'Rack placed. Click to place the next one.');
+  layoutEditor.select(selected);
   return true;
 }
 function removeSelected() {
@@ -428,6 +433,9 @@ const builderTools = installBuilderTools(scene.builderContext, () => state,
   a => commit(() => { applyLayoutEdit(state, a); log(state, 'Layout updated', a.type); }),
   points => commit(() => { for (const p of points) addRack(state, state.zones.find(z => contains(z, p))?.id, p.x, p.z, rackDraft); }));
 installTasksPanel(sim, toast, {onHistory: () => showHistory('Shipped')});
+const layoutEditor = installLayoutEditor({getState: () => state, scene, builderTools, rackDraft: () => rackDraft, toast,
+  onChange: refresh, onSelect: s => { selected = s?.type === 'zone' || s?.type === 'rack' ? s : null; },
+  onExit: () => { toggleEdit(false); pick(null); }});
 
 // ---------- search ----------
 $('#search').oninput = e => {
