@@ -411,7 +411,10 @@ export function addWarehouseRobots(scene, getState) {
     for (const transfer of transfers.filter(t => t.status === 'Queued')) {
       const b = s.boxes.find(b => b.id === transfer.id);
       if (!b || reserved.has(b.id)) { if (!b) transfer.status = 'Done'; continue; }
-      const pickup = {...poseOf(b.id)}, source = s.racks.find(x => x.id === b.rack), dest = place(b, transfer, true);
+      // The chosen cell may have filled up since the request: use another cell on that rack, else give the move up.
+      const dest = place(b, transfer, true) || place(b, {rack: transfer.rack}, true);
+      if (!dest) { transfer.status = 'Done'; finished.push({kind: 'MoveFailed', box: b, place: transfer.rack}); note(`Move cancelled · ${b.id} · ${transfer.rack} is full`); continue; }
+      const pickup = {...poseOf(b.id)}, source = s.racks.find(x => x.id === b.rack);
       if (source && dest && start(r, {box: b, source, target: dest.rack, slot: dest.loc, transfer, pickup,
         drop: shelfDrop(dest.rack, dest.loc, b, pickup)})) return true;
     }

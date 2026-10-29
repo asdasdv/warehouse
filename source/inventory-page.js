@@ -37,7 +37,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const histCount=type=>st.history.filter(e=>e.type===type&&new Date(e.time).toDateString()===today&&products.has(e.product)).length;
   const filtered=[...filters.values()].some(v=>v.size),y=st.yesterday||{},pct=(a,b)=>!b?'':(a>=b?'+':'−')+Math.abs(Math.round((a-b)/b*100))+'%';
   const metrics=filtered?[['Boxes stored',hit.length,''],['Received today',located?flowIn:histCount('Received'),''],['Shipped today',located?flowOut:histCount('Shipped'),'']]
-   :[['Boxes on site',boxes.length,''],['Received today',live.today.received,pct(live.today.received,y.received)],['Shipped today',live.today.shipped,pct(live.today.shipped,y.shipped)]];
+   :[['Boxes on site',live.onSite??boxes.length,''],['Received today',live.today.received,pct(live.today.received,y.received)],['Shipped today',live.today.shipped,pct(live.today.shipped,y.shipped)]];
   const pill=b=>{const z=zoneOfRack(st,b.rack),[s]=b.location.split('-'),text=filters.get('Rack')?.size?b.location:`${b.rack} · ${s}`;return {key:text,zone:z,html:`<button class="lc-loc" data-rack="${esc(b.rack)}" style="background:${z?.color||'var(--accent-primary)'}">${esc(text)}</button>`};};
   const locCell=bs=>{const seen=new Map();for(const b of bs)if(b.kind==='stored'){const p=pill(b);if(!seen.has(p.key))seen.set(p.key,p);}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};
   others.length=0;

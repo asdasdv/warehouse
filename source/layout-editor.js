@@ -28,7 +28,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
 
   let open = false, view = '2D', tool = 'select', snap = true;
   let sel = null;               // {type:'zone', id} | {type:'racks', ids:Set}
-  let baseline = null, undo = [], redo = [], error = '';
+  let baseline = null, baselineTop = null, undo = [], redo = [], error = '';
   let pending = null;           // new zone before "Create zone": {x,z,w,d} | {points}
   let poly = null;              // polygon being drawn: [{x,z}]
   let drag = null, hover = null, ruler = null, rowPreview = null, rowGap = 1, pointIndex = null, pointsStart = null;
@@ -39,11 +39,17 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   // ---------- draft history ----------
   const snapshot = () => JSON.stringify({zones: getState().zones, racks: getState().racks});
   function restore(json) { const s = getState(), v = JSON.parse(json); s.zones = v.zones; s.racks = v.racks; }
+  // Layout events logged after `since` (the newest history entry back then) are dropped when their edit is thrown away.
+  const LAYOUT_EVENTS = new Set(['Zone created', 'Rack added', 'Rack updated']);
+  function dropLayoutLog(since) {
+    const s = getState(), i = since ? s.history.indexOf(since) : s.history.length, head = i < 0 ? s.history : s.history.slice(0, i);
+    s.history = [...head.filter(e => !LAYOUT_EVENTS.has(e.type)), ...(i < 0 ? [] : s.history.slice(i))];
+  }
   // Every edit goes through here: it is validated, can be undone, and fails without changing anything.
   function apply(fn) {
-    const before = snapshot();
+    const before = snapshot(), top = getState().history[0];
     try { fn(); validateLayoutAccess(JSON.parse(before).racks, getState().racks); }
-    catch (e) { restore(before); error = e.message; render(); return false; }
+    catch (e) { restore(before); dropLayoutLog(top); error = e.message; render(); return false; }
     undo.push(before); undo = undo.slice(-50); redo = []; error = ''; report = null;
     onChange(); render(); return true;
   }
@@ -383,7 +389,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       if (apply(() => {
         id = addZone(s, {points: zonePoints(z).map(p => ({x: p.x + dx, z: p.z}))});
         Object.assign(s.zones.find(x => x.id === id), {name: `${z.name} copy`, color: z.color});
-        for (const r of s.racks.filter(r => r.zone === z.id)) addRack(s, id, r.x + dx, r.z, r);
+        for (const r of s.racks.filter(r => r.zone === z.id)) { const copy = addRack(s, id, r.x + dx, r.z, r); Object.assign(s.racks.find(x => x.id === copy), {rotation: r.rotation || 0, width: r.width, depth: r.depth}); }
       })) { sel = {type: 'zone', id}; fit(); render(); }
       return;
     }
@@ -391,7 +397,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (cmd === 'createZone' && pending) {
       const shape = pending.points ? {points: pending.points} : {x: pending.x, z: pending.z, w: pending.w, d: pending.d};
       let id;
-      if (apply(() => { id = addZone(s, shape); Object.assign(s.zones.find(z => z.id === id), {name: newName.trim() || `Zone ${id}`, color: newColor}); log(s, 'Zone created', newName); })) {
+      if (apply(() => { id = addZone(s, shape); const name = newName.trim() || `Zone ${id}`; Object.assign(s.zones.find(z => z.id === id), {name, color: newColor}); const e = s.history.find(e => e.type === 'Zone created'); if (e) e.detail = name; })) {
         pending = null; poly = null; sel = {type: 'zone', id}; tool = 'select'; render();
       }
       return;
@@ -552,7 +558,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     d.className = '';
     d.innerHTML = `<div class="lc-dialog"><div class="lc-dlg-head"><h2>Discard changes?</h2><button type="button" class="icon" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><p class="lc-sub">Everything you did in this session will be lost:</p><div class="lc-details">${c.zones.length ? `<div><span>Zones</span><b>${c.zones}</b></div>` : ''}${c.racks.length ? `<div><span>Racks</span><b>${c.racks}</b></div>` : ''}</div><button class="lc-danger" data-discard>Discard changes</button></div>`;
     d.querySelector('[data-close]').onclick = () => d.close();
-    d.querySelector('[data-discard]').onclick = () => { d.close(); restore(baseline); onChange(); close(false); };
+    d.querySelector('[data-discard]').onclick = () => { d.close(); restore(baseline); dropLayoutLog(baselineTop); onChange(); close(false); };
     d.showModal();
   }
   function close(saved) {
@@ -562,7 +568,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (saved && (c.zones.length || c.racks.length)) toast('Layout saved', [c.zones.length && `Zones: ${c.zones}`, c.racks.length && `Racks: ${c.racks}`].filter(Boolean).join(' · '));
   }
   return {
-    open() { open = true; root.hidden = false; baseline = snapshot(); undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
+    open() { open = true; root.hidden = false; baseline = snapshot(); baselineTop = getState().history[0]; undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
     apply, render,
     get isOpen() { return open; },
     // Selections made in the 3D scene.
