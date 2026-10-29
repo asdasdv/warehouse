@@ -50,7 +50,7 @@ test('boxes leave the shelf on pickup and land at the drop pose', () => {
 test('Receive, Move and Ship from the UI become robot work', () => {
   const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
   sim.update(.1);
-  const box = state.boxes.find(b => b.rack === state.racks[0].id), target = state.racks[200];
+  const box = state.boxes.find(b => b.rack === state.racks[0].id), target = state.racks.at(-1);
   sim.requestMove(box.id, target.id);
   assert.equal(sim.boxInfo(box.id).status, 'Transfer queued');
   assert.throws(() => sim.requestMove(box.id, target.id), /busy/);
@@ -59,7 +59,8 @@ test('Receive, Move and Ship from the UI become robot work', () => {
   sim.receive(products[4], 3, null);
   const before = state.serial;
   run(sim, 240);
-  assert.equal(sim.boxInfo(box.id).rack, target.id);
+  // Random demand may ship the box later, so check that the move itself happened.
+  assert.ok(state.history.some(e => e.box === box.id && e.type === 'Moved' && e.to.startsWith(target.id)));
   assert.ok(order.shipped.includes(shipped.id));
   assert.equal(state.boxes.some(b => b.id === shipped.id), false);
   assert.ok(state.serial >= before + 3);
@@ -70,8 +71,26 @@ test('layout changes re-plan robots instead of resetting the floor', () => {
   const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
   run(sim, 120);
   const delivered = sim.delivered, stock = sim.dashboard(state).onSite;
-  for (const r of state.racks.filter(r => r.zone === 'R')) r.x += 2; // shift a zone's racks
+  for (const r of state.racks.filter(r => r.zone === 'H')) r.x += 2; // shift a zone's racks
   run(sim, 60);
   assert.ok(sim.delivered > delivered, 'work continues');
   assert.ok(Math.abs(sim.dashboard(state).onSite - stock) < 40, 'stock is not reset');
+});
+
+test('user tasks show robot progress and can be cancelled before pickup', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  sim.update(.1);
+  const box = state.boxes[0], target = state.racks.at(-1);
+  sim.requestMove(box.id, target.id);
+  assert.ok(sim.tasks().some(t => t.id === box.id && t.kind === 'Move'));
+  sim.cancelTask(box.id);
+  assert.equal(sim.tasks().some(t => t.id === box.id), false);
+  assert.equal(sim.boxInfo(box.id).actionable, true);
+  const product = state.boxes[1].product, before = sim.inStock(product);
+  sim.ship(product, 2, 'Dispatch 2');
+  assert.equal(sim.tasks().filter(t => t.kind === 'Ship').length, 2);
+  assert.throws(() => sim.ship(product, before + 1), /Choose 1/);
+  run(sim, 240);
+  const done = sim.takeFinished().filter(f => f.kind === 'Ship');
+  assert.ok(done.length >= 1 && done.every(f => f.place === 'Dispatch 2'));
 });

@@ -1,29 +1,57 @@
+import {CELL_CAPACITY,rackCapacity,locations} from './storage.js';
+import {itemOf} from './model.js';
 const fmt=n=>n.toLocaleString('en-US');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const chev='<img src="/assets/fg/chevron-right.svg" alt="">';
-export function usedAddresses(state){const m=new Map();for(const b of state.boxes){let s=m.get(b.rack);if(!s)m.set(b.rack,s=new Set());s.add(b.location);}return m;}
-export function capacitySummary(state,racks=state.racks,usage=usedAddresses(state)){const total=racks.reduce((n,r)=>n+r.shelves*r.places,0),used=racks.reduce((n,r)=>n+(usage.get(r.id)?.size||0),0);return {total,used,free:total-used};}
-function numbers(s,label='Total'){return `<div class="ph-total">${fmt(s.total)} <span>${label}</span></div><div class="ph-pair"><div><span>Used</span><strong>${fmt(s.used)}</strong></div><div><span>Free</span><strong>${fmt(s.free)}</strong></div></div>`;}
-function item(name,value,type,id,color='#4ca8f8',subtitle=''){return `<button class="ph-row" data-pick="${type}" data-id="${esc(id)}"><i style="background:${color}"></i><span>${esc(name)}${subtitle?`<small>${esc(subtitle)}</small>`:''}</span><em>${value}</em></button>`;}
-// Breadcrumb: [{label, type?, id?, root?}] — the last part is plain text.
-function crumb(parts){return `<div class="crumb">${parts.map((p,i)=>{const last=i===parts.length-1,inner=last?`<span>${esc(p.label)}</span>`:p.root?`<button data-root>${esc(p.label)}</button>`:`<button data-pick="${p.type}" data-id="${esc(p.id)}">${esc(p.label)}</button>`;return (i?chev:'')+inner;}).join('')}</div>`;}
-export function overviewHTML(state,sel,allZones=false,allBoxes=false,blocked=new Set()){
- if(sel&&!['zone','rack','location'].includes(sel.type))return null;
- const racks=sel?.type==='zone'?state.racks.filter(r=>r.zone===sel.id):sel?.type==='rack'?state.racks.filter(r=>r.id===sel.id):sel?.type==='location'?state.racks.filter(r=>r.id===sel.id.split('|')[0]):state.racks;
- const usage=usedAddresses(state),summary=rs=>capacitySummary(state,rs,usage),cap=summary(racks),z=state.zones.find(z=>z.id===(sel?.type==='zone'?sel.id:racks[0]?.zone));
- const zoneName=z?.name||'';
- let out='<section class="ph-card">';
+// Capacity is counted in boxes: every cell holds CELL_CAPACITY boxes.
+export function stock(state,racks=state.racks){const ids=new Set(racks.map(r=>r.id)),stored=state.boxes.filter(b=>ids.has(b.rack)).length,total=racks.reduce((n,r)=>n+rackCapacity(r),0);return {stored,total,free:total-stored,pct:total?Math.round(stored/total*100):0};}
+const pctDelta=(now,before)=>{if(!before)return '';const d=Math.round((now-before)/before*100);return d>0?`+${d}%`:d<0?`−${-d}%`:'0%';};
+const absDelta=(now,before)=>before==null?'':now-before>0?`+${now-before}`:now-before<0?`−${before-now}`:'0';
+export const zoneOf=(state,rid)=>state.zones.find(z=>z.id===state.racks.find(r=>r.id===rid)?.zone);
+export function flowOf(state,racks){return racks.reduce((f,r)=>{const x=state.flow?.[r.id];if(x){f.in+=x.in;f.out+=x.out;}return f;},{in:0,out:0});}
+// Progress bar: the fill width is the share; colour is the tone.
+export const bar=(pct,color='var(--accent-primary)',cls='')=>`<div class="lc-bar ${cls}"><i style="width:${Math.min(100,pct)}%;background:${color}"></i></div>`;
+function hero(s,label='boxes stored'){return `<div class="lc-hero"><b>${fmt(s.stored)}</b><span>${label}</span></div><div class="lc-fill">${bar(s.pct)}<p>of ${fmt(s.total)} · ${fmt(s.free)} free · ${s.pct}% full</p></div>`;}
+function crumb(parts){return `<div class="lc-crumb">${parts.map((p,i)=>{const last=i===parts.length-1,inner=last?`<span>${esc(p.label)}</span>`:p.root?`<button data-root>${esc(p.label)}</button>`:`<button data-pick="${p.type}" data-id="${esc(p.id)}">${esc(p.label)}</button>`;return (i?chev:'')+inner;}).join('')}</div>`;}
+const head=(left,right)=>`<div class="lc-list-head"><span>${left}</span><span>${right}</span></div>`;
+function row(name,value,type,id,color,sub=''){return `<button class="lc-row" data-pick="${type}" data-id="${esc(id)}"><i style="background:${color}"></i><span>${esc(name)}${sub?`<small>${esc(sub)}</small>`:''}</span><em>${value}</em></button>`;}
+function zoneBar(state,zones,free){return `<div class="lc-zonebar">${zones.map(z=>`<span style="flex:${z.s.stored||.001};background:${z.color}" title="${esc(z.name)} · ${fmt(z.s.stored)} stored"></span>`).join('')}<span class="free" style="flex:${free||.001}" title="Free · ${fmt(free)}"></span></div>`;}
+export function zonesByFill(state){return state.zones.map(z=>({...z,s:stock(state,state.racks.filter(r=>r.zone===z.id))})).sort((a,b)=>b.s.stored/(b.s.total||1)-a.s.stored/(a.s.total||1));}
+// sel: null (warehouse) | zone | rack | shelf ("A-01|S3") | location ("A-01|S3-P2")
+export function overviewHTML(state,sel){
+ if(sel&&!['zone','rack','shelf','location'].includes(sel.type))return null;
  if(!sel){
- const zones=state.zones.map(z=>({...z,...summary(state.racks.filter(r=>r.zone===z.id))})).sort((a,b)=>(b.used/(b.total||1))-(a.used/(a.total||1)));
- out+=`<div class="crumb"><span>Warehouse</span></div>${numbers(cap)}<div class="ph-zones"><div class="ph-zonebar">${zones.slice(0,5).map(z=>`<span style="flex:${z.used||.001};background:${z.color}" title="${esc(z.name)} · ${fmt(z.used)} / ${fmt(z.total)} locations"></span>`).join('')}<span style="flex:${cap.free||.001};background:#d9d9d9" title="Free · ${fmt(cap.free)}"></span></div><div class="ph-zonesbody"><div class="ph-section">${allZones?'All zones':'Fullest zones'}</div><div class="ph-list ph-tight">${zones.slice(0,allZones?zones.length:5).map(z=>item(z.name,`${fmt(z.used)} / ${fmt(z.total)}`,'zone',z.id,z.color)).join('')}<button class="ph-wide" id="allZones">${allZones?'Show fullest zones':'See all zones'}</button></div></div></div></section><section class="ph-card ph-today">${[['Received today',state.today.received],['Shipped today',state.today.shipped],['Moved today',state.history.filter(e=>e.type==='Moved'&&new Date(e.time).toDateString()===new Date().toDateString()).length],['Unplaced',state.counts?.receiving||0]].map(([label,value],i)=>`<button data-stat="${i}" class="${i===3&&value?'ph-danger':''}"><span>${label}</span><strong>${fmt(value)}</strong></button>`).join('')}</section>`;
- }else if(sel.type==='zone'){
- out+=`${crumb([{label:'Warehouse',root:true},{label:zoneName||sel.id}])}${numbers(cap)}<div class="ph-zonesbody"><div class="list-head"><span>Racks · ${racks.length}</span><span>Used / places</span></div><div class="ph-list">${racks.map(r=>{const c=summary([r]);return item(r.id,`${c.used} / ${c.total}`,'rack',r.id,z?.color);}).join('')}</div></div></section><div class="fg-spacer"></div><button class="primary" id="showSelected">Show on map</button>`;
- }else if(sel.type==='rack'){
- const bs=state.boxes.filter(b=>b.rack===sel.id),shown=bs.slice(0,allBoxes?bs.length:5);
- out+=`${crumb([{label:'Warehouse',root:true},{label:zoneName,type:'zone',id:z?.id||''},{label:sel.id}])}${numbers(cap)}<div class="ph-zonesbody"><div class="ph-section" style="font-size:12px;line-height:1.35">${fmt(bs.length)} boxes</div><div class="ph-list ph-boxes">${shown.map(b=>item(b.product,esc(b.location),'box',b.id,z?.color,b.id)).join('')}</div></div><details class="ph-addresses"><summary>Storage addresses</summary><div class="location-grid" style="--cols:${racks[0]?.places||4}">${racks[0]?Array.from({length:racks[0].shelves},(_,i)=>Array.from({length:racks[0].places},(_,j)=>{let loc=`S${i+1}-P${j+1}`;return `<button data-pick="location" data-id="${esc(sel.id+'|'+loc)}">${loc}</button>`;}).join('')).join(''):''}</div></details></section><div class="fg-spacer"></div>${bs.length>5?`<button class="primary" id="allRackBoxes">${allBoxes?'Show fewer boxes':`See all ${fmt(bs.length)} boxes`}</button>`:''}`;
- }else if(sel.type==='location'){
- const [rid,loc]=sel.id.split('|'),bs=state.boxes.filter(b=>b.rack===rid&&b.location===loc);
- out+=`${crumb([{label:'Warehouse',root:true},{label:zoneName,type:'zone',id:z?.id||''},{label:rid,type:'rack',id:rid},{label:loc}])}<div class="ph-total">${fmt(bs.length)} <span>${bs.length===1?'box':'boxes'}</span></div><div class="ph-address"><p class="ph-address-product">${esc(bs[0]?.product||'Empty address')}</p><p class="ph-address-note">${bs.length?'Same component only':'Ready for a component'} · ${blocked.has(rid)?'No robot route to this rack':'Robot access available'}</p></div><div class="ph-zonesbody"><div class="ph-section" style="font-size:12px;line-height:1.35">Boxes at this address · ${fmt(bs.length)}</div><div class="ph-list ph-boxes">${bs.map(b=>item(b.product,'1 box','box',b.id,z?.color,b.id)).join('')||'<p class="helper">No boxes here yet.</p>'}</div></div></section><div class="fg-spacer"></div><div class="fg-actions"><button id="moveSelection" ${!bs.length?'disabled':''}>Move</button><button id="receiveHere" class="primary">Receive</button></div>`;
+  const s=stock(state),zones=zonesByFill(state),t=state.today,y=state.yesterday||{};
+  const stats=[['Received today',t.received,pctDelta(t.received,y.received),'Received'],['Put away today',t.putAway||0,pctDelta(t.putAway||0,y.putAway),'Put away'],['Moved today',t.moved||0,absDelta(t.moved||0,y.moved),'Moved'],['Shipped today',t.shipped,pctDelta(t.shipped,y.shipped),'Shipped']];
+  return `${hero(s)}<div class="lc-stats">${stats.map(([label,n,d,type])=>`<button class="lc-stat" data-history="${type}"><span>${label}</span><div><b>${fmt(n)}</b><small>${d}</small></div></button>`).join('')}</div><div class="lc-group">${head('Fullest zones','Stored / capacity')}${zoneBar(state,zones,s.free)}<div class="lc-rows">${zones.slice(0,5).map(z=>row(z.name,`${fmt(z.s.stored)} / ${fmt(z.s.total)}`,'zone',z.id,z.color)).join('')}<button class="lc-outline" id="allZones">See all ${zones.length} zones</button></div></div>`;
  }
- return out;
+ const [rid,part]=sel.type==='zone'?[null,null]:sel.id.split('|'),rack=state.racks.find(r=>r.id===rid);
+ const z=sel.type==='zone'?state.zones.find(z=>z.id===sel.id):zoneOf(state,rid),color=z?.color||'var(--accent-primary)';
+ if(sel.type==='zone'){
+  const racks=state.racks.filter(r=>r.zone===sel.id).map(r=>({r,s:stock(state,[r])})).sort((a,b)=>b.s.stored-a.s.stored);
+  return `${crumb([{label:'Warehouse',root:true},{label:z?.name||sel.id}])}${hero(stock(state,racks.map(x=>x.r)))}<div class="lc-group">${head(`Racks · ${racks.length}`,'Stored / capacity')}<div class="lc-rows">${racks.slice(0,5).map(({r,s})=>row(r.id,`${s.stored} / ${s.total}`,'rack',r.id,color)).join('')}${racks.length>5?`<button class="lc-secondary" id="allRacks">See all ${racks.length} racks</button>`:''}</div></div>`;
+ }
+ if(!rack)return null;
+ const at=state.boxes.filter(b=>b.rack===rack.id),trail=[{label:'Warehouse',root:true},{label:z?.name||'',type:'zone',id:z?.id||''}];
+ if(sel.type==='rack'){
+  const shelves=Array.from({length:rack.shelves},(_,i)=>rack.shelves-i).map(n=>({n,stored:at.filter(b=>b.location.startsWith(`S${n}-`)).length}));
+  return `${crumb([...trail,{label:rack.id}])}${hero(stock(state,[rack]))}<div class="lc-group">${head(`Shelves · ${rack.shelves}`,'Stored / capacity')}<div class="lc-rows">${shelves.map(s=>row(`S${s.n}`,`${s.stored} / ${rack.places*CELL_CAPACITY}`,'shelf',`${rack.id}|S${s.n}`,color)).join('')}</div></div>`;
+ }
+ if(sel.type==='shelf'){
+  const cells=locations(rack).filter(l=>l.startsWith(part+'-')),stored=at.filter(b=>cells.includes(b.location)).length,total=cells.length*CELL_CAPACITY;
+  return `${crumb([...trail,{label:rack.id,type:'rack',id:rack.id},{label:part}])}${hero({stored,total,free:total-stored,pct:Math.round(stored/total*100)})}<div class="lc-group">${head(`Cells · ${cells.length}`,'Stored / capacity')}<div class="lc-rows">${cells.map(l=>row(l.split('-')[1],`${at.filter(b=>b.location===l).length} / ${CELL_CAPACITY}`,'location',`${rack.id}|${l}`,color)).join('')}</div></div>`;
+ }
+ const [shelf,place]=part.split('-'),here=at.filter(b=>b.location===part);
+ return `${crumb([...trail,{label:rack.id,type:'rack',id:rack.id},{label:shelf,type:'shelf',id:`${rack.id}|${shelf}`},{label:place}])}${hero({stored:here.length,total:CELL_CAPACITY,free:CELL_CAPACITY-here.length,pct:Math.round(here.length/CELL_CAPACITY*100)})}<div class="lc-group">${head(`Boxes · ${here.length}`,'Quantity')}<div class="lc-rows">${here.map(b=>row(b.product,`${itemOf(b.product)?.pcs||1} pcs`,'box',b.id,color,b.id)).join('')||'<p class="lc-empty">This cell is empty.</p>'}</div></div>`;
+}
+// "All zones" / "Zone A · all racks" tables.
+function table(rows,first,firstLabel){return `<table class="lc-table"><thead><tr><th>${firstLabel}</th><th>${first}</th><th>Stored / capacity</th><th>Fill</th><th>Free</th><th>Today</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;}
+function tableRow(x){return `<tr data-pick="${x.type}" data-id="${esc(x.id)}"><td><span class="lc-name"><i style="background:${x.color}"></i>${esc(x.name)}</span></td><td class="muted">${x.count}</td><td>${fmt(x.s.stored)} / ${fmt(x.s.total)}</td><td><span class="lc-fillcell">${bar(x.s.pct,x.color,'sm')}${x.s.pct}%</span></td><td class="muted">${fmt(x.s.free)}</td><td class="muted">+${x.f.in} / −${x.f.out}</td></tr>`;}
+export function allZonesHTML(state){
+ const s=stock(state),zones=zonesByFill(state);
+ return `<div class="lc-modal-head"><h2>All zones <small>${zones.length}</small></h2><button type="button" class="icon" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><p class="lc-sub">${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p>${zoneBar(state,zones,s.free)}${table(zones.map(z=>{const racks=state.racks.filter(r=>r.zone===z.id);return tableRow({type:'zone',id:z.id,name:z.name,color:z.color,count:racks.length,s:z.s,f:flowOf(state,racks)});}),'Racks','Zone')}`;
+}
+export function allRacksHTML(state,zoneId){
+ const z=state.zones.find(z=>z.id===zoneId),racks=state.racks.filter(r=>r.zone===zoneId).map(r=>({r,s:stock(state,[r])})).sort((a,b)=>b.s.stored-a.s.stored),s=stock(state,racks.map(x=>x.r));
+ return `<div class="lc-modal-head"><h2>${esc(z?.name||zoneId)} <small>${racks.length} racks</small></h2><button type="button" class="icon" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><p class="lc-sub">${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p>${table(racks.map(({r,s})=>tableRow({type:'rack',id:r.id,name:r.id,color:z?.color,count:r.shelves,s,f:flowOf(state,[r])})),'Shelves','Rack')}`;
 }

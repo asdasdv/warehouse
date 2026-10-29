@@ -1,5 +1,5 @@
 import * as T from 'three';
-import {locations, boxLayout} from './storage.js';
+import {locations, boxLayout, CELL_CAPACITY} from './storage.js';
 import {products as catalog} from './model.js';
 import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
@@ -11,7 +11,7 @@ import {createRouter} from './robot-routing.js';
 const ROBOTS = 8;
 const MIN_ACTIVE = 4;
 const STATION_CAPACITY = 6;
-const MAX_PER_ADDRESS = 16;
+const MAX_PER_ADDRESS = CELL_CAPACITY;
 const HANDOFF_SECONDS = 3;
 const DISPATCH_SECONDS = 21;
 const SPEED = 9;
@@ -32,6 +32,7 @@ export function addWarehouseRobots(scene, getState) {
   const held = new Map();     // box id -> {box, where: receiving|transit|dispatch, place}
   const reserved = new Set(); // shelf boxes promised to a robot
   const claims = new Map();   // address -> {product, count} for boxes on their way
+  const finished = [];        // user tasks completed since the UI last looked: {kind, box, place, robot}
 
   const targetStock = getState().boxes.length;
   let router = null, rackKey = null, anchor = {x: 0, z: 0};
@@ -47,8 +48,11 @@ export function addWarehouseRobots(scene, getState) {
     s.history.unshift({type, box: box.id, product: box.product, from, to,
       detail: `${box.id} · ${box.product} · ${from} → ${to}`, time: new Date().toISOString()});
     if (s.history.length > HISTORY_LIMIT) s.history.length = HISTORY_LIMIT;
+    if (type === 'Put away') s.today.putAway = (s.today.putAway || 0) + 1;
+    if (type === 'Moved') s.today.moved = (s.today.moved || 0) + 1;
     revision++;
   }
+  function countFlow(rack, way) { const f = getState().flow; if (f) (f[rack] ||= {in: 0, out: 0})[way]++; }
   function inventoryChanged(rackId) { revision++; cargoDirty = true; dirtyRacks.add(rackId); }
 
   // ---------- shelf poses (one layout for the whole scene, rebuilt per changed rack) ----------
@@ -208,11 +212,11 @@ export function addWarehouseRobots(scene, getState) {
       .sort((a, b) => a.queue.length - b.queue.length)[0];
     if (!st) return false;
     const s = getState();
-    const b = {id: `BX-${String(++s.serial).padStart(6, '0')}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
+    const b = {id: `BX-${++s.serial}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
     const slot = freeSlot(st), local = localPose(slot, arrivalSize());
     const mesh = box(st.g, local.x, local.y, local.z, local.w, local.h, local.d, boxMat);
     box(mesh, 0, .51, 0, .12, .02, 1.01, silver);
-    const q = {box: b, slot, local, mesh, age: 0, arrived: true, target: item.target || null, taken: false};
+    const q = {box: b, slot, local, mesh, age: 0, arrived: true, target: item.target || null, user: item.user || null, taken: false};
     st.queue.push(q);
     held.set(b.id, {box: b, where: 'receiving', place: st.id});
     s.today.received++;
@@ -391,7 +395,8 @@ export function addWarehouseRobots(scene, getState) {
       }
       if (!best) continue;
       const source = s.racks.find(x => x.id === best.rack);
-      if (start(r, {box: best, source, outStation: st, order, pickup: {...poseOf(best.id)}})) return true;
+      const wanted = stations.find(x => x.id === order.station && x.ready && x.queue.length < STATION_CAPACITY);
+      if (start(r, {box: best, source, outStation: wanted || st, order, pickup: {...poseOf(best.id)}})) return true;
     }
     return false;
   }
@@ -450,7 +455,7 @@ export function addWarehouseRobots(scene, getState) {
     if (t.source) {
       const i = s.boxes.indexOf(t.box);
       if (i >= 0) s.boxes.splice(i, 1);
-      addresses(); addressRemove(t.box);
+      addresses(); addressRemove(t.box); countFlow(t.box.rack, 'out');
       reserved.delete(t.box.id);
       inventoryChanged(t.box.rack);
     } else {
@@ -466,14 +471,16 @@ export function addWarehouseRobots(scene, getState) {
       t.output.arrived = true; t.output.mesh.visible = true; t.output.age = 0;
       held.set(t.box.id, {box: t.box, where: 'dispatch', place: t.outStation.id});
       book.stage(t.box.id);
+      if (t.order.user) finished.push({kind: 'Ship', box: t.box, place: t.outStation.id, robot: r.id});
       revision++;
     } else {
       unclaim(t.target, t.slot);
       const from = t.sourceStation ? t.sourceStation.id : `${t.box.rack} / ${t.box.location}`;
       t.box.rack = t.target.id; t.box.location = t.slot;
       s.boxes.push(t.box); held.delete(t.box.id);
-      addresses(); addressAdd(t.box);
+      addresses(); addressAdd(t.box); countFlow(t.target.id, 'in');
       if (t.sourceStation) stored++;
+      if (t.transfer || t.queueItem?.user) finished.push({kind: t.transfer ? 'Move' : 'Receive', box: t.box, place: `${t.target.id} · ${t.slot}`, robot: r.id});
       if (t.transfer) t.transfer.status = 'Done';
       history(t.sourceStation ? 'Put away' : 'Moved', t.box, from, `${t.target.id} / ${t.slot}`);
       inventoryChanged(t.target.id);
@@ -585,7 +592,7 @@ export function addWarehouseRobots(scene, getState) {
     // User actions become robot work.
     receive(product, qty, target = null) {
       if (!catalog.includes(product) || !Number.isInteger(qty) || qty < 1 || qty > 48) throw Error('Choose a component and 1–48 boxes.');
-      for (let i = 0; i < qty; i++) backlog.push({product, target});
+      for (let i = 0; i < qty; i++) backlog.push({product, target, user: true});
       note(`Inbound · ${qty} × ${product}${target ? ` → ${target.rack} / ${target.loc}` : ''}`);
     },
     requestMove(ids, rack, loc = null) {
@@ -598,8 +605,50 @@ export function addWarehouseRobots(scene, getState) {
     shipBox(id) {
       const b = boxInfo(id);
       if (!b?.actionable) throw Error('Box is no longer available.');
-      return book.create(b.product, 1, 'Normal', id);
+      return Object.assign(book.create(b.product, 1, 'Normal', id), {user: true});
     },
+    // Ship from the top bar: robots bring the nearest boxes of a product to the chosen dispatch station.
+    ship(product, qty, station = null) {
+      const free = getState().boxes.filter(b => b.product === product && boxInfo(b.id)?.actionable).length;
+      if (!Number.isInteger(qty) || qty < 1 || qty > free) throw Error(`Choose 1–${free} boxes.`);
+      return Object.assign(book.create(product, qty, 'Normal'), {user: true, station});
+    },
+    inStock(product) { return getState().boxes.filter(b => b.product === product && boxInfo(b.id)?.actionable).length; },
+    dispatchStations() { return stations.filter(s => s.kind === 'outbound').map(s => s.id); },
+    // Work the user asked for, one card per box: what the robot is doing right now.
+    tasks() {
+      const out = [], s = getState();
+      for (const r of robots) {
+        const t = r.task;
+        if (!t || !(t.transfer || t.order?.user || t.queueItem?.user)) continue;
+        const kind = t.transfer ? 'Move' : t.order ? 'Ship' : 'Receive', to = t.target ? `${t.target.id} · ${t.slot}` : t.outStation.id;
+        const step = r.stage === 'To pickup' ? 0 : r.stage === 'Loading' ? 1 : 2;
+        const from = t.source ? `${t.source.id} · ${t.box.location}` : t.sourceStation.id;
+        const text = step === 0 ? `${r.id} is on its way to ${from}${t.sourceStation ? ` for ${t.box.id}` : ''}`
+          : step === 1 ? `${r.id} is loading the box` : `${r.id} is taking the box to ${to}`;
+        out.push({id: t.box.id, kind, to, robot: r.id, step, text, cancellable: !isLoaded(r)});
+      }
+      for (const tr of transfers.filter(t => t.status === 'Queued')) out.push({id: tr.id, kind: 'Move', to: `${tr.rack}${tr.loc ? ' · ' + tr.loc : ''}`, step: -1, text: 'Waiting for a free robot', cancellable: true});
+      for (const o of book.orders.filter(o => o.user)) for (let i = o.allocated.length; i < o.quantity; i++) out.push({id: `${o.id}#${i}`, kind: 'Ship', to: o.station || 'Dispatch', step: -1, text: 'Waiting for a free robot', cancellable: true});
+      for (const st of stations) for (const q of st.queue) if (q.user && !q.taken) out.push({id: q.box.id, kind: 'Receive', to: q.target ? `${q.target.rack} · ${q.target.loc}` : 'storage', step: -1, text: `${q.box.id} is waiting at ${st.id}`, cancellable: true});
+      return out;
+    },
+    cancelTask(id) {
+      const s = getState(), r = robots.find(r => r.task?.box.id === id);
+      if (r) { if (isLoaded(r)) throw Error('The robot already has this box.'); const t = r.task; cancel(r); if (t.order) id = `${t.order.id}#`; }
+      const tr = transfers.find(t => t.id === id && t.status !== 'Done');
+      if (tr) { tr.status = 'Done'; note(`Move cancelled · ${id}`); return; }
+      const order = book.orders.find(o => o.user && (id.startsWith(o.id + '#') || o.boxId === id));
+      if (order) { order.quantity--; if (order.quantity <= order.allocated.length && !order.allocated.length) book.orders.splice(book.orders.indexOf(order), 1); note(`Shipment cancelled · ${order.id}`); return; }
+      for (const st of stations) {
+        const q = st.queue.find(q => q.box.id === id && q.user);
+        if (!q) continue;
+        st.g.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(id); s.today.received--;
+        history('Receipt cancelled', q.box, st.id, 'Supplier');
+        return;
+      }
+    },
+    takeFinished() { return finished.splice(0); },
     addArrival() { backlog.push({product: pick(catalog)}); },
     get flow() {
       return {
