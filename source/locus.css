@@ -143,8 +143,8 @@ dialog::backdrop{background:var(--surface-scrim)}
 .lc-stepper button{background:none;height:40px;padding:0;display:grid;place-items:center}
 .lc-stepper input{border:0;background:transparent;text-align:center;font-size:14px;outline:0;width:100%}
 .lc-stepper input::-webkit-inner-spin-button{display:none}
-.lc-suggest{position:absolute;left:0;right:0;top:64px;z-index:5;padding:4px;border-radius:12px;background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--pop);display:flex;flex-direction:column;gap:2px}
-.lc-suggest button{display:flex;flex-direction:column;align-items:flex-start;background:none;text-align:left;padding:8px}
+.lc-suggest{position:fixed;z-index:60;overflow:auto;overscroll-behavior:contain;padding:4px;border-radius:12px;background:var(--surface-primary);box-shadow:var(--pop);display:flex;flex-direction:column;gap:2px}
+.lc-suggest button{flex:none;display:flex;flex-direction:column;align-items:flex-start;background:none;text-align:left;padding:8px}
 .lc-suggest button:hover,.lc-suggest button.on{background:var(--surface-secondary)}
 .lc-suggest small{font-size:11px}
 .lc-suggest .create{color:var(--accent-primary);flex-direction:row;font-size:12px}
@@ -354,3 +354,11 @@ dialog:focus{outline:none}
 .ph-history-fixed td{overflow:hidden;text-overflow:ellipsis}
 /* Text fields show the caret, not a focus ring (Figma has none); buttons keep the ring for keyboard users. */
 input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
+
+/* Minimal scrollbars everywhere: no track, a thin translucent thumb that darkens on hover. */
+*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:999px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:rgba(0,0,0,.32)}
+::-webkit-scrollbar-corner{background:transparent}
