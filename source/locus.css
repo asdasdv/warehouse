@@ -143,8 +143,8 @@ dialog::backdrop{background:var(--surface-scrim)}
 .lc-stepper button{background:none;height:40px;padding:0;display:grid;place-items:center}
 .lc-stepper input{border:0;background:transparent;text-align:center;font-size:14px;outline:0;width:100%}
 .lc-stepper input::-webkit-inner-spin-button{display:none}
-.lc-suggest{position:absolute;left:0;right:0;top:64px;z-index:5;padding:4px;border-radius:12px;background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--pop);display:flex;flex-direction:column;gap:2px}
-.lc-suggest button{display:flex;flex-direction:column;align-items:flex-start;background:none;text-align:left;padding:8px}
+.lc-suggest{position:fixed;z-index:60;overflow:auto;overscroll-behavior:contain;padding:4px;border-radius:12px;background:var(--surface-primary);box-shadow:var(--pop);display:flex;flex-direction:column;gap:2px}
+.lc-suggest button{flex:none;display:flex;flex-direction:column;align-items:flex-start;background:none;text-align:left;padding:8px}
 .lc-suggest button:hover,.lc-suggest button.on{background:var(--surface-secondary)}
 .lc-suggest small{font-size:11px}
 .lc-suggest .create{color:var(--accent-primary);flex-direction:row;font-size:12px}
@@ -195,18 +195,18 @@ dialog.lc-wide{width:880px}
 /* ---------- inventory ---------- */
 #inventoryPage.lc-inv{padding:var(--topbar-h) 12px 16px;overflow:auto}
 #historyPage{padding-top:var(--topbar-h)}
-.lc-filters{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 24px}
-.lc-token{display:flex;align-items:center;height:28px;border:1px solid var(--content-quaternary);border-radius:8px;font-size:12px;overflow:hidden}
+.lc-filters{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
+.lc-token{display:flex;align-items:center;height:36px;border:1px solid var(--content-quaternary);border-radius:12px;font-size:12px;overflow:hidden}
 .lc-token>*{height:100%;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:0;background:none;font-size:12px}
 .lc-token>span{color:var(--content-secondary);border-left:1px solid var(--content-quaternary);border-right:1px solid var(--content-quaternary)}
 .lc-token>button:hover{background:var(--surface-secondary)}
 .lc-token i{width:10px;height:10px;border-radius:3px}
 .lc-token .x{border-left:1px solid var(--content-quaternary);padding:0 6px}
 .lc-token .x .fg-ic{width:16px;height:16px}
-.lc-add{height:28px;padding:0 10px 0 6px;border-radius:8px;border:1px solid var(--content-quaternary);background:none;font-size:12px;display:flex;align-items:center;gap:4px}
-.lc-add.icon-only{width:28px;padding:0;justify-content:center}
+.lc-add{height:36px;padding:0 12px 0 10px;border-radius:12px;border:1px solid var(--content-quaternary);background:none;font-size:12px;display:flex;align-items:center;gap:4px}
+.lc-add.icon-only{width:36px;padding:0;justify-content:center}
 .lc-clear{background:none;font-size:12px;color:var(--content-secondary);padding:0 4px}
-.lc-pop{position:absolute;left:0;top:36px;z-index:20;width:240px;padding:4px;border-radius:12px;background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--pop);display:flex;flex-direction:column}
+.lc-pop{position:absolute;left:0;top:36px;z-index:20;width:240px;padding:4px;border-radius:12px;background:var(--surface-primary);box-shadow:var(--pop);display:flex;flex-direction:column}
 .lc-pop.wide{width:260px}
 .lc-pop-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--content-quaternary);margin-bottom:4px}
 .lc-pop-search img{opacity:.5}
@@ -221,7 +221,7 @@ dialog.lc-wide{width:880px}
 .lc-pop-list .on .lc-check{background:var(--surface-primary)}
 .lc-inv-metrics{display:grid;grid-template-columns:repeat(3,300px);gap:12px;margin-bottom:24px}
 .lc-inv-metrics .lc-stat{height:112px}
-.lc-inv-search{width:320px;margin-bottom:16px}
+.lc-inv-search{width:320px}
 .lc-inv-table .num{text-align:right}
 .lc-locs{display:flex;align-items:center;gap:6px;height:44px}
 .lc-loc{padding:2px 8px;border-radius:6px;font-size:14px;line-height:1.4;color:var(--content-primary)}
@@ -340,3 +340,25 @@ dialog:focus{outline:none}
 #historyPage,#inventoryPage.lc-inv{display:flex;flex-direction:column}
 #historyPage>*,#inventoryPage.lc-inv>*{flex:none}
 #historyPage .ph-history-foot,#inventoryPage .ph-history-foot{margin-top:auto;padding-top:24px}
+
+/* History toolbar: Figma Chip (selected = surface/tertiary) and Search field. */
+.ph-history-tabs button{gap:8px;height:36px;padding:0 12px;border-radius:999px;background:var(--surface-secondary);color:var(--content-primary)}
+.ph-history-tabs button:hover{background:var(--surface-tertiary)}
+.ph-history-tabs button.active{background:var(--surface-tertiary);color:var(--content-primary)}
+.ph-history-tabs small,.ph-history-tabs button.active small{font-size:12px;line-height:1.35;padding-top:2px;color:var(--content-secondary)}
+.ph-history-tools{gap:8px}
+.ph-history-search{width:320px;height:36px;margin-left:8px}
+.ph-history-search input{height:100%;padding:0;margin:0;border:0;background:none;width:auto}
+.ph-history-search input::-webkit-search-cancel-button{display:none}
+.ph-history-fixed{table-layout:fixed}
+.ph-history-fixed td{overflow:hidden;text-overflow:ellipsis}
+/* Text fields show the caret, not a focus ring (Figma has none); buttons keep the ring for keyboard users. */
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
+
+/* Minimal scrollbars everywhere: no track, a thin translucent thumb that darkens on hover. */
+*{scrollbar-width:thin;scrollbar-color:rgba(0,0,0,.18) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:rgba(0,0,0,.18);border-radius:999px;border:3px solid transparent;background-clip:padding-box}
+::-webkit-scrollbar-thumb:hover{background-color:rgba(0,0,0,.32)}
+::-webkit-scrollbar-corner{background:transparent}

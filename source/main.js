@@ -172,9 +172,12 @@ function productField(form, {value, list, onPick, onCreate}) {
   const input = form.querySelector('#productInput'), box = form.querySelector('#productSuggest');
   const show = () => {
     const q = input.value.trim().toLowerCase();
-    const hits = list().filter(p => !q || p.toLowerCase().includes(q) || itemOf(p)?.sku.toLowerCase().includes(q)).slice(0, 5);
+    const hits = list().filter(p => !q || p.toLowerCase().includes(q) || itemOf(p)?.sku.toLowerCase().includes(q));
     box.innerHTML = hits.map(p => `<button type="button" data-p="${esc(p)}">${esc(p)}<small>SKU · ${esc(itemOf(p)?.sku || '—')}</small></button>`).join('') + (onCreate ? `<button type="button" class="create" id="createNew">Create new</button>` : '');
     box.hidden = !box.innerHTML;
+    // The list floats above the dialog (fixed), full field width, down to the bottom of the window; long lists scroll inside.
+    const r = input.closest('.lc-input').getBoundingClientRect();
+    Object.assign(box.style, {left: `${r.left}px`, top: `${r.bottom + 4}px`, width: `${r.width}px`, maxHeight: `${Math.max(200, innerHeight - r.bottom - 16)}px`});
     box.querySelectorAll('[data-p]').forEach(b => b.onmousedown = e => { e.preventDefault(); input.value = b.dataset.p; box.hidden = true; onPick(b.dataset.p); });
     box.querySelector('#createNew')?.addEventListener('mousedown', e => { e.preventDefault(); onCreate(input.value.trim()); });
   };
