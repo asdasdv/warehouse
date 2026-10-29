@@ -23,7 +23,7 @@ export function overviewHTML(state,sel){
  if(!sel){
   const s=stock(state),zones=zonesByFill(state),t=state.today,y=state.yesterday||{};
   const stats=[['Received today',t.received,pctDelta(t.received,y.received),'Received'],['Put away today',t.putAway||0,pctDelta(t.putAway||0,y.putAway),'Put away'],['Moved today',t.moved||0,absDelta(t.moved||0,y.moved),'Moved'],['Shipped today',t.shipped,pctDelta(t.shipped,y.shipped),'Shipped']];
-  return `${hero(s)}<div class="lc-stats">${stats.map(([label,n,d,type])=>`<button class="lc-stat" data-history="${type}"><span>${label}</span><div><b>${fmt(n)}</b><small>${d}</small></div></button>`).join('')}</div><div class="lc-group">${head('Fullest zones','Stored / capacity')}${zoneBar(state,zones,s.free)}<div class="lc-rows">${zones.slice(0,5).map(z=>row(z.name,`${fmt(z.s.stored)} / ${fmt(z.s.total)}`,'zone',z.id,z.color)).join('')}<button class="lc-outline" id="allZones">See all ${zones.length} zones</button></div></div>`;
+  return `${hero(s)}<div class="lc-stats">${stats.map(([label,n,d,type])=>`<div class="lc-stat"><span>${label}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div><div class="lc-group">${head('Fullest zones','Stored / capacity')}${zoneBar(state,zones,s.free)}<div class="lc-rows">${zones.slice(0,5).map(z=>row(z.name,`${fmt(z.s.stored)} / ${fmt(z.s.total)}`,'zone',z.id,z.color)).join('')}<button class="lc-outline" id="allZones">See all ${zones.length} zones</button></div></div>`;
  }
  const [rid,part]=sel.type==='zone'?[null,null]:sel.id.split('|'),rack=state.racks.find(r=>r.id===rid);
  const z=sel.type==='zone'?state.zones.find(z=>z.id===sel.id):zoneOf(state,rid),color=z?.color||'var(--accent-primary)';
