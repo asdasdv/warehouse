@@ -304,3 +304,7 @@ dialog.lc-wide{width:880px}
 .ed-hex input[data-hex]{flex:1;height:30px;border:0;border-radius:8px;background:var(--surface-secondary);padding:0 8px;font-size:12px}
 .lc-danger{width:100%;background:var(--status-danger-tertiary);color:var(--status-danger)}
 .lc-danger:hover{background:var(--status-danger-secondary)}
+
+/* Top bar icons: grey (content/secondary) until their section is open. */
+.ph-nav .fg-ic{opacity:.5}
+.ph-nav>button.active .fg-ic,.ph-nav>button:hover .fg-ic,.ph-search>button:hover .fg-ic{opacity:1}
