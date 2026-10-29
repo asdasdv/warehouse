@@ -323,3 +323,20 @@ dialog.lc-wide{width:880px}
 .robot-mode #overview{visibility:hidden}
 /* Dialogs take focus themselves on open, so the close button gets no focus ring until Tab is pressed. */
 dialog:focus{outline:none}
+/* All zones / All racks (Figma modal/All zones, modal/All racks) */
+.lc-summary{display:flex;flex-direction:column;gap:12px}
+.lc-summary p{font-size:14px;line-height:1.4;color:var(--content-secondary)}
+.lc-close{width:28px;height:28px;padding:0;border-radius:8px;display:grid;place-items:center;background:transparent}
+.lc-close:hover{background:var(--surface-secondary)}
+.lc-modal-head h2{display:flex;align-items:flex-end;gap:8px}
+.lc-modal-head h2 small{line-height:1.35}
+.lc-table{table-layout:fixed;border-collapse:separate;border-spacing:0}
+.lc-table th{height:36px;padding:0 12px;line-height:1.4}
+.lc-table th:first-child{border-radius:12px 0 0 12px}
+.lc-table th:last-child{border-radius:0 12px 12px 0}
+.lc-table td{height:44px;padding:0 12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lc-table .lc-bar.sm{width:100px;flex:none}
+/* Table pages: the pager sits at the bottom of the page, and only when there is more than one page. */
+#historyPage,#inventoryPage.lc-inv{display:flex;flex-direction:column}
+#historyPage>*,#inventoryPage.lc-inv>*{flex:none}
+#historyPage .ph-history-foot,#inventoryPage .ph-history-foot{margin-top:auto;padding-top:24px}
