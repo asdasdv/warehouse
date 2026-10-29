@@ -45,7 +45,7 @@ $('#app').innerHTML = `<main>
  <div id="editor" hidden><div><strong>Build mode</strong><span id="modeHint"></span></div><button data-mode="browse" class="chosen">Select</button><button data-mode="zone">Rectangle</button><button data-mode="polygon">Custom zone</button><button id="finishZone" hidden>Close zone</button><button data-mode="rack">Place racks</button><button id="undo">Undo</button><button id="topView">Top view</button><button id="done">Finish building</button></div>
  <div id="buildInfo" hidden><span class="eyebrow">Warehouse builder</span><h2>Make room for what’s next.</h2><p>Draw zones, then place racks. Changes last until you reload the page.</p><span class="rack-cap">Rack catalog</span><div id="rackCatalog"></div><div id="buildSelection"></div></div>
  <div id="toast" role="status"></div>
- <dialog id="dialog"></dialog>
+ <dialog id="dialog" autofocus></dialog>
 </main>`;
 
 const scene = createScene($('#scene'), () => state, pick, draw);

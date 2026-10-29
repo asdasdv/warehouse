@@ -317,3 +317,5 @@ dialog.lc-wide{width:880px}
 .lc-places-row{display:flex;flex-wrap:wrap;gap:6px}
 /* Panels are translucent, so the warehouse panel must not show through Fleet or a box card. */
 .robot-mode #overview{visibility:hidden}
+/* Dialogs take focus themselves on open, so the close button gets no focus ring until Tab is pressed. */
+dialog:focus{outline:none}
