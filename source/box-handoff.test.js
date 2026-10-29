@@ -94,3 +94,15 @@ test('user tasks show robot progress and can be cancelled before pickup', () => 
   const done = sim.takeFinished().filter(f => f.kind === 'Ship');
   assert.ok(done.length >= 1 && done.every(f => f.place === 'Dispatch 2'));
 });
+
+test('received boxes waiting for dock space show as cancellable tasks', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  sim.update(.1);
+  const product = state.boxes[0].product, before = sim.tasks().filter(t => t.kind === 'Receive').length;
+  for (let i = 0; i < 12; i++) sim.addArrival();
+  sim.receive(product, 3);
+  const mine = sim.tasks().filter(t => t.kind === 'Receive');
+  assert.equal(mine.length, before + 3, 'every received box is visible right away');
+  sim.cancelTask(mine.at(-1).id);
+  assert.equal(sim.tasks().filter(t => t.kind === 'Receive').length, before + 2);
+});
