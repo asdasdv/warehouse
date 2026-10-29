@@ -14,9 +14,9 @@ const getState=getBaseState;
 const scene=new T.Scene();scene.background=new T.Color('#f7f8f6');scene.fog=new T.Fog('#f7f8f6',600,1200);
 const robotics=addWarehouseRobots(scene,getBaseState);
 const operations=sceneOperations(scene,robotics,getBaseState);
-const camera=new T.PerspectiveCamera(38,1,.1,1500);camera.position.set(150,260,290);
+const camera=new T.PerspectiveCamera(38,1,.1,1500);camera.position.set(28+95,150,175);
 const renderer=new T.WebGLRenderer({antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));container.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.15;
-const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.46;controls.minDistance=8;controls.maxDistance=700;controls.target.set(0,0,0);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.46;controls.minDistance=8;controls.maxDistance=700;controls.target.set(28,0,0);
 scene.add(new T.HemisphereLight(0xffffff,0xa4abb1,1.35));
 const sun=new T.DirectionalLight(0xfffaf1,3.2);sun.castShadow=true;const shadowResolution=Math.min(2048,renderer.capabilities.maxTextureSize);sun.shadow.mapSize.set(shadowResolution,shadowResolution);sun.shadow.bias=-.0002;sun.shadow.normalBias=.025;sun.shadow.radius=3;sun.shadow.camera.near=.5;sun.shadow.camera.far=900;scene.add(sun,sun.target);
 const fillLight=new T.DirectionalLight(0xdce8ff,1.1);fillLight.position.set(-80,60,-40);scene.add(fillLight);
@@ -95,7 +95,7 @@ const turns=(r.rotation||0)%4,localWidth=turns%2?r.depth:r.width,localDepth=turn
 let outline=new T.Box3Helper(rackBounds(r),0xe2bd00);selection.add(outline);if(sel.type==='location'){let [,sh,pl]=/^S(\d+)-P(\d+)$/.exec(sel.id.split('|')[1]);let turns=(r.rotation||0)%4,lw=turns%2?r.depth:r.width,ld=turns%2?r.width:r.depth,cell=lw/r.places,gap=rackLevels(r).gap,highlight=new T.Mesh(geometry,new T.MeshBasicMaterial({color:0xffe000,transparent:true,opacity:.16,depthWrite:false}));let hx=-lw/2+(Number(pl)-.5)*cell,hz=0;for(let t=0;t<turns;t++)[hx,hz]=[-hz,hx];highlight.position.set(r.x+hx,rackLevels(r).base+(Number(sh)-.5)*gap,r.z+hz);highlight.scale.set(turns%2?ld:cell,gap,turns%2?cell:ld);selection.add(highlight);}if(focus){let size=Math.max(r.width,r.height,r.depth,4);fly(new T.Vector3(r.x,r.height*.4,r.z),new T.Vector3(size*1.7,size*1.3,size*2.2));}
 }else if(a){let outline=new T.LineLoop(new T.BufferGeometry().setFromPoints(zonePoints(a).map(p=>new T.Vector3(p.x,.08,p.z))),new T.LineBasicMaterial({color:0xd2ad00}));selection.add(outline);if(focus)fly(new T.Vector3(a.x+a.w/2,0,a.z+a.d/2),new T.Vector3(a.w*.55,a.w*.9,a.w*.85));}else if(focus)home();}
 function fly(target,offset){anim={start:performance.now(),p:camera.position.clone(),t:controls.target.clone(),end:target.clone().add(offset),target};}
-function home(){following=null;fly(new T.Vector3(0,0,0),new T.Vector3(150,260,290));}
+function home(){following=null;fly(new T.Vector3(28,0,0),new T.Vector3(95,150,175));}
 const ray=new T.Raycaster(),pointer=new T.Vector2();function cast(e){let rect=renderer.domElement.getBoundingClientRect();pointer.set((e.clientX-rect.left)/rect.width*2-1,-(e.clientY-rect.top)/rect.height*2+1);ray.setFromCamera(pointer,camera);}
 function ground(e){cast(e);let p=new T.Vector3();return ray.ray.intersectPlane(new T.Plane(new T.Vector3(0,1,0),0),p)?p:null;}
 let preview=new T.Mesh(new T.PlaneGeometry(1,1),new T.MeshBasicMaterial({color:0xf4cf00,transparent:true,opacity:.3,side:T.DoubleSide}));preview.rotation.x=-Math.PI/2;preview.visible=false;scene.add(preview);

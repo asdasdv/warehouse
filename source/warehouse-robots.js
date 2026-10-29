@@ -212,7 +212,7 @@ export function addWarehouseRobots(scene, getState) {
       .sort((a, b) => a.queue.length - b.queue.length)[0];
     if (!st) return false;
     const s = getState();
-    const b = {id: `BX-${String(++s.serial).padStart(6, '0')}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
+    const b = {id: `BX-${++s.serial}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
     const slot = freeSlot(st), local = localPose(slot, arrivalSize());
     const mesh = box(st.g, local.x, local.y, local.z, local.w, local.h, local.d, boxMat);
     box(mesh, 0, .51, 0, .12, .02, 1.01, silver);

@@ -1,21 +1,36 @@
-import {occupancy,locations} from './storage.js';
+import {occupancy,locations,CELL_CAPACITY,rackCapacity} from './storage.js';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-// "Choose a place" modal: search + zone chips + racks sorted by free places.
-// pick(rack) resolves to the first compatible address in the rack (same component, else empty).
-export function bestAddress(state,rack,product,exclude){const occ=occupancy(state,rack.id);let empty=null;for(const loc of locations(rack)){if(exclude&&exclude.rack===rack.id&&exclude.loc===loc)continue;const bs=occ.get(loc)||[];if(bs.length&&bs[0].product===product)return {rack:rack.id,loc};if(!bs.length&&!empty)empty={rack:rack.id,loc};}return empty;}
-export function placeChooser({dialog,state,product,exclude,onPick,onBack,onMap}){
- let zone=state.zones[0]?.id||'all',query='';
- const used=new Map();for(const b of state.boxes){let s=used.get(b.rack);if(!s)used.set(b.rack,s=new Set());s.add(b.location);}
- const free=r=>r.shelves*r.places-(used.get(r.id)?.size||0);
- const racks=()=>state.racks.filter(r=>(zone==='all'||r.zone===zone)&&(!query||r.id.toLowerCase().includes(query))).map(r=>({r,free:free(r)})).sort((a,b)=>b.free-a.free||a.r.id.localeCompare(b.r.id));
- const color=r=>state.zones.find(z=>z.id===r.zone)?.color||'#82c0fa';
- const draw=()=>{const list=racks(),z=state.zones.find(z=>z.id===zone);
-  dialog.innerHTML=`<form><div class="title"><h2>Choose a place</h2><button type="button" class="icon" id="closeDialog" aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><label class="fg-search"><img src="/assets/fg/search.svg" alt=""><input id="placeSearch" placeholder="Search rack, e.g. A-04" value="${esc(query)}" autocomplete="off"></label><div class="fg-zones"><button type="button" class="fg-chip ${zone==='all'?'chosen':''}" data-zone="all">All</button>${state.zones.map(z=>`<button type="button" class="fg-chip ${zone===z.id?'chosen':''}" data-zone="${esc(z.id)}">${esc(z.id)}</button>`).join('')}</div><span class="ph-field-label">${z?esc(z.name):'All zones'} · sorted by free places</span><div class="fg-racks">${list.map(({r,free})=>`<button type="button" class="ph-row" data-rack="${esc(r.id)}"><i style="background:${color(r)}"></i><span>${esc(r.id)}</span><em>${free} free</em></button>`).join('')||'<p class="helper">No racks match.</p>'}</div><p class="form-error" id="error"></p><button type="button" class="outline wide" id="pickOnMap">Pick on the map</button></form>`;
-  dialog.querySelector('#closeDialog').onclick=onBack;
-  dialog.querySelectorAll('[data-zone]').forEach(b=>b.onclick=()=>{zone=b.dataset.zone;draw();});
-  const input=dialog.querySelector('#placeSearch');input.oninput=()=>{query=input.value.trim().toLowerCase();const pos=input.selectionStart;draw();const n=dialog.querySelector('#placeSearch');n.focus();n.setSelectionRange(pos,pos);};
-  dialog.querySelectorAll('[data-rack]').forEach(b=>b.onclick=()=>{const r=state.racks.find(x=>x.id===b.dataset.rack),c=bestAddress(state,r,product,exclude);if(!c){dialog.querySelector('#error').textContent=`${r.id} has no compatible free address.`;return;}onPick(c);});
-  dialog.querySelector('#pickOnMap').onclick=onMap;
- };
+const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`;
+// Free room in a cell for this product: 0 when another component is stored there.
+export function cellRoom(state,rackId,loc,product,exclude){const bs=occupancy(state,rackId).get(loc)||[];if(exclude&&exclude.rack===rackId&&exclude.loc===loc)return 0;if(bs.length&&bs[0].product!==product)return 0;return CELL_CAPACITY-bs.length;}
+export function bestAddress(state,rack,product,exclude){let empty=null;for(const loc of locations(rack)){const room=cellRoom(state,rack.id,loc,product,exclude);if(!room)continue;if(room<CELL_CAPACITY)return {rack:rack.id,loc};if(!empty)empty={rack:rack.id,loc};}return empty;}
+// "Choose another place": zone → rack → cell. onPick({rack, loc}) closes the chooser.
+export function placeChooser({dialog,state,product,qty=1,exclude,backLabel,onPick,onBack}){
+ const used=new Map();for(const b of state.boxes)used.set(b.rack,(used.get(b.rack)||0)+1);
+ const free=racks=>racks.reduce((n,r)=>n+rackCapacity(r)-(used.get(r.id)||0),0);
+ const color=zid=>state.zones.find(z=>z.id===zid)?.color||'var(--accent-primary)';
+ let step='zone',zone=null,rack=null,choice=null;
+ const frame=(back,title,sub,body)=>`<div class="lc-dialog"><div class="lc-dlg-top"><button type="button" class="lc-back" data-back><img src="/assets/fg/chevron-right.svg" alt="">${esc(back)}</button><button type="button" class="icon" data-close aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2><p class="lc-sub">${sub}</p>${body}</div>`;
+ const option=(id,name,value,c)=>`<button type="button" class="lc-option" data-go="${esc(id)}"><i style="background:${c}"></i><span>${esc(name)}</span><em>${value}</em><img src="/assets/fg/chevron-right.svg" alt=""></button>`;
+ function draw(){
+  if(step==='zone'){
+   const zones=state.zones.map(z=>({z,free:free(state.racks.filter(r=>r.zone===z.id))})).sort((a,b)=>b.free-a.free);
+   dialog.innerHTML=frame(backLabel,'Choose a zone','Where should the boxes go? Sorted by free room.',`<div class="lc-options">${zones.map(({z,free})=>option(z.id,z.name,`${free} free`,z.color)).join('')}</div>`);
+  }else if(step==='rack'){
+   const z=state.zones.find(z=>z.id===zone),racks=state.racks.filter(r=>r.zone===zone).map(r=>({r,free:free([r])})).sort((a,b)=>b.free-a.free||a.r.id.localeCompare(b.r.id));
+   dialog.innerHTML=frame('Zones',z?.name||zone,'Choose a rack · sorted by free room',`<div class="lc-options">${racks.map(({r,free})=>option(r.id,r.id,`${free} free`,z?.color)).join('')||'<p class="lc-empty">No racks in this zone.</p>'}</div>`);
+  }else{
+   const r=state.racks.find(r=>r.id===rack),occ=occupancy(state,r.id),c=color(r.zone);
+   if(!choice){const best=bestAddress(state,r,product,exclude);choice=best?.loc||null;}
+   const cells=[];for(let s=r.shelves;s>=1;s--){cells.push(`<span class="s">S${s}</span>`);for(let p=1;p<=r.places;p++){const loc=`S${s}-P${p}`,bs=occ.get(loc)||[],room=cellRoom(state,r.id,loc,product,exclude),same=bs.length&&bs[0].product===product;cells.push(`<button type="button" class="lc-cell${loc===choice?' chosen':''}${same?' same':''}" data-cell="${loc}" ${room?'':'disabled'} title="${loc} · ${bs.length?esc(bs[0].product):'empty'}">${Array.from({length:CELL_CAPACITY},(_,i)=>`<i class="${i<bs.length?'box':''}"></i>`).join('')}</button>`);}}
+   const room=choice?cellRoom(state,r.id,choice,product,exclude):0;
+   dialog.innerHTML=frame('Racks',r.id,`Pick a cell · each cell holds ${CELL_CAPACITY} boxes`,`<div class="lc-grid" style="--cols:${r.places};--cell-color:${c}"><span></span>${Array.from({length:r.places},(_,i)=>`<span>P${i+1}</span>`).join('')}${cells.join('')}</div><div class="lc-legend" style="--cell-color:${c}"><span><i class="box"></i>box</span><span><i></i>free space</span></div>${choice?`<div class="lc-card"><div>${esc(r.id)} · ${choice}</div><em>${room} free · fits ${Math.min(room,qty)} ${Math.min(room,qty)===1?'box':'boxes'}</em></div>`:'<p class="lc-empty">No free cell for this component on this rack.</p>'}<button type="button" class="primary" id="usePlace" ${choice?'':'disabled'}>Use this place</button>`);
+   dialog.querySelectorAll('[data-cell]').forEach(b=>b.onclick=()=>{choice=b.dataset.cell;draw();});
+   dialog.querySelector('#usePlace').onclick=()=>onPick({rack:r.id,loc:choice});
+  }
+  dialog.querySelector('[data-close]').onclick=()=>dialog.close();
+  dialog.querySelector('[data-back]').onclick=()=>{if(step==='zone')onBack();else{step=step==='cell'?'rack':'zone';choice=null;draw();}};
+  dialog.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{if(step==='zone'){zone=b.dataset.go;step='rack';}else{rack=b.dataset.go;step='cell';choice=null;}draw();});
+ }
  draw();
 }

@@ -76,3 +76,21 @@ test('layout changes re-plan robots instead of resetting the floor', () => {
   assert.ok(sim.delivered > delivered, 'work continues');
   assert.ok(Math.abs(sim.dashboard(state).onSite - stock) < 40, 'stock is not reset');
 });
+
+test('user tasks show robot progress and can be cancelled before pickup', () => {
+  const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+  sim.update(.1);
+  const box = state.boxes[0], target = state.racks.at(-1);
+  sim.requestMove(box.id, target.id);
+  assert.ok(sim.tasks().some(t => t.id === box.id && t.kind === 'Move'));
+  sim.cancelTask(box.id);
+  assert.equal(sim.tasks().some(t => t.id === box.id), false);
+  assert.equal(sim.boxInfo(box.id).actionable, true);
+  const product = state.boxes[1].product, before = sim.inStock(product);
+  sim.ship(product, 2, 'Dispatch 2');
+  assert.equal(sim.tasks().filter(t => t.kind === 'Ship').length, 2);
+  assert.throws(() => sim.ship(product, before + 1), /Choose 1/);
+  run(sim, 240);
+  const done = sim.takeFinished().filter(f => f.kind === 'Ship');
+  assert.ok(done.length >= 1 && done.every(f => f.place === 'Dispatch 2'));
+});
