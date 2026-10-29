@@ -195,18 +195,18 @@ dialog.lc-wide{width:880px}
 /* ---------- inventory ---------- */
 #inventoryPage.lc-inv{padding:var(--topbar-h) 12px 16px;overflow:auto}
 #historyPage{padding-top:var(--topbar-h)}
-.lc-filters{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 24px}
-.lc-token{display:flex;align-items:center;height:28px;border:1px solid var(--content-quaternary);border-radius:8px;font-size:12px;overflow:hidden}
+.lc-filters{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
+.lc-token{display:flex;align-items:center;height:36px;border:1px solid var(--content-quaternary);border-radius:12px;font-size:12px;overflow:hidden}
 .lc-token>*{height:100%;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:0;background:none;font-size:12px}
 .lc-token>span{color:var(--content-secondary);border-left:1px solid var(--content-quaternary);border-right:1px solid var(--content-quaternary)}
 .lc-token>button:hover{background:var(--surface-secondary)}
 .lc-token i{width:10px;height:10px;border-radius:3px}
 .lc-token .x{border-left:1px solid var(--content-quaternary);padding:0 6px}
 .lc-token .x .fg-ic{width:16px;height:16px}
-.lc-add{height:28px;padding:0 10px 0 6px;border-radius:8px;border:1px solid var(--content-quaternary);background:none;font-size:12px;display:flex;align-items:center;gap:4px}
-.lc-add.icon-only{width:28px;padding:0;justify-content:center}
+.lc-add{height:36px;padding:0 12px 0 10px;border-radius:12px;border:1px solid var(--content-quaternary);background:none;font-size:12px;display:flex;align-items:center;gap:4px}
+.lc-add.icon-only{width:36px;padding:0;justify-content:center}
 .lc-clear{background:none;font-size:12px;color:var(--content-secondary);padding:0 4px}
-.lc-pop{position:absolute;left:0;top:36px;z-index:20;width:240px;padding:4px;border-radius:12px;background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--pop);display:flex;flex-direction:column}
+.lc-pop{position:absolute;left:0;top:36px;z-index:20;width:240px;padding:4px;border-radius:12px;background:var(--surface-primary);box-shadow:var(--pop);display:flex;flex-direction:column}
 .lc-pop.wide{width:260px}
 .lc-pop-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--content-quaternary);margin-bottom:4px}
 .lc-pop-search img{opacity:.5}
@@ -221,7 +221,7 @@ dialog.lc-wide{width:880px}
 .lc-pop-list .on .lc-check{background:var(--surface-primary)}
 .lc-inv-metrics{display:grid;grid-template-columns:repeat(3,300px);gap:12px;margin-bottom:24px}
 .lc-inv-metrics .lc-stat{height:112px}
-.lc-inv-search{width:320px;margin-bottom:16px}
+.lc-inv-search{width:320px}
 .lc-inv-table .num{text-align:right}
 .lc-locs{display:flex;align-items:center;gap:6px;height:44px}
 .lc-loc{padding:2px 8px;border-radius:6px;font-size:14px;line-height:1.4;color:var(--content-primary)}
