@@ -88,7 +88,6 @@ button.primary:hover{background:var(--accent-primary-hover)}
 .lc-robot{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;padding:12px;border-radius:12px;background:var(--surface-secondary);text-align:left;width:100%}
 .lc-robot:hover{background:var(--surface-tertiary)}
 .lc-robot.chosen{outline:1px solid var(--accent-primary)}
-.lc-robot.standby{opacity:.55}
 .lc-robot b,.lc-robot strong{font-weight:500;display:block}
 .lc-robot small{display:block;font-size:12px;line-height:1.35;color:var(--content-secondary)}
 .lc-robot .bat{text-align:right}
@@ -307,3 +306,14 @@ dialog.lc-wide{width:880px}
 /* Icons use the content/secondary tone; top-bar icons turn black for the open section. */
 .fg-ic{opacity:.5}
 .ph-nav>button.active .fg-ic,.ph-nav>button:hover .fg-ic,.ph-search>button:hover .fg-ic{opacity:1}
+/* "+N places" popover (Figma popover/Other places) */
+.lc-locs .more{cursor:default}
+.lc-locs .more:hover{color:var(--content-primary)}
+.lc-places{position:absolute;z-index:40;width:360px;overflow:auto;padding:16px;border-radius:16px;display:flex;flex-direction:column;gap:12px;
+  background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,.12)}
+.lc-places b{font-weight:500}
+.lc-places>div{display:flex;flex-direction:column;gap:6px}
+.lc-places small{font-size:12px;line-height:1.35;color:var(--content-secondary)}
+.lc-places-row{display:flex;flex-wrap:wrap;gap:6px}
+/* Panels are translucent, so the warehouse panel must not show through Fleet or a box card. */
+.robot-mode #overview{visibility:hidden}
