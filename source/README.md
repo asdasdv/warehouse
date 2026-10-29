@@ -16,8 +16,10 @@
   - **Ship** — из топбара (товар, количество, Dispatch) или из карточки коробки, робот везёт коробки на Dispatch.
   - Каждая такая коробка — карточка в панели Tasks (Coming → Loading → Moving/Delivering/Storing), задачу можно
     отменить, пока робот не забрал коробку. По завершении — тост.
-- **Edit layout** (меню аватара) — зоны и стеллажи, Undo последних 10 изменений.
-  Роботы перестраивают маршруты под новую планировку.
+- **Edit warehouse layout** (меню-шестерёнка) — редактор по макету: план 2D (SVG) и 3D, инструменты
+  Select / Hand / Zone (Rectangle, Polygon, Edit points) / Place row / Measure / Robot access, список Objects,
+  Inspector (имя, цвет, размеры зоны, позиция и поворот стеллажа), Undo/Redo. Все правки — черновик:
+  Save сохраняет, Cancel спрашивает «Discard changes?» и откатывает. Роботы перестраивают маршруты под новую планировку.
 - Панель справа: склад → зона → стеллаж → полка → ячейка → коробка; All zones / All racks — таблицы.
 - Inventory (фильтры Zone/Rack/Shelf/Product/SKU/Received date), History, Fleet — живые представления симуляции.
 
@@ -30,5 +32,5 @@ npm run build   # сборка в dist/
 ```
 Папка `../locus-cloudflare` — содержимое `dist/` для деплоя на Cloudflare Pages.
 
-Главные файлы: `main.js` (интерфейс и окна), `phoenix-panel.js` (правая панель), `tasks-panel.js`, `locus.css` (токены из Figma), `warehouse-robots.js` (симуляция — единственный источник
+Главные файлы: `main.js` (интерфейс и окна), `phoenix-panel.js` (правая панель), `tasks-panel.js`, `locus.css` (токены из Figma), `layout-editor.js` (редактор планировки), `warehouse-robots.js` (симуляция — единственный источник
 данных о коробках), `scene.js` (3D), `model.js` / `storage.js` (склад, адреса, стеллажи).
