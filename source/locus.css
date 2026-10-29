@@ -340,3 +340,17 @@ dialog:focus{outline:none}
 #historyPage,#inventoryPage.lc-inv{display:flex;flex-direction:column}
 #historyPage>*,#inventoryPage.lc-inv>*{flex:none}
 #historyPage .ph-history-foot,#inventoryPage .ph-history-foot{margin-top:auto;padding-top:24px}
+
+/* History toolbar: Figma Chip (selected = surface/tertiary) and Search field. */
+.ph-history-tabs button{gap:8px;height:36px;padding:0 12px;border-radius:999px;background:var(--surface-secondary);color:var(--content-primary)}
+.ph-history-tabs button:hover{background:var(--surface-tertiary)}
+.ph-history-tabs button.active{background:var(--surface-tertiary);color:var(--content-primary)}
+.ph-history-tabs small,.ph-history-tabs button.active small{font-size:12px;line-height:1.35;padding-top:2px;color:var(--content-secondary)}
+.ph-history-tools{gap:8px}
+.ph-history-search{width:320px;height:36px;margin-left:8px}
+.ph-history-search input{height:100%;padding:0;margin:0;border:0;background:none;width:auto}
+.ph-history-search input::-webkit-search-cancel-button{display:none}
+.ph-history-fixed{table-layout:fixed}
+.ph-history-fixed td{overflow:hidden;text-overflow:ellipsis}
+/* Text fields show the caret, not a focus ring (Figma has none); buttons keep the ring for keyboard users. */
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
