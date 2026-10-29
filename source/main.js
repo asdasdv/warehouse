@@ -34,7 +34,7 @@ $('#app').innerHTML = `<main>
   <nav class="ph-nav" aria-label="Main navigation">
    <button class="nav active" id="warehouse" title="Warehouse" aria-label="Warehouse">${icon('grid')}</button>
    <button class="nav" id="inventory" title="Inventory" aria-label="Inventory">${icon('cube')}</button>
-   <div class="ph-search"><button type="button" id="phSearchButton" aria-label="Search warehouse">${icon('search')}</button><input id="search" placeholder="Search product, box or place…" autocomplete="off"><kbd>⌘K</kbd><div id="results" hidden></div></div>
+   <div class="ph-search"><button type="button" id="phSearchButton" aria-label="Search warehouse">${icon('search')}</button><input id="search" placeholder="Search product, box or place…" autocomplete="off"><div id="results" hidden></div></div>
    <button class="nav" data-robot-view="Fleet" title="Fleet" aria-label="Fleet">${icon('bolt')}</button>
    <button class="nav" id="historyAll" title="History" aria-label="History">${icon('clock')}</button>
   </nav>
@@ -127,6 +127,13 @@ function renderPanel() {
   lastPanelHTML = html; view.innerHTML = html; view.classList.toggle('home', !selected);
   view.scrollTop = scroll;
   bindPicks(view);
+  scene.preview(null);
+  // Hovering a row outlines that zone, rack, shelf, cell or box in 3D.
+  if (!view.dataset.hover) {
+    view.dataset.hover = '1';
+    view.addEventListener('pointerover', e => { const row = e.target.closest('.lc-row[data-pick]'); scene.preview(row ? {type: row.dataset.pick, id: row.dataset.id} : null); });
+    view.addEventListener('pointerleave', () => scene.preview(null));
+  }
   $('#allZones')?.addEventListener('click', () => tableDialog(() => allZonesHTML(live())));
   $('#allRacks')?.addEventListener('click', () => { const zone = selected.id; tableDialog(() => allRacksHTML(live(), zone)); });
 }
