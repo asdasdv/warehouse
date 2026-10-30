@@ -430,3 +430,14 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-pri
    so dialogs use the styled WebKit one with track margins equal to the corner radius. */
 dialog{scrollbar-width:auto;scrollbar-color:auto}
 dialog::-webkit-scrollbar-track{margin:24px 0}
+/* Scroll edges: a sticky blurred strip fades in at the top or bottom while content continues past it. */
+dialog::before,dialog::after{content:'';position:sticky;display:block;z-index:5;height:40px;margin-inline:-24px;pointer-events:none;opacity:0;transition:opacity .15s;
+  background:linear-gradient(var(--fade-dir,to bottom),var(--surface-primary) 0%,rgba(255,255,255,0) 100%);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent);-webkit-mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent)}
+dialog::before{top:0;margin-top:-24px;margin-bottom:-16px}
+dialog::after{--fade-dir:to top;bottom:0;margin-top:-16px;margin-bottom:-24px}
+dialog.cut-top::before,dialog.cut-bottom::after{opacity:1}
+/* Wide table dialogs: the column header stays pinned under the top edge while rows scroll beneath it. */
+dialog .lc-table thead th{position:sticky;top:16px;z-index:6;background:linear-gradient(var(--surface-secondary),var(--surface-secondary)) var(--surface-primary)}
+dialog.lc-wide::before{height:60px;margin-bottom:-36px;background:linear-gradient(to bottom,var(--surface-primary) 0 18px,rgba(255,255,255,0) 100%);mask-image:linear-gradient(#000 45%,transparent);-webkit-mask-image:linear-gradient(#000 45%,transparent)}

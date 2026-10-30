@@ -55,6 +55,14 @@ $('#app').innerHTML = `<main>
   let pressedOutside = false;
   d.addEventListener('pointerdown', e => { pressedOutside = e.target === d && outside(e); });
   d.addEventListener('click', e => { if (pressedOutside && e.target === d && outside(e)) d.close(); pressedOutside = false; });
+  // Soft blur at the top or bottom edge while content is cut off there.
+  const edges = () => {
+    d.classList.toggle('cut-top', d.scrollTop > 1);
+    d.classList.toggle('cut-bottom', d.scrollTop + d.clientHeight < d.scrollHeight - 1);
+  };
+  d.addEventListener('scroll', edges, {passive: true});
+  new MutationObserver(() => requestAnimationFrame(edges)).observe(d, {childList: true, subtree: true, attributes: true, attributeFilter: ['open']});
+  addEventListener('resize', edges);
 }
 const scene = createScene($('#scene'), () => state, pick, draw);
 const sim = scene.robotics;
