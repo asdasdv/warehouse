@@ -148,7 +148,6 @@ img { display: block; max-width: 100%; height: auto; }
 
 /* Steps strip */
 .steps { padding: 0 24px 32px; }
-.steps p { margin: 0 0 16px; }
 .step-list {
   list-style: none;
   margin: 0;
