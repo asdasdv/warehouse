@@ -44,7 +44,19 @@ export const itemOf=name=>catalog.find(p=>p.name===name);
 // A product created while receiving joins the catalog for the rest of the session.
 export function addProduct(name,sku,pcs=1){name=name.trim();sku=sku.trim().toUpperCase();if(!name||!sku)throw Error('Enter a product name and SKU.');if(catalog.some(p=>p.name.toLowerCase()===name.toLowerCase()||p.sku===sku))throw Error('This product or SKU already exists.');catalog.push({sku,name,pcs});products.push(name);return name;}
 // Zone colours from the Figma palette (zone/a … zone/h).
-export const colors=['#82c0fa','#8cd88a','#f0c977','#f29b6c','#b587f9','#f17fb7','#86cade','#9294f0'];
+// Zone colours: the eight Figma zone colours (zone/a…h) first, then pastels in the same style, each picked to
+// be as far as possible (in Lab) from every colour already used, so no two zones of a large warehouse match.
+const BASE=['#82c0fa','#8cd88a','#f0c977','#f29b6c','#b587f9','#f17fb7','#86cade','#9294f0'];
+function lab(hex){const c=[1,3,5].map(i=>{const v=parseInt(hex.slice(i,i+2),16)/255;return v>.04045?((v+.055)/1.055)**2.4:v/12.92;});
+ const [x,y,z]=[(c[0]*.4124+c[1]*.3576+c[2]*.1805)/.95047,c[0]*.2126+c[1]*.7152+c[2]*.0722,(c[0]*.0193+c[1]*.1192+c[2]*.9505)/1.08883].map(t=>t>.008856?Math.cbrt(t):7.787*t+16/116);
+ return [116*y-16,500*(x-y),200*(y-z)];}
+function hsl(h,s,l){s/=100;l/=100;const f=n=>{const k=(n+h/30)%12,a=s*Math.min(l,1-l);return Math.round(255*(l-a*Math.max(-1,Math.min(k-3,9-k,1)))).toString(16).padStart(2,'0');};return `#${f(0)}${f(8)}${f(4)}`;}
+function palette(n){const out=[...BASE],used=out.map(lab),cands=[];
+ for(let h=0;h<360;h+=6)for(const [sat,l] of [[78,72],[60,64],[85,80],[55,74]])cands.push(hsl(h,sat,l));
+ const labs=cands.map(lab),d=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+ while(out.length<n){let best=-1,bestD=-1;labs.forEach((c,i)=>{const m=Math.min(...used.map(u=>d(u,c)));if(m>bestD){bestD=m;best=i;}});out.push(cands[best]);used.push(labs[best]);}
+ return out;}
+export const colors=palette(48);
 // Demo warehouse from the Figma screens: 8 zones, 57 racks of 7 shelves × 4 cells, 2 boxes per cell.
 // A large fulfilment-centre layout: two conveyor systems run west→east through the middle — a receiving
 // loop (fed by the receiving building at the west end) and a dispatch line (into the dispatch building at

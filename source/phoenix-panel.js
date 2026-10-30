@@ -16,7 +16,8 @@ function hero(s,label='boxes stored'){return `<div class="lc-hero"><b>${fmt(s.st
 function crumb(parts){return `<div class="lc-crumb">${parts.map((p,i)=>{const last=i===parts.length-1,inner=last?`<span>${esc(p.label)}</span>`:p.root?`<button data-root>${esc(p.label)}</button>`:`<button data-pick="${p.type}" data-id="${esc(p.id)}">${esc(p.label)}</button>`;return (i?chev:'')+inner;}).join('')}</div>`;}
 const head=(left,right)=>`<div class="lc-list-head"><span>${left}</span><span>${right}</span></div>`;
 function row(name,value,type,id,color,sub=''){return `<button class="lc-row" data-pick="${type}" data-id="${esc(id)}"><i style="background:${color}"></i><span>${esc(name)}${sub?`<small>${esc(sub)}</small>`:''}</span><em>${value}</em></button>`;}
-function zoneBar(state,zones,free){return `<div class="lc-zonebar">${zones.map(z=>`<span style="flex:${z.s.stored||.001};background:${z.color}" title="${esc(z.name)} · ${fmt(z.s.stored)} stored"></span>`).join('')}<span class="free" style="flex:${free||.001}" title="Free · ${fmt(free)}"></span></div>`;}
+// Each zone segment is a zone row in small: a tooltip on hover, and a click opens the zone like its row.
+function zoneBar(state,zones,free){return `<div class="lc-zonebar">${zones.map(z=>`<span style="flex:${z.s.stored||.001};background:${z.color}" data-pick="zone" data-id="${esc(z.id)}" data-tip="${esc(z.name)} · ${fmt(z.s.stored)} / ${fmt(z.s.total)}" aria-label="${esc(z.name)}"></span>`).join('')}<span class="free" style="flex:${free||.001}" data-tip="Free · ${fmt(free)}"></span></div>`;}
 export function zonesByFill(state){return state.zones.map(z=>({...z,s:stock(state,state.racks.filter(r=>r.zone===z.id))})).sort((a,b)=>b.s.stored/(b.s.total||1)-a.s.stored/(a.s.total||1));}
 // sel: null (warehouse) | zone | rack | shelf ("A-01|S3") | location ("A-01|S3-P2")
 export function overviewHTML(state,sel){

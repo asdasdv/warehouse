@@ -431,16 +431,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-pri
  #narrow b{font-size:20px;line-height:28px;font-weight:600}#narrow span{font-size:14px;line-height:20px;color:var(--content-secondary);max-width:320px}}
 /* Dialogs: the dialog itself doesn't scroll; its one content block (.lc-dialog) does, 16px in from the top and
    bottom edges, so in every browser the scrollbar stays clear of the rounded corners. */
-dialog{padding:16px 0;overflow:hidden;scrollbar-width:auto;scrollbar-color:auto}
-dialog>.lc-dialog{max-height:calc(100vh - 64px);overflow:auto;padding:8px 24px}
+dialog{padding:24px 0;overflow:hidden;scrollbar-width:auto;scrollbar-color:auto}
+dialog>.lc-dialog{max-height:calc(100vh - 80px);overflow:auto;padding:0 24px}
 /* Scroll edges: a sticky blurred strip fades in at the top or bottom while content continues past it.
    The strips are flex items of .lc-dialog: their negative margins cancel their height and the 20px gap. */
 dialog>.lc-dialog::before,dialog>.lc-dialog::after{content:'';position:sticky;display:block;flex:none;z-index:5;height:40px;margin-inline:-24px;pointer-events:none;opacity:0;transition:opacity .15s;
   background:linear-gradient(var(--fade-dir,to bottom),var(--surface-primary) 0%,rgba(255,255,255,0) 100%);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent);-webkit-mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent)}
-dialog>.lc-dialog::before{top:0;margin-top:-8px;margin-bottom:-52px}
-dialog>.lc-dialog::after{--fade-dir:to top;bottom:0;margin-top:-52px;margin-bottom:-8px}
+dialog>.lc-dialog::before{top:0;margin-top:0;margin-bottom:-60px}
+dialog>.lc-dialog::after{--fade-dir:to top;bottom:0;margin-top:-60px;margin-bottom:0}
+/* The scroll area has no top/bottom padding (the dialog holds it): sticky strips stop at the padding edge,
+   so any padding there would leave a band where rows show again past the blur. */
 dialog.cut-top>.lc-dialog::before,dialog.cut-bottom>.lc-dialog::after{opacity:1}
 /* Wide table dialogs: the column header stays pinned at the top while rows scroll beneath it. */
 dialog .lc-table thead th{position:sticky;top:0;z-index:6;background:linear-gradient(var(--surface-secondary),var(--surface-secondary)) var(--surface-primary)}
@@ -513,3 +515,8 @@ input[type=search]::-webkit-search-cancel-button{display:none}
 .lc-suggest{border:4px solid transparent;padding:0}
 .lc-pop-list{border-right:4px solid transparent}
 dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px}
+/* Instant tooltip ([data-tip]) — a manual popover, so it shows above open dialogs too. */
+.lc-tip{position:fixed;inset:auto;margin:0;border:0;z-index:1000;padding:4px 8px;border-radius:8px;background:var(--content-primary);color:var(--surface-primary);font-size:12px;line-height:16px;white-space:nowrap;pointer-events:none}
+.lc-tip[hidden]{display:none}
+.lc-zonebar>span[data-pick]{cursor:pointer;transition:filter .15s}
+.lc-zonebar>span[data-pick]:hover{filter:brightness(.92)}

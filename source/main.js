@@ -65,6 +65,20 @@ document.addEventListener('click', e => {
   const b = e.target.closest('.lc-clear'); if (!b) return;
   const input = b.parentElement.querySelector('input'); input.value = ''; input.dispatchEvent(new Event('input', {bubbles: true})); input.focus();
 });
+// Instant tooltips for anything with data-tip (zone bar segments); shown above the element, inside dialogs too.
+{
+  const tip = document.createElement('div'); tip.className = 'lc-tip'; tip.hidden = true; tip.setAttribute('popover', 'manual'); document.body.append(tip);
+  document.addEventListener('pointerover', e => {
+    const el = e.target.closest?.('[data-tip]');
+    if (!el) { if (!tip.hidden) { tip.hidden = true; tip.hidePopover?.(); } return; }
+    tip.textContent = el.dataset.tip; tip.hidden = false;
+    if (tip.showPopover) { if (tip.matches(':popover-open')) tip.hidePopover(); tip.showPopover(); }
+    const r = el.getBoundingClientRect(), w = tip.offsetWidth;
+    tip.style.left = `${Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2))}px`; tip.style.top = `${r.top - tip.offsetHeight - 6}px`;
+  });  // A click (it may open another view) or a scroll hides it until the pointer reaches a tip again.
+  const hide = () => { if (!tip.hidden) { tip.hidden = true; tip.hidePopover?.(); } };
+  document.addEventListener('pointerdown', hide, true); document.addEventListener('scroll', hide, true);
+}
 // A click on the backdrop closes the dialog. Only when the press also started outside,
 // so selecting text inside and releasing outside doesn't close it.
 {
