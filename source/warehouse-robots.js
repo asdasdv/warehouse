@@ -23,7 +23,8 @@ const PARK_AFTER = 2;        // seconds without work before a robot heads to its
 const CONVEYOR_SCALE = BELT_TOP / .65; // conveyor.glb belt top is 0.65 m
 const ROBOT_SCALE = BELT_TOP / .665; // robot.glb deck height 0.665 m
 const BELT_SPEED = 2.5;
-const SPINE_SPEED = 10;      // the spine is a fast sorter belt: 370 m in under 40 s
+const SPINE_SPEED = 6;       // main conveyors: fast enough to keep up, slow enough to stop at a transfer
+const TRANSFER_SECONDS = .8; // a pop-up transfer pushes a box sideways between a main belt and a dock belt
 const AGE_METRES = 60;       // outbound picking: one day older is worth this many metres of extra driving
 // conveyor.glb: scanner portal 1.35 m from the hand-off end; lights hold their flash this long.
 const SCANNER_Z = BELT_START + 1.35 * BELT_TOP / .65, FLASH = 1.2;
@@ -186,8 +187,12 @@ export function addWarehouseRobots(scene, getState) {
   function label(parent, text, x, y, z) {
     const c = document.createElement('canvas'); c.width = 512; c.height = 96;
     const t = c.getContext('2d');
-    t.fillStyle = '#fafbf5'; t.fillRect(0, 0, 512, 96); t.fillStyle = '#30372f'; t.font = '500 42px Arial'; t.textAlign = 'center'; t.fillText(text, 256, 62);
-    const sp = new T.Sprite(new T.SpriteMaterial({map: new T.CanvasTexture(c), depthTest: true, toneMapped: false}));
+    t.font = '500 40px Inter, Arial, sans-serif'; t.textAlign = 'center';
+    const w = Math.min(500, (t.measureText?.(text).width ?? 200) + 56);
+    t.fillStyle = 'rgba(255,255,255,.88)'; t.beginPath?.(); t.roundRect?.(256 - w / 2, 14, w, 68, 34); t.fill?.();
+    t.fillStyle = '#4a5058'; t.fillText(text, 256, 62);
+    const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+    const sp = new T.Sprite(new T.SpriteMaterial({map: tex, depthTest: true, transparent: true, toneMapped: false}));
     sp.scale.set(5.5, 1.05, 1); sp.position.set(x, y, z); parent.add(sp); return sp;
   }
 
@@ -210,13 +215,13 @@ export function addWarehouseRobots(scene, getState) {
   function beltTexture() {
     const c = document.createElement('canvas'); c.width = 16; c.height = 64;
     const t = c.getContext('2d');
-    t.fillStyle = '#3a4244'; t.fillRect(0, 0, 16, 64); t.fillStyle = '#596366'; t.fillRect(0, 0, 16, 10);
+    t.fillStyle = '#4b5459'; t.fillRect(0, 0, 16, 64); t.fillStyle = '#626c71'; t.fillRect(0, 0, 16, 10);
     const tex = new T.CanvasTexture(c);
     tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(1, (BELT_END - BELT_START + 1) / 1.2);
     return tex;
   }
-  const frameMat = new T.MeshStandardMaterial({color: '#6f7e86', roughness: .6, metalness: .3});
-  const tunnelMat = new T.MeshStandardMaterial({color: '#b9c2c4', roughness: .8});
+  const frameMat = new T.MeshStandardMaterial({color: '#aab2b8', roughness: .45, metalness: .35});
+  const tunnelMat = new T.MeshStandardMaterial({color: '#e9ecef', roughness: .8});
   for (const {id, kind} of docksOf(getState())) {
     const g = new T.Group(), body = new T.Group();
     group.add(g); g.add(body);
@@ -268,6 +273,10 @@ export function addWarehouseRobots(scene, getState) {
         if (/^Status.strip$/.test(o.name)) o.material = st.scanMat = o.material.clone();
         if (/^Portal.status$/.test(o.name)) o.material = st.portalMat = o.material.clone();
         if (o.name.startsWith('Roller')) st.rollers.push(o);
+        // On conveyors the dock belt ends at a transfer, not in the model's dispatch tunnel.
+        if (getState().spine && /^Dispatch_(rear|side|roof)/.test(o.name)) o.visible = false;
+        // Calm palette: the model's dark blue-grey frame becomes light metal like the racks.
+        if (/blue grey frame/.test(o.material.name)) o.material.color.set('#a4adb4');
       });
     }
   });
@@ -287,13 +296,13 @@ export function addWarehouseRobots(scene, getState) {
   // docks push boxes onto the dispatch line, which carries them into the dispatch building. Both climb
   // onto bridges where robots cross underneath (see docks.js).
   const spineGroup = new T.Group(), spineItems = new T.Group(); group.add(spineGroup, spineItems);
-  const spineTextures = [], yellowMat = new T.MeshStandardMaterial({color: '#f1cf22', roughness: .6});
-  const beltMat = new T.MeshStandardMaterial({color: '#465053', roughness: .9});
+  const spineTextures = [], yellowMat = new T.MeshStandardMaterial({color: '#e9c84a', roughness: .6});
+  const beltMat = new T.MeshStandardMaterial({color: '#555e63', roughness: .9});
   let spine = null, spineKey = null, loop = null;
   function spineTexture(length, dir) {
     const c = document.createElement('canvas'); c.width = 64; c.height = 16;
     const t = c.getContext('2d');
-    t.fillStyle = '#3a4244'; t.fillRect(0, 0, 64, 16); t.fillStyle = '#596366'; t.fillRect(0, 0, 10, 16);
+    t.fillStyle = '#4b5459'; t.fillRect(0, 0, 64, 16); t.fillStyle = '#626c71'; t.fillRect(0, 0, 10, 16);
     const tex = new T.CanvasTexture(c);
     tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(length / 1.2, 1); spineTextures.push({tex, dir});
     return tex;
@@ -352,19 +361,118 @@ export function addWarehouseRobots(scene, getState) {
     legMesh.castShadow = true; spineGroup.add(legMesh);
     // The two buildings: boxes come out of receiving onto the loop and disappear into dispatch.
     for (const [x, z, name] of [[sp.x1 - BUILDING.length / 2, loop.mid, 'Receiving'], [sp.x2 + BUILDING.length / 2, sp.out, 'Dispatch']]) {
-      box(spineGroup, x, BUILDING.height / 2, z, BUILDING.length, BUILDING.height, BUILDING.width, tunnelMat);
-      box(spineGroup, x, BUILDING.height + .2, z, BUILDING.length + .4, .4, BUILDING.width + .4, frameMat);
-      label(spineGroup, name, x, BUILDING.height + 2, z).scale.set(12, 2.2, 1);
+      building(x, z, name);
       // A doorway with a light strip over it where the belt goes through the wall.
       const face = name === 'Receiving' ? x + BUILDING.length / 2 + .05 : x - BUILDING.length / 2 - .05, door = name === 'Receiving' ? N : sp.out;
       box(spineGroup, face, BELT_TOP + 2.6, door, .1, .35, 3.4, doorMats[name === 'Receiving' ? 'receiving' : 'dispatch']);
       box(spineGroup, face, BELT_TOP + 1.1, door, .08, 2.4, 3, new T.MeshStandardMaterial({color: '#2b3133', roughness: .9}));
     }
   }
+  // Pop-up transfers: where a dock belt meets a main belt, a patch of cross rollers rises out of the main
+  // belt and pushes the box sideways onto the dock belt (receiving) or off it onto the main belt (dispatch).
+  const transferGroup = new T.Group(); group.add(transferGroup);
+  const crossRoller = new T.CylinderGeometry(.07, .07, 2.1, 10).rotateX(Math.PI / 2);
+  const bridgeRoller = new T.CylinderGeometry(.07, .07, 2.2, 10).rotateZ(Math.PI / 2);
+  const rollerMat = new T.MeshStandardMaterial({color: '#b8c1c4', roughness: .35, metalness: .6});
+  const plateMat = new T.MeshStandardMaterial({color: '#2a3033', roughness: .8});
+  function drawTransfers() {
+    transferGroup.clear();
+    if (!spine) return;
+    for (const st of stations) {
+      const z = st.kind === 'inbound' ? spine.loop.north : spine.out, g = new T.Group();
+      g.position.set(st.g.position.x, 0, z); transferGroup.add(g);
+      box(g, 0, BELT_TOP + .01, 0, 2.8, .02, BELT_HALF * 2, plateMat);
+      for (const x of [-1.4, 1.4]) box(g, x, BELT_TOP + .02, 0, .1, .04, BELT_HALF * 2, yellowMat);
+      const lift = new T.Group(); g.add(lift);
+      st.crossRollers = [];
+      for (let i = 0; i < 8; i++) {
+        const m = new T.Mesh(crossRoller, rollerMat); m.position.set(-1.2 + i * 2.4 / 7, BELT_TOP + .02, 0); m.castShadow = true;
+        lift.add(m); st.crossRollers.push(m);
+      }
+      st.lift = lift; st.pop = 0;
+      // A few rollers bridge the end of the dock belt (where the model's tunnel was) to the main belt edge.
+      const edge = Math.abs(z - st.g.position.z) - BELT_HALF, last = 7.75;
+      for (let lz = last + .35; lz < edge; lz += .35) {
+        const at = st.g.localToWorld(new T.Vector3(0, BELT_TOP - .07, lz)), m = new T.Mesh(bridgeRoller, rollerMat);
+        m.position.copy(at); transferGroup.add(m);
+      }
+      for (const x of [-1.2, 1.2]) {
+        const a = st.g.localToWorld(new T.Vector3(x, BELT_TOP - .15, (last + edge) / 2));
+        box(transferGroup, a.x, a.y, a.z, .12, .25, edge - last, frameMat).rotation.y = st.g.rotation.y;
+      }
+    }
+  }
+  // Moves a box in a straight slide (with a small hop as the rollers rise), then calls `done`.
+  function transfer(st, q, to, done) {
+    const from = q.mesh.getWorldPosition(new T.Vector3());
+    if (q.mesh.parent !== spineItems) { q.mesh.parent.remove(q.mesh); spineItems.add(q.mesh); q.mesh.rotation.set(0, 0, 0); }
+    q.mesh.position.copy(from);
+    q.move = {t: 0, from, to, done}; st.popping = TRANSFER_SECONDS; st.portalFlash = FLASH;
+  }
+  function stepTransfer(st, q, dt) {
+    const m = q.move;
+    m.t = Math.min(1, m.t + dt / TRANSFER_SECONDS);
+    const k = m.t * m.t * (3 - 2 * m.t);
+    q.mesh.position.lerpVectors(m.from, m.to, k); q.mesh.position.y += Math.sin(Math.PI * m.t) * .12;
+    if (m.t >= 1) { q.move = null; m.done(); }
+  }
+  // ---------- buildings and lamps ----------
+  const cladding = (() => {
+    if (typeof document === 'undefined') return tunnelMat;
+    const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+    const t = c.getContext('2d'); t.fillStyle = '#eef0f2'; t.fillRect(0, 0, 64, 64); t.fillStyle = '#dde1e5'; t.fillRect(0, 0, 3, 64);
+    const tex = new T.CanvasTexture(c); tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(BUILDING.length / 1.2, 1); tex.colorSpace = T.SRGBColorSpace;
+    return new T.MeshStandardMaterial({map: tex, roughness: .85});
+  })();
+  const windowMat = new T.MeshStandardMaterial({color: '#ffd59a', emissive: '#ffbf66', emissiveIntensity: 1.4, roughness: .4});
+  const panelMat = new T.MeshStandardMaterial({color: '#273449', roughness: .3, metalness: .4});
+  const plinthMat = new T.MeshStandardMaterial({color: '#f1f2f4', roughness: .9});
+  function building(x, z, name) {
+    const {length: L, width: W, height: H} = BUILDING;
+    box(spineGroup, x, .06, z, L + 3, .12, W + 3, plinthMat);
+    box(spineGroup, x, H / 2, z, L, H, W, cladding);
+    box(spineGroup, x, H + .25, z, L + .2, .5, W + .2, tunnelMat);                 // parapet
+    box(spineGroup, x, H + .05, z, L - .6, .1, W - .6, new T.MeshStandardMaterial({color: '#d5d9de', roughness: .9}));
+    for (const side of [-1, 1]) for (let wx = -L / 2 + 1.5; wx <= L / 2 - 1.5; wx += 2.2)
+      box(spineGroup, x + wx, H * .62, z + side * (W / 2 + .03), 1.3, .9, .06, windowMat);
+    // Solar panels on the roof, in rows tilted towards the light.
+    const rows = 4, cols = 6, pw = (L - 2) / cols, pd = (W - 2) / rows;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      const m = box(spineGroup, x - L / 2 + 1 + (i + .5) * pw, H + .45, z - W / 2 + 1 + (j + .5) * pd, pw - .15, .06, pd - .3, panelMat);
+      m.rotation.x = -.18;
+    }
+    label(spineGroup, name, x, H + 3, z).scale.set(10, 1.9, 1);
+  }
+  // A street-style lamp beside each dock, with a warm pool of light on the floor.
+  const lampGroup = new T.Group(); group.add(lampGroup);
+  const poolTex = (() => {
+    if (typeof document === 'undefined') return null;
+    const c = document.createElement('canvas'); c.width = c.height = 128;
+    const t = c.getContext('2d'), g = t.createRadialGradient?.(64, 64, 0, 64, 64, 64);
+    if (!g) return null;
+    g.addColorStop(0, 'rgba(255,214,150,.42)'); g.addColorStop(.55, 'rgba(255,214,150,.12)'); g.addColorStop(1, 'rgba(255,214,150,0)');
+    t.fillStyle = g; t.fillRect(0, 0, 128, 128);
+    return new T.CanvasTexture(c);
+  })();
+  const poolMat = new T.MeshBasicMaterial({map: poolTex, transparent: true, depthWrite: false, toneMapped: false});
+  const poleMat = new T.MeshStandardMaterial({color: '#c9ced3', roughness: .5, metalness: .4});
+  const lampMat = new T.MeshStandardMaterial({color: '#fff3dd', emissive: '#ffcf85', emissiveIntensity: 2.5});
+  const poolGeo = new T.PlaneGeometry(14, 14).rotateX(-Math.PI / 2);
+  function drawLamps() {
+    lampGroup.clear();
+    for (const st of stations) {
+      const side = st.port.x + 4.5, out = st.kind === 'inbound' ? -1 : 1;
+      box(lampGroup, side, 3, st.port.z, .14, 6, .14, poleMat);
+      box(lampGroup, side - .5 * out * 0, 6, st.port.z, .8, .12, .3, poleMat);
+      box(lampGroup, side - .2, 5.9, st.port.z, .5, .08, .22, lampMat);
+      const pool = new T.Mesh(poolGeo, poolMat); pool.position.set(st.port.x + 2, .06, st.port.z); pool.renderOrder = 2; pool.raycast = () => {};
+      lampGroup.add(pool);
+    }
+  }
   // Where a box u metres along the receiving path is: negative u is the infeed from the building door.
   const loopPoint = u => u < 0 ? {x: loop.xa + u, z: spine.loop.north, leg: 'infeed'} : loop.at(u);
   // A dock's belt has room for one more box at its far end.
-  const spurFree = (st, q) => !st.queue.some(o => o !== q && !o.onSpine && o.arrived && o.mesh.position.z > BELT_END - (q.local.d + .4));
+  const spurFree = (st, q) => !st.queue.some(o => o !== q && (o.move || !o.onSpine && o.arrived && o.mesh.position.z > BELT_END - (q.local.d + .4)));
 
   // ---------- docks ----------
   const freeSlot = st => Array.from({length: STATION_CAPACITY}, (_, i) => i).find(i => !st.queue.some(q => q.slot === i));
@@ -427,7 +535,7 @@ export function addWarehouseRobots(scene, getState) {
         if (was < SCANNER_Z && p.z >= SCANNER_Z) st.scanFlash = FLASH;
         if (p.z >= BELT_END) {
           st.portalFlash = FLASH;
-          if (spine) { st.g.remove(q.mesh); spineItems.add(q.mesh); q.mesh.position.set(st.g.position.x, q.local.y + spineLift(spine, st.g.position.x), spine.out); q.mesh.rotation.set(0, 0, 0); q.onSpine = true; }
+          if (spine) { p.z = BELT_END; q.onSpine = true; transfer(st, q, new T.Vector3(st.g.position.x, q.local.y + spineLift(spine, st.g.position.x), spine.out), () => {}); }
           else ship(st, q);
         }
       }
@@ -447,6 +555,7 @@ export function addWarehouseRobots(scene, getState) {
   // otherwise they go round again. Dispatch: boxes ride the dispatch line into the dispatch building.
   function rideSpine(st, q, dt) {
     const p = q.mesh.position;
+    if (q.move) return stepTransfer(st, q, dt);
     if (st.kind === 'outbound') {
       p.x += dt * SPINE_SPEED; p.z = spine.out; p.y = q.local.y + spineLift(spine, p.x);
       if (p.x >= spine.x2) ship(st, q);
@@ -457,8 +566,11 @@ export function addWarehouseRobots(scene, getState) {
     if (q.u >= loop.length) q.u -= loop.length;
     const at = loopPoint(q.u), x = st.g.position.x;
     if (was.leg === 'north' && at.leg === 'north' && was.x < x && at.x >= x && spurFree(st, q)) {
-      spineItems.remove(q.mesh); st.g.add(q.mesh); q.mesh.position.set(0, q.local.y, BELT_END); q.mesh.rotation.set(0, 0, 0); q.onSpine = false;
-      st.portalFlash = FLASH;
+      // Stop over the transfer, then slide sideways onto the dock belt.
+      p.set(x, q.local.y + spineLift(spine, x), at.z);
+      transfer(st, q, st.g.localToWorld(new T.Vector3(0, q.local.y, BELT_END)), () => {
+        spineItems.remove(q.mesh); st.g.add(q.mesh); q.mesh.position.set(0, q.local.y, BELT_END); q.onSpine = false;
+      });
       return;
     }
     p.set(at.x, q.local.y + spineLift(spine, at.x), at.z);
@@ -492,8 +604,8 @@ export function addWarehouseRobots(scene, getState) {
   // ---------- layout changes ----------
   // Floor markings: lane lines with arrows on one-way runs, and a bay at each parking spot.
   const laneGroup = new T.Group(); group.add(laneGroup);
-  const laneMat = new T.MeshBasicMaterial({color: '#d8b52a', transparent: true, opacity: .6, depthWrite: false, toneMapped: false});
-  const bayMat = new T.MeshBasicMaterial({color: '#aab3b5', transparent: true, opacity: .7, depthWrite: false, toneMapped: false});
+  const laneMat = new T.MeshBasicMaterial({color: '#ffffff', transparent: true, opacity: .75, depthWrite: false, toneMapped: false});
+  const bayMat = new T.MeshBasicMaterial({color: '#ffffff', transparent: true, opacity: .55, depthWrite: false, toneMapped: false});
   const flat = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const arrowGeo = new T.ShapeGeometry(new T.Shape([new T.Vector2(.55, 0), new T.Vector2(-.35, .45), new T.Vector2(-.35, -.45)])).rotateX(-Math.PI / 2);
   function instanced(geometry, material, items) {
@@ -508,7 +620,7 @@ export function addWarehouseRobots(scene, getState) {
     const strips = [], arrows = [], bays = [];
     for (const g of segments) {
       const horizontal = g.z1 === g.z2, len = Math.hypot(g.x2 - g.x1, g.z2 - g.z1);
-      strips.push({x: (g.x1 + g.x2) / 2, z: (g.z1 + g.z2) / 2, sx: horizontal ? len + .22 : .22, sz: horizontal ? .22 : len + .22});
+      strips.push({x: (g.x1 + g.x2) / 2, z: (g.z1 + g.z2) / 2, sx: horizontal ? len + .14 : .14, sz: horizontal ? .14 : len + .14});
       if (!g.dir) continue;
       for (let t = 4; t < len - 1; t += 8) arrows.push({x: g.x1 + (g.x2 - g.x1) * t / len, z: g.z1 + (g.z2 - g.z1) * t / len,
         angle: horizontal ? (g.dir > 0 ? 0 : Math.PI) : (g.dir > 0 ? -Math.PI / 2 : Math.PI / 2)});
@@ -541,6 +653,8 @@ export function addWarehouseRobots(scene, getState) {
     const spots = router.parking(ROBOTS, stations.map(st => st.port), stations.map(st => st.port));
     robots.forEach((r, i) => { r.home = spots[i] || null; });
     drawLanes(segments, spots);
+    drawTransfers();
+    drawLamps();
     anchor = near;
     if (first) {
       robots.forEach((r, i) => {
@@ -765,6 +879,13 @@ export function addWarehouseRobots(scene, getState) {
       const full = st.queue.length >= STATION_CAPACITY;
       light(st.portalMat, !st.ready ? LIGHT.red : st.portalFlash ? LIGHT.green : full ? LIGHT.amber : LIGHT.ready,
         !st.ready ? (blink(1.5) ? 3 : .3) : st.portalFlash ? 4 : full ? 2.2 : 1.2);
+      // The transfer's cross rollers rise and spin while a box crosses.
+      if (st.lift) {
+        st.popping = Math.max(0, (st.popping || 0) - dt);
+        st.pop += ((st.popping ? 1 : 0) - st.pop) * Math.min(1, dt * 10);
+        st.lift.position.y = st.pop * .07;
+        if (st.popping) for (const o of st.crossRollers) o.rotation.z -= (st.kind === 'inbound' ? -1 : 1) * dt * 20;
+      }
       // Rollers turn while the belt moves: inbound towards the robot, outbound away from it.
       if (st.moving && st.rollers) for (const o of st.rollers) o.rotateY((st.kind === 'inbound' ? 1 : -1) * dt * BELT_SPEED / .14);
     }
@@ -1071,7 +1192,7 @@ export function addWarehouseRobots(scene, getState) {
       for (const st of stations) {
         const q = st.queue.find(q => q.box.id === id && q.user);
         if (!q) continue;
-        st.g.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(id); s.today.received--;
+        q.mesh.parent?.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(id); s.today.received--;
         history('Receipt cancelled', q.box, st.id, 'Supplier');
         return;
       }
