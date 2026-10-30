@@ -1,5 +1,5 @@
-// Receiving and dispatch docks: a short belt served by robots at the near end. On a warehouse with a
-// conveyor spine (`state.spine`) the far end joins the spine; without one it ends in a tunnel.
+// Receiving and dispatch docks: a short belt served by robots at the near end. With conveyors
+// (`state.spine`) the far end joins the receiving loop or the dispatch line; without them it ends in a tunnel.
 // A dock lives in `state.docks` as {id, kind, x, z, rotation}; (x, z) is the dock origin and
 // `rotation` turns it in 90° steps like a rack. Station-local +z runs along the belt, away from the robot.
 export const BELT_TOP = 1.5;                 // level with the robot deck
@@ -12,14 +12,18 @@ const SNAP = 2;                              // docks sit on the robot grid so t
 
 export const DOCK_IDS = [['Receiving 1', 'inbound'], ['Receiving 2', 'inbound'], ['Dispatch 1', 'outbound'], ['Dispatch 2', 'outbound']];
 
-// ---------- conveyor spine ----------
-// {x1, x2, z, crossings}: two parallel belts running west (x1, receiving building) → east (x2, dispatch building).
-// At each crossing the spine climbs onto a bridge so robots can drive underneath.
-export const SPINE_HALF = 3;       // half width of the spine footprint
-export const SPINE_BELT = 1.3;     // belt centre offset from the spine axis (north belt at -, south at +)
+// ---------- conveyors: receiving loop and dispatch line ----------
+// `state.spine` = {x1, x2, crossings, loop: {north, south}, out}. Two separate systems run west → east
+// through the middle of the building:
+// - the receiving loop: boxes leave the receiving building (west of x1) onto the loop's north leg and
+//   circulate until their receiving dock has room; receiving docks sit on the north side of the loop;
+// - the dispatch line (z = out): dispatch docks on its south side push boxes onto it, and it carries them
+//   into the dispatch building (east of x2).
+// At each crossing every belt climbs onto a bridge so robots can drive underneath.
+export const BELT_HALF = 1.1;      // half width of one belt
 export const BRIDGE_LIFT = 3.6, BRIDGE_HALF = 5, RAMP = 8;
 export const BUILDING = {length: 14, width: 12, height: 9};
-const DOCK_OFFSET = 12;            // dock origin from the spine axis: the belt tail meets the spine edge
+const OUT_START = 10;              // the dispatch line starts this far east of x1
 export function spineLift(spine, x) {
   let lift = 0;
   for (const c of spine.crossings || []) {
@@ -28,39 +32,53 @@ export function spineLift(spine, x) {
   }
   return lift;
 }
-// Profile break points along the spine, for drawing the belts as straight pieces.
-export function spineBreaks(spine) {
-  const xs = [spine.x1, spine.x2];
+// Profile break points between a and b, for drawing a belt as straight pieces.
+export function spineBreaks(spine, a = spine.x1, b = spine.x2) {
+  const xs = [a, b];
   for (const c of spine.crossings || []) xs.push(c - BRIDGE_HALF - RAMP, c - BRIDGE_HALF, c + BRIDGE_HALF, c + BRIDGE_HALF + RAMP);
-  return [...new Set(xs.filter(x => x >= spine.x1 && x <= spine.x2))].sort((a, b) => a - b);
+  return [...new Set(xs.filter(x => x >= a && x <= b))].sort((p, q) => p - q);
 }
-// What robots cannot drive through: the low parts of the spine and the two end buildings.
+// The receiving loop as a racetrack: straight legs from xa to xb joined by half circles.
+// `at(u)` gives the point u metres along it, starting at the west end of the north leg and running east.
+export function loopPath(spine) {
+  const {north: N, south: S} = spine.loop, R = Math.abs(S - N) / 2, mid = (N + S) / 2;
+  const xa = spine.x1 + R, xb = spine.x2 - R, L = xb - xa, length = 2 * L + 2 * Math.PI * R;
+  function at(u) {
+    u = ((u % length) + length) % length;
+    if (u < L) return {x: xa + u, z: N, leg: 'north'};
+    if ((u -= L) < Math.PI * R) { const t = u / R; return {x: xb + R * Math.sin(t), z: mid - R * Math.cos(t), leg: 'east'}; }
+    if ((u -= Math.PI * R) < L) return {x: xb - u, z: S, leg: 'south'};
+    const t = (u - L) / R; return {x: xa - R * Math.sin(t), z: mid + R * Math.cos(t), leg: 'west'};
+  }
+  return {xa, xb, R, mid, length, at};
+}
+export const outStart = spine => spine.x1 + OUT_START;
+// What robots cannot drive through: the low parts of the belts and the two buildings.
 export function spineRects(spine) {
   if (!spine) return [];
+  const top = Math.min(spine.loop.north, spine.out) - BELT_HALF - .5, bottom = Math.max(spine.loop.south, spine.out) + BELT_HALF + .5;
   const open = (spine.crossings || []).map(c => [c - BRIDGE_HALF, c + BRIDGE_HALF]).sort((a, b) => a[0] - b[0]), out = [];
   let from = spine.x1;
   for (const [a, b] of [...open, [spine.x2, spine.x2]]) {
-    if (a > from) out.push({id: 'Conveyor', x: (from + a) / 2, z: spine.z, width: a - from, depth: SPINE_HALF * 2});
+    if (a > from) out.push({id: 'Conveyor', x: (from + a) / 2, z: (top + bottom) / 2, width: a - from, depth: bottom - top});
     from = Math.max(from, b);
   }
-  out.push({id: 'Receiving building', x: spine.x1 - BUILDING.length / 2, z: spine.z, width: BUILDING.length, depth: BUILDING.width});
-  out.push({id: 'Dispatch building', x: spine.x2 + BUILDING.length / 2, z: spine.z, width: BUILDING.length, depth: BUILDING.width});
+  const mid = (spine.loop.north + spine.loop.south) / 2;
+  out.push({id: 'Receiving building', x: spine.x1 - BUILDING.length / 2, z: mid, width: BUILDING.length, depth: BUILDING.width});
+  out.push({id: 'Dispatch building', x: spine.x2 + BUILDING.length / 2, z: spine.out, width: BUILDING.length, depth: BUILDING.width});
   return out;
 }
-// Docks sit beside the spine: north docks face north (rotation 0), south docks face south (rotation 2).
-export function onSpine(spine, x, north) {
-  return {x: Math.round(x / SNAP) * SNAP, z: spine.z + (north ? -DOCK_OFFSET : DOCK_OFFSET), rotation: north ? 0 : 2};
+// Receiving docks sit north of the loop and face north; dispatch docks sit south of the dispatch line and face south.
+// The dock's belt tail meets the edge of its conveyor.
+export function onSpine(spine, x, kind) {
+  const z = kind === 'inbound' ? spine.loop.north - BELT_HALF - TAIL : spine.out + BELT_HALF + TAIL;
+  return {x: Math.round(x / SNAP) * SNAP, z: Math.round(z / SNAP) * SNAP, rotation: kind === 'inbound' ? 0 : 2};
 }
-export const dockNorth = (spine, d) => d.z < spine.z;
+export const dockNorth = (spine, d) => d.kind === 'inbound';
 function spineDocks(spine) {
-  const xs = [-150, -90, -30, 30, 90, 150], docks = [];
-  let inbound = 0, outbound = 0;
-  for (const north of [true, false]) xs.forEach((x, i) => {
-    const kind = (i + (north ? 0 : 1)) % 2 ? 'outbound' : 'inbound';
-    const id = kind === 'inbound' ? `Receiving ${++inbound}` : `Dispatch ${++outbound}`;
-    docks.push({id, kind, ...onSpine(spine, x, north)});
-  });
-  return docks;
+  const xs = [-150, -90, -30, 30, 90, 150];
+  return [...xs.map((x, i) => ({id: `Receiving ${i + 1}`, kind: 'inbound', ...onSpine(spine, x, 'inbound')})),
+    ...xs.map((x, i) => ({id: `Dispatch ${i + 1}`, kind: 'outbound', ...onSpine(spine, x, 'outbound')}))];
 }
 
 // Same turn as three.js rotation.y = -rotation·π/2.

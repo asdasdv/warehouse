@@ -5,22 +5,24 @@ import {docksOf, dockRect, dockPort, validateDocks, spineRects} from './docks.js
 import {createRouter, laneDir} from './robot-routing.js';
 import {validateLayoutAccess} from './layout-access.js';
 
-test('default docks line both sides of the spine, clear of racks and each other', () => {
-  const s = seed(), docks = docksOf(s);
+test('receiving docks sit on the loop, dispatch docks on the dispatch line', () => {
+  const s = seed(), docks = docksOf(s), {loop, out} = s.spine;
   assert.equal(docks.length, 12);
-  assert.equal(docks.filter(d => d.kind === 'inbound').length, 6);
   assert.doesNotThrow(() => validateDocks(s));
-  for (const north of [true, false]) {
-    const side = docks.filter(d => (d.z < s.spine.z) === north);
-    assert.ok(side.some(d => d.kind === 'inbound') && side.some(d => d.kind === 'outbound'), 'each side has both dock kinds');
+  for (const d of docks) {
+    const r = dockRect(d), port = dockPort(d);
+    if (d.kind === 'inbound') {
+      // North of the loop, its belt tail at the loop's north belt, the robot further north.
+      assert.ok(Math.abs(r.z + r.depth / 2 - (loop.north - 1.1)) < .5 && port.z < r.z, d.id);
+    } else {
+      assert.ok(Math.abs(r.z - r.depth / 2 - (out + 1.1)) < .5 && port.z > r.z, d.id);
+    }
   }
-  // The belt tail meets the spine; robots stop on the far side, in the corridor before the zones.
-  for (const d of docks) { const r = dockRect(d); assert.ok(Math.abs(Math.abs(r.z - s.spine.z) - r.depth / 2 - 3.2) < .1 && Math.abs(dockPort(d).z - s.spine.z) === 20, d.id); }
 });
 
 test('the spine blocks robots except under its bridges', () => {
   const s = seed(), router = createRouter([], spineRects(s.spine));
-  const path = router.route({x: -60, z: -20}, {x: -60, z: 20});
+  const path = router.route({x: -90, z: -20}, {x: -90, z: 20});
   assert.ok(path?.length);
   const crossing = path.find((p, i) => i && Math.sign(path[i - 1].z) !== Math.sign(p.z));
   assert.ok(s.spine.crossings.some(c => Math.abs(crossing.x - c) < 5), `crossed at x=${crossing.x}`);

@@ -17,11 +17,12 @@ export function addProduct(name,sku,pcs=1){name=name.trim();sku=sku.trim().toUpp
 // Zone colours from the Figma palette (zone/a … zone/h).
 export const colors=['#82c0fa','#8cd88a','#f0c977','#f29b6c','#b587f9','#f17fb7','#86cade','#9294f0'];
 // Demo warehouse from the Figma screens: 8 zones, 57 racks of 7 shelves × 4 cells, 2 boxes per cell.
-// A large fulfilment-centre layout: a conveyor spine runs west→east through the middle (receiving at the
-// west end, dispatch at the east end) and 24 zones line both sides of it, racks facing the spine.
-export const SPINE={x1:-186,x2:186,z:0,crossings:[-120,0,120]};
+// A large fulfilment-centre layout: two conveyor systems run west→east through the middle — a receiving
+// loop (fed by the receiving building at the west end) and a dispatch line (into the dispatch building at
+// the east end) — and 24 zones line both sides, racks facing the conveyors.
+export const SPINE={x1:-186,x2:186,crossings:[-120,-60,0,60,120],loop:{north:-8,south:-3},out:2};
 export function seed(){const zones=[],racks=[],boxes=[],flow={};let n=0;
- const rows=[{z:-87,north:true},{z:-54,north:true},{z:24,north:false},{z:57,north:false}];
+ const rows=[{z:-95,north:true},{z:-62,north:true},{z:24,north:false},{z:57,north:false}];
  rows.forEach((row,ri)=>{for(let c=0;c<6;c++){const i=ri*6+c,id=String.fromCharCode(65+i),x=c*59-176,z=row.z,nr=14-(i*5)%3;
   zones.push({id,name:`Zone ${id}`,x,z,w:56,d:30,color:colors[i%colors.length]});
   // North racks face south (+z), south racks face north, so every rack front looks towards the spine.
