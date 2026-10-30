@@ -5,7 +5,7 @@ import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
 import {mergeByMaterial} from './merge-meshes.js';
-import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, chargingDepots, depotStops, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
+import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, chargingDepots, depotStops, depotPosts, POST, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
@@ -559,7 +559,7 @@ export function addWarehouseRobots(scene, getState) {
     if (!bays.length) return;
     const posts = new T.InstancedMesh(geo, postMat, bays.length), lights = new T.InstancedMesh(geo, postLightMat, bays.length), o = new T.Object3D();
     bays.forEach((b, i) => {
-      o.position.set(b.x, .7, b.z + b.face * 2.1); o.scale.set(1.1, 1.4, .35); o.updateMatrix(); posts.setMatrixAt(i, o.matrix);
+      o.position.set(b.x, .7, b.z + b.face * POST.back); o.scale.set(POST.width, 1.4, POST.depth); o.updateMatrix(); posts.setMatrixAt(i, o.matrix);
       o.position.set(b.x, 1.15, b.z + b.face * 1.92); o.scale.set(.6, .12, .02); o.updateMatrix(); lights.setMatrixAt(i, o.matrix);
     });
     posts.castShadow = true; posts.receiveShadow = true;
@@ -849,8 +849,8 @@ export function addWarehouseRobots(scene, getState) {
     // The lines' ends follow the docks, so the conveyors are redrawn when docks move.
     const sk = JSON.stringify(s.spine || null) + JSON.stringify(docks);
     if (sk !== spineKey) { spineKey = sk; spine = s.spine || null; drawSpine(spine); }
-    const obstacles = layoutObstacles(s);
     depots = chargingDepots(s);
+    const obstacles = [...layoutObstacles(s), ...depotPosts(depots)];
     const area = depots.flatMap(d => [{x: d.x - 10, z: d.z - 10}, {x: d.x + d.w + 10, z: d.z + d.d + 10}]);
     router = createRouter(s.racks, obstacles, area);
     buildNetwork(stations.map(st => st.port), [...s.racks.flatMap(router.ports), ...depotStops(depots)], s.racks, obstacles, area);

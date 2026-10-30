@@ -128,6 +128,10 @@ export const depotStops = depots => depots.flatMap(d => d.aisles.flatMap(a => [a
 
 // Everything robots must drive around: docks plus the spine and its buildings.
 export const layoutObstacles = s => [...docksOf(s).map(dockRect), ...spineRects(s.spine)];
+// Charging posts stand 2.1 m behind each bay's stop (see drawDepots): solid for routing, so robots drive
+// round the post rows instead of through them, while the stop itself stays reachable.
+export const POST = {back: 2.1, width: 1.1, depth: .35};
+export const depotPosts = depots => depots.flatMap(d => d.bays.map(b => ({x: b.x, z: b.z + b.face * POST.back, width: POST.width, depth: POST.depth})));
 
 const overlaps = (a, b, gap) => Math.abs(a.x - b.x) < (a.width + b.width) / 2 + gap && Math.abs(a.z - b.z) < (a.depth + b.depth) / 2 + gap;
 // Docks keep a robot's width clear of racks and of each other, and their port must be open floor.
