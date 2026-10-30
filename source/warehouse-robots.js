@@ -267,7 +267,7 @@ export function addWarehouseRobots(scene, getState) {
   function arrivalSize() {
     const rack = getState().racks[0];
     if (!rack) return {w: 1.6, h: 1.4, d: 1.8};
-    const p = boxLayout(rack, Array.from({length: 4}, (_, i) => ({id: 'size-' + i, product: '', location: locations(rack)[0]})))[0];
+    const p = boxLayout(rack, Array.from({length: CELL_CAPACITY}, (_, i) => ({id: 'size-' + i, product: '', location: locations(rack)[0]})))[0];
     return {w: p.w, h: p.h, d: p.d};
   }
   function arrive(item) {

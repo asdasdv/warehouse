@@ -25,8 +25,9 @@ export function rackParts(r){
   }
   for(let s=0;s<r.shelves;s++){
     let y=base+s*gap;
-    for(const z of [-d/2,d/2])add('beam',0,y+.02,z,w,.18,.12);
-    for(const x of [-w/2,w/2])add('beam',x,y+.025,0,.10,.17,d);
+    // Beams stop short of the uprights: overlapping faces flicker.
+    for(const z of [-d/2,d/2])add('beam',0,y+.02,z,Math.max(.1,w-.20),.18,.12);
+    for(const x of [-w/2,w/2])add('beam',x,y+.025,0,.10,.17,Math.max(.1,d-.20));
     // Thin steel deck with visible seams and individual storage bays.
     for(let p=0;p<r.places;p++){
       let cell=w/r.places,x=-w/2+(p+.5)*cell;
