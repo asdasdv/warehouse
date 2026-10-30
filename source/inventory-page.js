@@ -27,7 +27,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const vals=[...counts].filter(([v])=>label(st,popover,v).toLowerCase().includes(popQuery)).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'en',{numeric:true}));
   return `<div class="lc-pop wide" id="invPop"><div class="lc-pop-search">${icon('search')}<input id="popSearch" placeholder="${esc(popover)}" value="${esc(popQuery)}"></div><div class="lc-pop-list">${vals.map(([v,n])=>{const z=popover==='Zone'?st.zones.find(x=>x.id===v):null;return `<button data-toggle="${esc(v)}" class="${set.has(v)?'on':''}"><span class="lc-check">${set.has(v)?'✓':''}</span>${z?`<i style="background:${z.color}"></i>`:''}<span class="v">${esc(label(st,popover,v))}</span><small>${fmt(n)}</small></button>`;}).join('')||'<p class="lc-empty">No values.</p>'}</div></div>`;
  }
- function render(){
+ function render(inPlace=false){
   if(!active)return;const st=getState(),live=sim.dashboard(st),boxes=st.boxes;
   {const zones=new Map(st.zones.map(z=>[z.id,z]));rackZone=new Map(st.racks.map(r=>[r.id,zones.get(r.zone)]));}
   const located=[...filters.keys()].some(k=>['Zone','Rack','Shelf'].includes(k)&&filters.get(k).size);
@@ -45,11 +45,12 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const byRack=filters.get('Rack')?.size,locCell=bs=>{const seen=new Map();for(const b of bs){const key=byRack?b.location:`${b.rack} · ${b.location.split('-')[0]}`;if(!seen.has(key))seen.set(key,pill(b));}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" tabindex="0" role="button" aria-haspopup="dialog" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};
   others.length=0;
   const st0=page*size;
-  el.innerHTML=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
+  const html=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
   <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(query)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
   <table class="ph-history-table lc-inv-table"><colgroup><col style="width:160px"><col><col style="width:80px"><col style="width:390px"></colgroup><thead><tr><th>SKU</th><th>Product</th><th class="num">Boxes</th><th>Location</th></tr></thead><tbody>${rows.slice(st0,st0+size).map(([p,bs])=>`<tr><td class="sub">${esc(itemOf(p)?.sku||'—')}</td><td>${esc(p)}</td><td class="num">${fmt(bs.length)}</td><td class="lc-locs">${locCell(bs)}</td></tr>`).join('')||'<tr class="lc-empty-row"><td colspan="4">No matching stock<small>Try another search or remove a filter</small></td></tr>'}</tbody></table>
   ${pages>1?`<div class="ph-history-foot"><span>Showing ${st0+1}–${Math.min(st0+size,rows.length)} of ${fmt(rows.length)} products</span><div><button id="invPrev" ${page===0?'disabled':''}>‹</button>${pageButtons(page,pages)}<button id="invNext" ${page>=pages-1?'disabled':''}>›</button></div></div>`:''}`;
-  bind();
+  if(inPlace&&patch(html))return;
+  el.innerHTML=html;bind();
  }
  // "+N places" popover (Figma popover/Other places): the remaining places grouped by zone.
  const tip=document.createElement('div');tip.className='lc-places';tip.hidden=true;document.querySelector('main').append(tip);
@@ -71,9 +72,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  tip.addEventListener('focusout',e=>{if(!tip.contains(e.relatedTarget))hidePlaces();});tip.addEventListener('keydown',e=>{if(e.key==='Escape')hidePlaces(true);});
  function keepFocus(sel,fn){const input=el.querySelector(sel),pos=input?.selectionStart;fn();const n=el.querySelector(sel);if(n){n.focus();n.setSelectionRange(pos,pos);}}
  function bind(){
-  // The «+N places» list opens on hover, on focus and on Enter/Space; Escape closes it.
-  el.querySelectorAll('[data-more]').forEach(m=>{const open=()=>showPlaces(m,others[Number(m.dataset.more)]);m.onmouseenter=open;m.onfocus=open;m.onblur=()=>{if(!tip.contains(document.activeElement))hidePlaces();};
-   m.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();tip.querySelector('[data-rack]')?.focus();}if(e.key==='Escape')hidePlaces(true);};});
+  // The «+N places» list opens on hover, on focus and on Enter/Space; Escape closes it (bindRows).
   el.querySelectorAll('[data-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();const k=b.dataset.open;popover=popover===k?null:k;popQuery='';render();el.querySelector('#popSearch')?.focus();});
   el.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{filters.delete(b.dataset.remove);popover=null;page=0;render();});
   el.querySelectorAll('[data-add]').forEach(b=>b.onclick=e=>{e.stopPropagation();filters.set(b.dataset.add,new Set());popover=b.dataset.add;popQuery='';render();});
@@ -86,10 +85,26 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   el.querySelector('#invSearch').oninput=e=>{query=e.target.value.trim().toLowerCase();page=0;keepFocus('#invSearch',render);};
   el.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page=+b.dataset.page;render();});
   el.querySelector('#invPrev')?.addEventListener('click',()=>{page--;render();});el.querySelector('#invNext')?.addEventListener('click',()=>{page++;render();});
+  bindRows();
+ }
+ function bindRows(){
+  el.querySelectorAll('[data-more]').forEach(m=>{const open=()=>showPlaces(m,others[Number(m.dataset.more)]);m.onmouseenter=open;m.onfocus=open;m.onblur=()=>{if(!tip.contains(document.activeElement))hidePlaces();};
+   m.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();tip.querySelector('[data-rack]')?.focus();}if(e.key==='Escape')hidePlaces(true);};});
   el.querySelectorAll('[data-rack]').forEach(b=>b.onclick=()=>{close();onLocation('stored',b.dataset.rack);});
+ }
+ // Live refresh changes only what changed: the numbers on top and the rows whose text moved. Rebuilding the
+ // whole page every 1.5 s dropped the row under the cursor and felt like the table lagging.
+ function patch(html){
+  const t=document.createElement('div');t.innerHTML=html;
+  const same=sel=>(el.querySelector(sel)?.outerHTML||'')===(t.querySelector(sel)?.outerHTML||'');
+  if(!same('.lc-filters')||!same('.ph-history-foot'))return false;
+  const was=[...el.querySelectorAll('tbody tr')],now=[...t.querySelectorAll('tbody tr')];if(was.length!==now.length)return false;
+  const m=el.querySelector('.lc-inv-metrics'),n=t.querySelector('.lc-inv-metrics');if(m&&n&&m.innerHTML!==n.innerHTML)m.innerHTML=n.innerHTML;
+  was.forEach((r,i)=>{if(r.innerHTML!==now[i].innerHTML)r.innerHTML=now[i].innerHTML;});
+  bindRows();return true;
  }
  document.addEventListener('click',e=>{if(active&&popover&&!e.target.closest('#invPop')){popover=null;render();}});
  function close(){active=false;popover=null;tip.hidden=true;hovering=false;el.hidden=true;document.body.classList.remove('inventory-mode');}
- setInterval(()=>{if(active&&!hovering&&!el.contains(document.activeElement))render();},1500);
+ setInterval(()=>{if(active&&!hovering&&!popover&&!el.contains(document.activeElement))render(true);},1500);
  return {close,open(q){if(q!==undefined){query=q.toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
 }
