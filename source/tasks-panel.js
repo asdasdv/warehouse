@@ -4,7 +4,7 @@ const STEPS = {Receive: ['Coming', 'Loading', 'Storing'], Move: ['Coming', 'Load
 const TITLE = {Receive: 'Put away to', Move: 'Move to', Ship: 'Ship to'};
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
-export function installTasksPanel(sim, toast, {onHistory, onRobot}) {
+export function installTasksPanel(sim, toast, {onHistory, onRobot, onBox}) {
   const el = document.createElement('section');
   el.id = 'tasksPanel'; el.hidden = true;
   document.querySelector('main').append(el);
@@ -13,7 +13,9 @@ export function installTasksPanel(sim, toast, {onHistory, onRobot}) {
   const robotLink = t => t.robot ? esc(t.text).replace(esc(t.robot), `<button class="lc-robot-link" data-follow="${esc(t.robot)}">${esc(t.robot)}</button>`) : esc(t.text);
   function card(t) {
     const steps = STEPS[t.kind], status = t.step < 0 ? 'Waiting' : t.step === 0 ? 'Robot is coming' : steps[t.step];
-    return `<div class="lc-task"><div class="lc-task-line"><span>${TITLE[t.kind]} ${esc(t.to)}</span><small>${status}</small></div><p>${robotLink(t)}</p>`
+    // A card for a real box opens it and flies the camera there; queued receipts have no box yet.
+    const box = /^BX-/.test(t.id);
+    return `<div class="lc-task${box ? ' go' : ''}"${box ? ` data-box="${esc(t.id)}" tabindex="0" role="button"` : ''}><div class="lc-task-line"><span>${TITLE[t.kind]} ${esc(t.to)}</span><small>${status}</small></div><p>${robotLink(t)}</p>`
       + `<div class="lc-steps">${steps.map((_, i) => `<i class="${i <= t.step ? 'on' : ''}"></i>`).join('')}</div>`
       + `<div class="lc-step-names">${steps.map((s, i) => `<span class="${i === t.step ? 'on' : ''}">${s}</span>`).join('')}</div>`
       + (t.cancellable ? `<button class="lc-cancel" data-cancel="${esc(t.id)}">Cancel task</button>` : '') + '</div>';
@@ -23,8 +25,13 @@ export function installTasksPanel(sim, toast, {onHistory, onRobot}) {
     const html = tasks.length ? `<p>Tasks · ${tasks.length}</p>${tasks.map(card).join('')}` : '';
     if (html !== last) {
       last = html; el.innerHTML = html; el.hidden = !tasks.length;
-      el.querySelectorAll('[data-follow]').forEach(b => b.onclick = () => onRobot?.(b.dataset.follow));
-      el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
+      el.querySelectorAll('[data-follow]').forEach(b => b.onclick = e => { e.stopPropagation(); onRobot?.(b.dataset.follow); });
+      el.querySelectorAll('[data-box]').forEach(c => {
+        c.onclick = e => { if (!e.target.closest('button')) onBox?.(c.dataset.box); };
+        c.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === c) { e.preventDefault(); onBox?.(c.dataset.box); } };
+      });
+      el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = e => {
+        e.stopPropagation();
         try { sim.cancelTask(b.dataset.cancel); toast('Task cancelled'); } catch (e) { toast(e.message); }
         render();
       });

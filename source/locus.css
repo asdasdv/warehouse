@@ -443,3 +443,6 @@ dialog>.lc-dialog::after{--fade-dir:to top;bottom:0;margin-top:-52px;margin-bott
 dialog.cut-top>.lc-dialog::before,dialog.cut-bottom>.lc-dialog::after{opacity:1}
 /* Wide table dialogs: the column header stays pinned at the top while rows scroll beneath it. */
 dialog .lc-table thead th{position:sticky;top:0;z-index:6;background:linear-gradient(var(--surface-secondary),var(--surface-secondary)) var(--surface-primary)}
+/* Task cards for a real box are clickable: they open the box and fly the camera to it. */
+.lc-task.go{cursor:pointer;transition:background .15s}
+.lc-task.go:hover{background:var(--surface-tertiary)}

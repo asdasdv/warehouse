@@ -407,7 +407,7 @@ const inventoryPage = installInventoryPage({getState: () => state, sim, onShip: 
 const builderTools = installBuilderTools(scene.builderContext, () => state,
   a => commit(() => { applyLayoutEdit(state, a); log(state, 'Layout updated', a.type); }),
   points => commit(() => { for (const p of points) addRack(state, state.zones.find(z => contains(z, p))?.id, p.x, p.z, rackDraft); }));
-installTasksPanel(sim, toast, {onHistory: () => showHistory('Shipped'), onRobot: id => pick({type: 'robot', id})});
+installTasksPanel(sim, toast, {onHistory: () => showHistory('Shipped'), onRobot: id => pick({type: 'robot', id}), onBox: id => pick({type: 'box', id})});
 const layoutEditor = installLayoutEditor({getState: () => state, scene, builderTools, rackDraft: () => rackDraft, toast,
   onChange: refresh, onSelect: s => { selected = s?.type === 'zone' || s?.type === 'rack' ? s : null; },
   onExit: () => { toggleEdit(false); pick(null); }});
