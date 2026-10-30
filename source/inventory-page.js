@@ -12,7 +12,7 @@ const age=b=>{const t=Date.parse(b.receivedAt||0),start=new Date().setHours(0,0,
 const KEYS=['Zone','Rack','Shelf','Product','SKU','Received date'];
 export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation}){
  const el=document.createElement('section');el.id='inventoryPage';el.className='lc-inv';el.hidden=true;document.querySelector('main').append(el);
- let active=false,query='',page=0,popover=null,popQuery='',hovering=false;const others=[];const filters=new Map(),size=10;
+ let active=false,query='',page=0,popover=null,popQuery='',hovering=false;const others=[];const filters=new Map(),size=50;
  const zoneOfRack=(st,rid)=>st.zones.find(z=>z.id===st.racks.find(r=>r.id===rid)?.zone);
  function value(st,b,key){if(key==='Zone')return b.kind==='stored'?zoneOfRack(st,b.rack)?.id:null;if(key==='Rack')return b.kind==='stored'?b.rack:null;if(key==='Shelf')return b.kind==='stored'?b.location.split('-')[0]:null;if(key==='Product')return b.product;if(key==='SKU')return itemOf(b.product)?.sku||null;return age(b);}
  const matches=(st,b,skip)=>[...filters].every(([k,set])=>k===skip||!set.size||set.has(value(st,b,k)));

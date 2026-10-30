@@ -10,6 +10,35 @@ export const catalog=[
  {sku:'MW-HDR60-24',name:'Mean Well HDR-60-24 power supply',pcs:4},{sku:'MW-NDR120-24',name:'Mean Well NDR-120-24 power supply',pcs:4},
  {sku:'SIE-6ES7214',name:'Siemens S7-1200 CPU 1214C',pcs:1},{sku:'SIE-6ES7221',name:'Siemens SM 1221 digital input module',pcs:2},
  {sku:'SE-XB4BA31',name:'Schneider XB4 green push button',pcs:20},{sku:'LAP-SKV-M20',name:'Lapp Skintop M20 cable gland',pcs:50}];
+// The rest of the range: product series × their ratings, sizes and coil voltages (~300 items in all).
+const series=[
+ [['B6','B10','B13','B16','B20','B25','B32','C1','C2','C4','C6','C13','C20','C25','C32','C40','C50','C63'],v=>['ABB-S201-'+v,`ABB S201 ${v} circuit breaker`,12]],
+ [['C6','C10','C16','C20','C25','C32','C40','C50','C63'],v=>['ABB-S203-'+v,`ABB S203 ${v} 3-pole circuit breaker`,4]],
+ [['C6','C10','C16','C20','C25','C40','C50','C63'],v=>['SE-IC60N1-'+v,`Schneider iC60N ${v} circuit breaker`,6]],
+ [['C10','C16','C20','C25','C32','C40','C63'],v=>['SE-IC60N3-'+v,`Schneider iC60N ${v} 3-pole circuit breaker`,2]],
+ [['B16','C6','C10','C16','C20','C32','C40','C50','C63'],v=>['IEK-BA4729-'+v,`IEK BA47-29 ${v} circuit breaker`,12]],
+ [['D12','D18','D25','D32','D38','D40','D50','D65','D80'].flatMap(d=>[[d,'BD','24 V DC'],[d,'P7','230 V AC']]),([d,c,v])=>['SE-LC1'+d+c,`Schneider TeSys LC1${d} contactor, ${v}`,d>'D38'?2:10]],
+ [['AF09','AF12','AF26','AF30','AF38','AF52','AF65'].flatMap(a=>[[a,'30-10'],[a,'30-01']]),([a,c])=>[`ABB-${a}-${c.slice(3)}`,`ABB ${a}-${c} contactor`,a>'AF30'?2:10]],
+ [['3RT2015','3RT2016','3RT2017','3RT2018','3RT2023','3RT2024','3RT2025','3RT2026'].flatMap(a=>[[a,'1BB4','24 V DC'],[a,'1AP0','230 V AC']]),([a,c,v])=>[`SIE-${a}-${c}`,`Siemens ${a} contactor, ${v}`,6]],
+ [['40.52','40.61','46.52','55.34'].flatMap(r=>[[r,'12 V DC'],[r,'24 V DC'],[r,'230 V AC']]),([r,v])=>[`FIN-${r.replace('.','')}-${v.split(' ')[0]}${v.endsWith('AC')?'A':''}`,`Finder ${r} relay, ${v}`,20]],
+ [['PLC-RSC- 24DC/21','PLC-RSC-230UC/21','PLC-RPT- 24DC/21','PLC-RSC- 24DC/1AU','PLC-OSC- 24DC/ 24DC/ 2'],v=>['PHX-'+v.replace(/[\s/]/g,'').slice(0,14),`Phoenix Contact ${v.replace(/\s+/g,' ')} relay module`,10]],
+ [['221-412','221-415','221-612','221-613','221-615','2002-1301','2002-1401','2002-1661','2004-1201','2004-1301','2006-1201','2010-1201','2016-1201'],v=>['WAG-'+v,`WAGO ${v} ${v.startsWith('221')?'splicing connectors':'terminal blocks'}`,v.startsWith('221')?100:50]],
+ [['WDU 2.5','WDU 4','WDU 6','WDU 10','WDU 16','WDU 35'],v=>['WEI-'+v.replace(/[ .]/g,''),`Weidmüller ${v} terminal blocks`,50]],
+ [['UT 2,5','UT 4','UT 6','UT 10','UT 16'],v=>['PHX-'+v.replace(/[ ,]/g,''),`Phoenix Contact ${v} terminal blocks`,50]],
+ [['15','30','100','150'].flatMap(w=>[[w,'12'],[w,'24']]).concat([['60','12'],['60','48']]),([w,v])=>[`MW-HDR${w}-${v}`,`Mean Well HDR-${w}-${v} power supply`,4]],
+ [[['75','24'],['75','48'],['120','48'],['240','24'],['240','48'],['480','24'],['480','48']],([w,v])=>[`MW-NDR${w}-${v}`,`Mean Well NDR-${w}-${v} power supply`,w>'200'?1:4]],
+ [['1211C','1212C','1214C','1215C','1217C'].flatMap(c=>[[c,'DC/DC/DC'],[c,'AC/DC/RLY']]).filter(([c,t])=>!(c==='1214C'&&t==='DC/DC/DC')),([c,t])=>[`SIE-CPU${c}-${t.split('/').map(x=>x[0]).join('')}`,`Siemens S7-1200 CPU ${c} ${t}`,1]],
+ [['SM 1221 DI16','SM 1222 DQ8','SM 1222 DQ16','SM 1223 DI8/DQ8','SM 1231 AI4','SM 1231 AI8','SM 1232 AQ2','SM 1232 AQ4'],v=>['SIE-'+v.replace(/[ /]/g,''),`Siemens ${v} module`,2]],
+ [['XB4BA42 red push button','XB4BA21 black push button','XB4BA51 yellow push button','XB4BA61 blue push button','XB4BD21 selector switch','XB4BD33 selector switch','XB4BS8445 emergency stop','XB4BVB3 green pilot light','XB4BVB4 red pilot light'],v=>['SE-'+v.split(' ')[0],'Schneider '+v.replace(/^(\S+) /,'XB4 '),20]],
+ [['M12','M16','M25','M32','M40','M50'],v=>['LAP-SKV-'+v,`Lapp Skintop ${v} cable gland`,50]],
+ [['3G1.5','3G2.5','4G1.5','5G1.5','5G2.5','7G1.5','12G1'],v=>['LAP-OC110-'+v.replace('.',''),`Lapp Ölflex Classic 110 ${v} cable, 100 m`,1]],
+ [['0.63','1','1.6','2.5','4','6.3','10','12','16','20','25','32'],v=>['EAT-PKZM0-'+v,`Eaton PKZM0-${v} motor protector`,5]],
+ [['0.37','0.75','1.5','2.2','3','4','5.5','7.5'],v=>['DAN-FC51-'+v.replace('.',''),`Danfoss VLT FC 51 drive, ${v} kW`,1]],
+ [['E3Z-D61 diffuse','E3Z-T61 through-beam','E3Z-R61 retroreflective','E2E-X5ME1 inductive','E2E-X8MD1 inductive','E2E-X10ME1 inductive'],v=>['OMR-'+v.split(' ')[0],`Omron ${v.split(' ')[0]} ${v.split(' ')[1]} sensor`,5]],
+ [['AE 1050 500×500×210','AE 1060 600×600×210','AE 1076 760×760×300','AE 1080 800×600×300','AE 1031 300×300×155','AE 1045 400×500×210'],v=>['RIT-'+v.split(' ').slice(0,2).join(''),`Rittal ${v.split(' ').slice(0,2).join(' ')} enclosure, ${v.split(' ')[2]} mm`,1]],
+ [['25×25','25×40','40×40','40×60','60×60','80×80'],v=>['PAN-G'+v.replace('×','X'),`Panduit wiring duct ${v} mm, 2 m`,10]],
+ [['35×7.5 slotted','35×7.5 plain','35×15 slotted'],v=>['DIN-'+v.replace(/[×. ]/g,'').slice(0,8).toUpperCase(),`DIN rail ${v}, 2 m`,10]]];
+for(const [values,make] of series)for(const v of values){const [sku,name,pcs]=make(v);if(!catalog.some(p=>p.sku===sku||p.name===name))catalog.push({sku,name,pcs});}
 export const products=catalog.map(p=>p.name);
 export const itemOf=name=>catalog.find(p=>p.name===name);
 // A product created while receiving joins the catalog for the rest of the session.
@@ -32,8 +61,9 @@ export const LAYOUTS={
   spine:{x1:-366,x2:366,crossings:[-270,-210,-150,-90,-30,30,90,150,210,270],docks:dockPlan([-300,-240,-180,-120,-60,0,60,120,180,240,300])}}};
 export const SPINE=LAYOUTS.small.spine;
 const zoneId=i=>i<26?String.fromCharCode(65+i):String.fromCharCode(65+Math.floor(i/26)-1)+String.fromCharCode(65+i%26);
+const shelfProduct=(zi,j,shelf)=>{const u=Math.abs(Math.sin(zi*12.9898+j*78.233+shelf*37.719)*43758.5453)%1;return Math.floor(products.length*u**1.8);};
 function fillRacks(zoneRacks,zi,boxes,flow,fill,next){for(const [j,r] of zoneRacks.entries()){const qty=Math.min(rackCapacity(r),Math.round(rackCapacity(r)*fill*(1+.16*Math.sin(j*1.7+zi*2.3)))),cells=locations(r);
- for(let k=0;k<qty;k++){const loc=cells[Math.floor(k/CELL_CAPACITY)],shelf=Number(loc.slice(1,loc.indexOf('-')));boxes.push({id:`BX-${String(10000+next())}`,product:products[(zi*5+j*3+shelf)%products.length],rack:r.id,location:loc});}
+ for(let k=0;k<qty;k++){const loc=cells[Math.floor(k/CELL_CAPACITY)],shelf=Number(loc.slice(1,loc.indexOf('-')));boxes.push({id:`BX-${String(10000+next())}`,product:products[shelfProduct(zi,j,shelf)],rack:r.id,location:loc});}
  flow[r.id]={in:Math.round(qty*(.06+.05*Math.abs(Math.sin(j+zi)))),out:Math.round(qty*(.03+.04*Math.abs(Math.cos(j*2+zi))))};}}
 // Racks for one varied zone. Rows face the conveyors (with uneven lengths and the odd cross aisle);
 // "column" zones turn the racks to face the side aisles instead. Every rack keeps an 11 m aisle on both faces.
