@@ -7,6 +7,7 @@ import {installRobotPanels} from './robot-panels.js';
 import {installTasksPanel} from './tasks-panel.js';
 import {installBuilderTools} from './builder-tools.js';
 import {installLayoutEditor} from './layout-editor.js';
+import {docksOf} from './docks.js';
 import {validateLayoutAccess} from './layout-access.js';
 import {applyLayoutEdit} from './layout-edit.js';
 import {contains} from './zone-shape.js';
@@ -69,7 +70,7 @@ function commit(fn) {
   const before = layoutSnapshot();
   try {
     fn();
-    validateLayoutAccess(JSON.parse(before).racks, state.racks);
+    validateLayoutAccess(JSON.parse(before).racks, state.racks, docksOf(state));
   } catch (e) {
     Object.assign(state, JSON.parse(before));
     toast(e.message);

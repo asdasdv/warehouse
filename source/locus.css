@@ -25,7 +25,7 @@ button.primary:hover{background:var(--accent-primary-hover)}
 .ph-nav>button.active{background:var(--surface-tertiary)}
 #viewMenu{top:calc(var(--topbar-h) + 8px);left:8px}
 #overview,#robotPanel{top:calc(var(--topbar-h) + 8px);right:8px;bottom:8px;width:var(--panel-w);padding:12px;gap:24px;border-radius:16px;
-  background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--floating-panel);overflow:auto}
+  background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);overflow:auto}
 #overview.home{gap:24px}
 .building #overview,.building #robotPanel,.building #tasksPanel{display:none}
 
@@ -99,7 +99,7 @@ button.primary:hover{background:var(--accent-primary-hover)}
 
 /* ---------- tasks panel ---------- */
 #tasksPanel{position:absolute;left:8px;top:calc(var(--topbar-h) + 8px);width:336px;max-height:calc(100% - var(--topbar-h) - 16px);overflow:auto;z-index:8;padding:12px;border-radius:16px;
-  background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--floating-panel);display:flex;flex-direction:column;gap:8px}
+  background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);display:flex;flex-direction:column;gap:8px}
 #tasksPanel>p{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-task{background:var(--surface-secondary);border-radius:12px;padding:12px 12px 8px;display:flex;flex-direction:column;gap:10px}
 .lc-task-line{display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
@@ -116,7 +116,7 @@ button.primary:hover{background:var(--accent-primary-hover)}
 
 /* ---------- toast ---------- */
 #toast{left:calc((100% - var(--panel-w) - 8px)/2);bottom:20px;display:flex;align-items:center;gap:16px;padding:12px 12px 12px 16px;border-radius:16px;max-width:560px;
-  background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:var(--content-primary);box-shadow:var(--pop)}
+  background:var(--surface-elevated);backdrop-filter:blur(12px);color:var(--content-primary);box-shadow:var(--pop)}
 #toast.visible{pointer-events:auto}
 #toast .t{display:flex;flex-direction:column;gap:2px;min-width:0}
 #toast .t b{font-weight:500}
@@ -260,11 +260,11 @@ dialog.lc-wide{width:880px}
 .ed-seg button.on{background:var(--surface-primary);color:var(--content-primary)}
 #edPlan{position:absolute;left:0;right:0;top:52px;bottom:0;width:100%;height:calc(100% - 52px);background:#f4f4f4;touch-action:none;user-select:none;font-family:Inter,Arial,sans-serif;font-weight:500}
 #layoutEditor[data-view="3D"] #edPlan,#layoutEditor[data-view="3D"] #edContext{display:none}
-.ed-float{background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--floating-panel);border-radius:12px}
+.ed-float{background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);border-radius:12px}
 .ed-rail{position:absolute;left:8px;top:60px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px}
 .ed-objects{position:absolute;left:56px;top:60px;width:264px;max-height:calc(100% - 76px);overflow:auto;padding:12px;border-radius:16px}
 .ed-inspector{position:absolute;right:8px;top:60px;width:288px;max-height:calc(100% - 76px);overflow:auto;padding:16px;border-radius:16px;display:flex;flex-direction:column}
-.ed-rail,.ed-objects,.ed-inspector,.ed-context,.ed-flyout,.ed-color{background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:var(--floating-panel)}
+.ed-rail,.ed-objects,.ed-inspector,.ed-context,.ed-flyout,.ed-color{background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel)}
 .ed-rail{border-radius:12px}
 .ed-obj-head{display:flex;justify-content:space-between;font-size:12px;padding:0 0 8px}
 .ed-obj-head span{color:var(--content-secondary)}
@@ -327,7 +327,7 @@ dialog.lc-wide{width:880px}
 .lc-locs .more{cursor:default}
 .lc-locs .more:hover{color:var(--content-primary)}
 .lc-places{position:absolute;z-index:40;width:360px;overflow:auto;padding:16px;border-radius:16px;display:flex;flex-direction:column;gap:12px;
-  background:var(--surface-elevated);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,.12)}
+  background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,.12)}
 .lc-places b{font-weight:500}
 .lc-places>div{display:flex;flex-direction:column;gap:6px}
 .lc-places small{font-size:12px;line-height:16px;color:var(--content-secondary)}

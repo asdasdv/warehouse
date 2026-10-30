@@ -4,6 +4,7 @@ import {products as catalog} from './model.js';
 import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
+import {BELT_TOP, BELT_START, BELT_END, DOCK_IDS, docksOf, dockPort, dockRect} from './docks.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
@@ -14,13 +15,12 @@ const MIN_ACTIVE = 4;
 const STATION_CAPACITY = 6;
 const MAX_PER_ADDRESS = CELL_CAPACITY;
 const HANDOFF_SECONDS = 1.5; // the robot stands still this long after a box swaps on or off it
-const SPEED = 9;
-// Each dock is a belt running away from the robot port (+z, station-local).
-const BELT_TOP = 1.5;        // level with the robot deck
-const BELT_START = -2.4;     // hand-off end, next to the stopped robot
-// conveyor.glb: belt top 0.65 m, «Dispatch hide» marker 5.8 m from the hand-off end; scaled so the belt top is BELT_TOP.
-const CONVEYOR_SCALE = BELT_TOP / .65;
-const BELT_END = BELT_START + 5.8 * CONVEYOR_SCALE; // far end, inside the tunnel
+// Driving: robots follow the lane grid, turn on the spot and keep a robot's length between each other.
+const SPEED = 5, ACCEL = 3, TURN_RATE = 2.4; // m/s, m/s², rad/s
+const CLEAR = 3.9;           // no two robots hold grid points closer than this (body length + a gap)
+const PARK_AFTER = 2;        // seconds without work before a robot heads to its parking spot
+// Each dock is a belt running away from the robot port (+z, station-local); see docks.js.
+const CONVEYOR_SCALE = BELT_TOP / .65; // conveyor.glb belt top is 0.65 m
 const ROBOT_SCALE = BELT_TOP / .665; // robot.glb deck height 0.665 m
 const BELT_SPEED = 2.5;
 const HISTORY_LIMIT = 300;
@@ -196,7 +196,8 @@ export function addWarehouseRobots(scene, getState) {
     const hit = box(g, 0, 1.7, 0, 3.1, 3.5, 3.8, new T.MeshBasicMaterial({visible: false}));
     hit.userData = {type: 'robot', id}; hits.push(hit);
     robots.push({id, g, body, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 92 - i * 5, paused: false, chargeNext: false,
-      charging: false, cycles: 0, task: null, path: [], index: 0, retry: i * .3, product: '', boxId: '', mission: ''});
+      charging: false, cycles: 0, task: null, path: [], index: 0, retry: i * .3, product: '', boxId: '', mission: '',
+      at: null, ahead: [], speed: 0, wait: 0, idle: 0, home: null});
   }
   // Belt surface: a striped texture that scrolls with the belt.
   function beltTexture() {
@@ -209,10 +210,9 @@ export function addWarehouseRobots(scene, getState) {
   }
   const frameMat = new T.MeshStandardMaterial({color: '#6f7e86', roughness: .6, metalness: .3});
   const tunnelMat = new T.MeshStandardMaterial({color: '#b9c2c4', roughness: .8});
-  for (let i = 0; i < 4; i++) {
-    const g = new T.Group(), body = new T.Group(), kind = i < 2 ? 'inbound' : 'outbound', id = `${i < 2 ? 'Receiving' : 'Dispatch'} ${i % 2 + 1}`;
+  for (const [id, kind] of DOCK_IDS) {
+    const g = new T.Group(), body = new T.Group();
     group.add(g); g.add(body);
-    box(g, 0, .12, 4.5, 12, .24, 18, new T.MeshStandardMaterial({color: i < 2 ? '#d6e5ce' : '#e9dfb3', roughness: 1}));
     const length = BELT_END - BELT_START + 1, mid = (BELT_END + BELT_START) / 2;
     const tex = beltTexture();
     box(body, 0, BELT_TOP - .06, mid, 2.2, .12, length, new T.MeshStandardMaterial({map: tex, roughness: .9}));
@@ -257,8 +257,9 @@ export function addWarehouseRobots(scene, getState) {
   // ---------- docks ----------
   const freeSlot = st => Array.from({length: STATION_CAPACITY}, (_, i) => i).find(i => !st.queue.some(q => q.slot === i));
   function stationPose(st, q) {
-    const local = q.local, z = q.mesh ? q.mesh.position.z : local.z;
-    return {...local, box: q.box, x: st.g.position.x + local.x, z: st.g.position.z + z};
+    const local = q.local, p = st.g.localToWorld(new T.Vector3(local.x, local.y, q.mesh ? q.mesh.position.z : local.z));
+    const turned = (st.rotation || 0) % 2;
+    return {...local, box: q.box, x: p.x, z: p.z, w: turned ? local.d : local.w, d: turned ? local.w : local.d};
   }
   // Every box is handed over at the robot end of the belt; `slot` only counts dock capacity.
   function localPose(slot, size) {
@@ -343,23 +344,65 @@ export function addWarehouseRobots(scene, getState) {
   }
 
   // ---------- layout changes ----------
+  // Floor markings: lane lines with arrows on one-way runs, and a bay at each parking spot.
+  const laneGroup = new T.Group(); group.add(laneGroup);
+  const laneMat = new T.MeshBasicMaterial({color: '#d8b52a', transparent: true, opacity: .6, depthWrite: false, toneMapped: false});
+  const bayMat = new T.MeshBasicMaterial({color: '#aab3b5', transparent: true, opacity: .7, depthWrite: false, toneMapped: false});
+  const flat = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+  const arrowGeo = new T.ShapeGeometry(new T.Shape([new T.Vector2(.55, 0), new T.Vector2(-.35, .45), new T.Vector2(-.35, -.45)])).rotateX(-Math.PI / 2);
+  function instanced(geometry, material, items) {
+    const m = new T.InstancedMesh(geometry, material, Math.max(1, items.length)), o = new T.Object3D();
+    items.forEach((it, i) => { o.position.set(it.x, .05, it.z); o.rotation.set(0, it.angle || 0, 0); o.scale.set(it.sx || 1, 1, it.sz || 1); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
+    m.count = items.length; m.renderOrder = 3; m.raycast = () => {};
+    laneGroup.add(m);
+  }
+  function drawLanes(segments, spots) {
+    for (const m of laneGroup.children) m.dispose();
+    laneGroup.clear();
+    const strips = [], arrows = [], bays = [];
+    for (const g of segments) {
+      const horizontal = g.z1 === g.z2, len = Math.hypot(g.x2 - g.x1, g.z2 - g.z1);
+      strips.push({x: (g.x1 + g.x2) / 2, z: (g.z1 + g.z2) / 2, sx: horizontal ? len + .22 : .22, sz: horizontal ? .22 : len + .22});
+      if (!g.dir) continue;
+      for (let t = 4; t < len - 1; t += 8) arrows.push({x: g.x1 + (g.x2 - g.x1) * t / len, z: g.z1 + (g.z2 - g.z1) * t / len,
+        angle: horizontal ? (g.dir > 0 ? 0 : Math.PI) : (g.dir > 0 ? -Math.PI / 2 : Math.PI / 2)});
+    }
+    for (const p of spots) for (const [dx, dz, sx, sz] of [[-1.6, 0, .16, 3.8], [1.6, 0, .16, 3.8], [0, -1.9, 3.36, .16], [0, 1.9, 3.36, .16]]) bays.push({x: p.x + dx, z: p.z + dz, sx, sz});
+    instanced(flat, laneMat, strips); instanced(arrowGeo, laneMat, arrows); instanced(flat, bayMat, bays);
+  }
+  let routeKey = null;
   function checkLayout() {
-    const s = getState();
+    const s = getState(), docks = docksOf(s);
     const k = JSON.stringify(s.racks.map(r => [r.id, r.x, r.z, r.width, r.depth, r.height, r.shelves, r.places, r.rotation || 0]));
-    if (k === rackKey) return;
-    const first = rackKey === null;
-    rackKey = k; posesDirty = true; cargoDirty = true; revision++;
-    router = createRouter(s.racks);
-    const edge = s.racks.length ? Math.max(...s.racks.map(r => r.z + r.depth / 2)) : 30;
-    const xs = s.racks.map(r => r.x), center = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
-    anchor = {x: center - 27, z: edge + 10};
-    stations.forEach((st, i) => { st.g.position.set(anchor.x + i * 18, 0, anchor.z + 6); st.port = {x: anchor.x + i * 18, z: anchor.z}; });
+    if (k !== rackKey) { rackKey = k; posesDirty = true; cargoDirty = true; revision++; }
+    // Routes are rebuilt once the layout editor closes, not on every edit while it is open.
+    const rk = k + JSON.stringify(docks);
+    if (rk === routeKey || suspended && routeKey !== null) return;
+    const first = routeKey === null;
+    routeKey = rk;
+    for (const st of stations) {
+      const d = docks.find(d => d.id === st.id) || {x: 0, z: 0, rotation: 0};
+      st.g.position.set(d.x, 0, d.z); st.g.rotation.y = -(d.rotation || 0) * Math.PI / 2; st.rotation = d.rotation || 0;
+      st.g.updateMatrixWorld(true);
+      st.port = dockPort(d);
+    }
+    router = createRouter(s.racks, docks.map(dockRect));
+    const stops = [...stations.map(st => st.port), ...s.racks.map(router.port)];
+    const segments = router.buildNetwork(stops);
+    const near = {x: stations.reduce((n, st) => n + st.port.x, 0) / stations.length, z: stations.reduce((n, st) => n + st.port.z, 0) / stations.length};
+    const spots = router.parking(ROBOTS, near, stations.map(st => st.port));
+    robots.forEach((r, i) => { r.home = spots[i] || null; });
+    drawLanes(segments, spots);
+    anchor = near;
     if (first) {
-      robots.forEach((r, i) => { const p = router.point({x: anchor.x + (i % 4) * 18, z: anchor.z - (i >= 4 ? 6 : 0)}); if (p) r.g.position.set(p.x, 0, p.z); });
+      robots.forEach((r, i) => {
+        const p = r.home || router.point({x: near.x + (i - ROBOTS / 2) * 4, z: near.z - 8});
+        if (p) { r.g.position.set(p.x, 0, p.z); r.at = {x: p.x, z: p.z}; r.g.rotation.y = Math.PI; }
+      });
       for (let i = 0; i < 4; i++) backlog.push({product: pick(catalog)});
       note('Receiving and dispatch connected to the rack layout');
     } else {
-      for (const r of robots) if (r.task) replan(r);
+      for (const r of robots) { if (r.task) replan(r); else if (r.path.length) { r.path = []; r.index = 0; } }
       note('Layout changed · routes recalculated');
     }
   }
@@ -389,8 +432,8 @@ export function addWarehouseRobots(scene, getState) {
     const from = t.source ? router.port(t.source) : t.sourceStation.port, to = t.target ? router.port(t.target) : t.outStation.port;
     t.carry = router.route(from, to);
     if (r.stage === 'To pickup' || r.stage === 'Transporting') {
-      r.path = router.route(r.g.position, r.stage === 'To pickup' ? from : to) || [];
-      r.index = 0; r.routeBlocked = !r.path.length;
+      setPath(r, router.route(origin(r), r.stage === 'To pickup' ? from : to) || []);
+      r.routeBlocked = !r.path.length;
     }
   }
   function cancel(r) {
@@ -407,7 +450,7 @@ export function addWarehouseRobots(scene, getState) {
   // ---------- task assignment ----------
   function start(r, t) {
     const from = t.source ? router.port(t.source) : t.sourceStation.port, to = t.target ? router.port(t.target) : t.outStation.port;
-    const path = router.route(r.g.position, from), carry = router.route(from, to);
+    const path = router.route(origin(r), from), carry = router.route(from, to);
     if (!path || !carry) return false;
     if (t.source) reserved.add(t.box.id);
     if (t.queueItem) t.queueItem.taken = true;
@@ -428,7 +471,7 @@ export function addWarehouseRobots(scene, getState) {
     r.mission = `${t.sourceStation ? 'IN' : t.target ? 'MOVE' : 'OUT'}-${++serial}`;
     r.from = t.source ? `${t.source.id} / ${t.box.location}` : t.sourceStation.id;
     r.to = t.target ? `${t.target.id} / ${t.slot}` : t.outStation.id;
-    r.routeBlocked = false; r.path = path; r.index = 0; r.stage = 'To pickup'; r.status = r.stage; r.timer = 0; r.cargo.visible = false;
+    r.routeBlocked = false; setPath(r, path); r.idle = 0; r.stage = 'To pickup'; r.status = r.stage; r.timer = 0; r.cargo.visible = false;
     note(`${r.mission} · ${t.box.id} · ${r.from} → ${r.to}`);
     return true;
   }
@@ -495,31 +538,88 @@ export function addWarehouseRobots(scene, getState) {
     const wanted = Math.min(ROBOTS, MIN_ACTIVE + Math.floor(demand / 4));
     robots.forEach((r, i) => {
       if (i < wanted && !r.active) { r.active = true; r.status = 'Idle'; r.retry = 0; note(`${r.id} joined the fleet`); }
-      if (i >= wanted && r.active && !r.task && !r.charging) { r.active = false; r.status = 'Standby'; r.cargo.visible = false; note(`${r.id} returned to standby`); }
+      if (i >= wanted && r.active && !r.task && !r.charging && parked(r)) { r.active = false; r.status = 'Standby'; r.cargo.visible = false; note(`${r.id} returned to standby`); }
       r.g.visible = r.active;
     });
   }
 
   // ---------- robot motion ----------
+  // Traffic works like a block system: a robot only drives onto a grid point it holds, and it can only
+  // take a point that is at least CLEAR away from every point another robot holds. Robots therefore
+  // never overlap, queue behind each other on a lane and take turns at crossings.
+  const same = (a, b) => a && b && Math.abs(a.x - b.x) < .01 && Math.abs(a.z - b.z) < .01;
+  const holds = r => r.at ? [r.at, ...r.ahead] : r.ahead;
+  // Where a new route starts: the point the robot is committed to, else where it stands.
+  const origin = r => r.ahead[0] || r.at || r.g.position;
+  function blocker(r, p) {
+    for (const o of robots) if (o !== r) for (const q of holds(o)) if (Math.hypot(q.x - p.x, q.z - p.z) < CLEAR) return o;
+    return null;
+  }
+  function take(r, p) {
+    if (holds(r).some(q => same(q, p))) return true;
+    if (blocker(r, p)) return false;
+    r.ahead.push({x: p.x, z: p.z}); return true;
+  }
+  // A new route keeps the point the robot is already driving to and lets go of the rest.
+  function setPath(r, path) {
+    r.ahead.splice(1);
+    r.path = path; r.index = 0; r.wait = 0;
+  }
+  const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
   function move(r, dt) {
-    if (r.routeBlocked) { r.status = 'Route blocked'; return false; }
+    if (r.routeBlocked) { r.status = 'Route blocked'; r.speed = 0; return false; }
     const p = r.path[r.index];
     if (!p) return true;
-    const dx = p.x - r.g.position.x, dz = p.z - r.g.position.z, d = Math.hypot(dx, dz);
-    if (d < .08) { r.index++; return r.index >= r.path.length; }
-    const step = Math.min(d, dt * SPEED), nx = r.g.position.x + dx / d * step, nz = r.g.position.z + dz / d * step;
-    if (robots.some(o => o.active && o !== r && Math.hypot(o.g.position.x - nx, o.g.position.z - nz) < 3.7)) {
-      r.status = 'Waiting for traffic'; r.wait = (r.wait || 0) + dt;
-      if (r.wait > 2 + robots.indexOf(r)) {
-        r.wait = 0;
-        const others = robots.filter(o => o.active && o !== r).map(o => ({x: o.g.position.x, z: o.g.position.z, width: 3, depth: 3}));
-        const detour = createRouter([...getState().racks, ...others]).route(r.g.position, r.path.at(-1));
-        if (detour) { r.path = detour; r.index = 0; }
-      }
+    if (!take(r, p)) { r.speed = 0; return waitForTraffic(r, dt); }
+    r.wait = 0;
+    const pos = r.g.position, dx = p.x - pos.x, dz = p.z - pos.z, d = Math.hypot(dx, dz);
+    if (d < .01) {
+      pos.set(p.x, 0, p.z);
+      r.detourTried = false;
+      r.ahead = r.ahead.filter(q => !same(q, p)); r.at = {x: p.x, z: p.z};
+      r.index++;
+      return r.index >= r.path.length;
+    }
+    // Turn on the spot first, then drive.
+    const diff = wrap(Math.atan2(dx, dz) - r.g.rotation.y);
+    if (Math.abs(diff) > .01) {
+      r.g.rotation.y = wrap(r.g.rotation.y + Math.sign(diff) * Math.min(Math.abs(diff), TURN_RATE * dt));
+      if (Math.abs(diff) > .3) { r.speed = 0; return false; }
+    }
+    // Look ahead along the straight: hold the next points early so the robot does not stop at each one,
+    // and brake in time for a turn, the end of the route or a point it could not get.
+    let room = d, last = p;
+    for (let i = r.index + 1; i < r.path.length && room < 6; i++) {
+      const q = r.path[i];
+      if (Math.abs(Math.atan2(q.x - last.x, q.z - last.z) - Math.atan2(dx, dz)) > .01 || !take(r, q)) break;
+      room += Math.hypot(q.x - last.x, q.z - last.z); last = q;
+    }
+    r.speed = Math.max(.4, Math.min(SPEED, r.speed + ACCEL * dt, Math.sqrt(2 * ACCEL * room)));
+    const stepLen = Math.min(d, r.speed * dt);
+    pos.set(pos.x + dx / d * stepLen, 0, pos.z + dz / d * stepLen);
+    return false;
+  }
+  // Stuck behind someone: first look for a way around the robots in the way, then step aside.
+  function waitForTraffic(r, dt) {
+    r.status = 'Waiting for traffic'; r.wait += dt;
+    const patience = 3 + robots.indexOf(r) % 4;
+    if (r.wait < patience || r.wait < patience * 2 && r.detourTried) return false;
+    const goal = r.path.at(-1), others = robots.filter(o => o !== r).flatMap(o => holds(o).map(q => ({...q, r: CLEAR})));
+    if (!r.detourTried) {
+      r.detourTried = true;
+      const detour = router.route(origin(r), goal, others);
+      if (detour) { setPath(r, detour); r.wait = patience * .5; }
       return false;
     }
-    r.wait = 0;
-    r.g.rotation.y = Math.atan2(dx, dz); r.g.position.set(nx, 0, nz);
+    // Still stuck (two robots facing each other): back off to any free neighbouring point and replan from there.
+    r.detourTried = false; r.wait = 0;
+    const here = origin(r);
+    for (const [ox, oz] of [[2, 0], [-2, 0], [0, 2], [0, -2]].sort(() => Math.random() - .5)) {
+      const q = router.point({x: here.x + ox, z: here.z + oz});
+      if (!q || same(q, here) || Math.hypot(q.x - here.x, q.z - here.z) > 2.1 || blocker(r, q)) continue;
+      const rest = router.route(q, goal);
+      if (rest) { setPath(r, [q, ...rest]); return false; }
+    }
     return false;
   }
   // Hand-offs are instant swaps: the box leaves the shelf or belt and appears on the robot deck (and back).
@@ -565,19 +665,30 @@ export function addWarehouseRobots(scene, getState) {
     r.retry = HANDOFF_SECONDS; // stand at the drop point for a moment before the next job
     if (r.chargeNext || r.battery < 25) { r.charging = true; r.chargeNext = false; }
   }
-  function updateRobot(r, dt) {
-    if (!r.active) { r.status = 'Standby'; return; }
-    if (r.paused) { r.status = 'Paused'; return; }
-    if (r.charging) {
+  const parked = r => !r.home || same(r.at, r.home) && !r.ahead.length;
+  // No job: look for work every second; after a short wait drive to the parking spot (chargers are there),
+  // so an idle robot never stands on a lane.
+  function idle(r, dt) {
+    if (r.charging && parked(r)) {
       r.status = 'Charging'; r.battery = Math.min(100, r.battery + dt * 3);
       if (r.battery === 100) r.charging = false;
       return;
     }
-    if (!r.task) {
+    if (!r.charging) {
       r.retry -= dt;
       if (r.retry <= 0) { r.retry = 1; if (r.battery < 25) r.charging = true; else assign(r); }
-      return;
+      if (r.task) return;
     }
+    r.idle += dt;
+    if (parked(r) || r.idle < PARK_AFTER && !r.charging) { r.speed = 0; return; }
+    if (!r.path.length || !same(r.path.at(-1), r.home)) setPath(r, router.route(origin(r), r.home) || []);
+    if (move(r, dt)) { r.path = []; r.index = 0; }
+    if (r.charging) r.status = 'Charging';
+  }
+  function updateRobot(r, dt) {
+    if (!r.active) { r.status = 'Standby'; return; }
+    if (r.paused) { r.status = 'Paused'; r.speed = 0; return; }
+    if (!r.task) return idle(r, dt);
     const t = r.task;
     if (t.outStation && !t.outStation.ready || t.sourceStation && !t.sourceStation.ready && r.stage === 'To pickup') { r.status = 'Waiting for station'; return; }
     r.status = r.stage; r.battery = Math.max(5, r.battery - dt * .02);
@@ -589,7 +700,7 @@ export function addWarehouseRobots(scene, getState) {
     if (r.timer === 0) pickUp(r);
     r.timer += dt;
     if (r.timer < HANDOFF_SECONDS) return;
-    r.stage = 'Transporting'; r.path = t.carry || []; r.routeBlocked = !t.carry; r.index = 0;
+    r.stage = 'Transporting'; setPath(r, t.carry || []); r.routeBlocked = !t.carry;
   }
   function updateMarkers() {
     const r = robots.find(r => r.id === selected), task = r?.task;
@@ -742,7 +853,7 @@ export function addWarehouseRobots(scene, getState) {
     focus(id) {
       checkLayout();
       const r = robots.find(r => r.id === id);
-      return r ? r.g.position.clone() : new T.Vector3(anchor.x + 24, 0, anchor.z + 13);
+      return r ? r.g.position.clone() : new T.Vector3(anchor.x, 0, anchor.z);
     },
     command(id, action) {
       const r = robots.find(r => r.id === id);

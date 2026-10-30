@@ -5,6 +5,7 @@ import {rackLevels,shelfBase} from './rack-levels.js';
 import * as T from 'three';
 import {warehouseShadowFrame} from './shadow-frustum.js';
 import {addWarehouseRobots} from './warehouse-robots.js';
+import {docksOf,dockRect} from './docks.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {rackParts} from './rack-geometry.js';
 import {config,locations,occupancy,boxLayout,placement} from './storage.js';
@@ -31,8 +32,8 @@ groundMaterial.customProgramCacheKey=()=> 'opaque-warehouse-ground-v1';
 const floor=new T.Mesh(new T.PlaneGeometry(1600,1600),groundMaterial);floor.rotation.x=-Math.PI/2;floor.position.y=-.10;floor.receiveShadow=true;scene.add(floor);
 const grid=new T.GridHelper(800,160,0xdce1df,0xe9ece9);grid.position.y=-.08;grid.material.transparent=true;grid.material.opacity=.38;grid.material.depthWrite=false;grid.renderOrder=2;scene.add(grid);
 let lightingLayout='';
-function updateLighting(s){const key=JSON.stringify([s.racks.map(r=>[r.x,r.z,r.width,r.depth,r.height]),s.zones.map(z=>[z.x,z.z,z.w,z.d])]);if(key===lightingLayout)return;lightingLayout=key;
- const frame=warehouseShadowFrame(s.racks,s.zones);sun.position.copy(frame.position);sun.target.position.copy(frame.target);
+function updateLighting(s){const docks=docksOf(s).map(dockRect),key=JSON.stringify([s.racks.map(r=>[r.x,r.z,r.width,r.depth,r.height]),s.zones.map(z=>[z.x,z.z,z.w,z.d]),docks]);if(key===lightingLayout)return;lightingLayout=key;
+ const frame=warehouseShadowFrame([...s.racks,...docks.map(d=>({...d,height:5}))],s.zones);sun.position.copy(frame.position);sun.target.position.copy(frame.target);
  for(const k of ['left','right','top','bottom','near','far'])sun.shadow.camera[k]=frame[k];sun.shadow.camera.updateProjectionMatrix();
 }
 let following=null,inspectedId=null;const inspection=new T.Box3Helper(new T.Box3(),0xe0b600);inspection.material.depthTest=false;inspection.renderOrder=16;inspection.visible=false;scene.add(inspection);
@@ -94,7 +95,7 @@ let panelSel=null;
 function outlinePart(sel){panelSel=sel;clearHover();const bounds=sel&&partBounds(sel);if(!bounds)return;hoverKey='panel';const line=new T.Box3Helper(bounds,0xe2bd00);line.material.depthTest=false;line.renderOrder=10;hover.add(line);const fill=new T.Mesh(geometry,new T.MeshBasicMaterial({color:0xffdc00,transparent:true,opacity:.32,depthWrite:false}));bounds.getCenter(fill.position);bounds.getSize(fill.scale);hover.add(fill);}
 function hit(e){cast(e);let hits=ray.intersectObjects(building?targets.filter(t=>!t.userData.detail):[...targets,...(layers.robots?robotics.hits:[])],false);let first=hits[0];if(first?.object.userData.type==='racks'){let rid=getState().racks[first.instanceId]?.id;let detailHit=hits.find(h=>h.object.userData.type==='boxes'&&h.object.userData.racks?.[h.instanceId]===rid)||cargoHit(rid);if(detailHit)first=detailHit;}return first;}
 function identity(h){if(!h)return null;let d=h.object.userData;if(d.type==='boxes')return {type:'box',id:d.ids[h.instanceId]};if(d.type==='racks')return {type:'rack',id:getState().racks[h.instanceId].id};return {type:d.type,id:d.id};}
-function placeInfo(e){let p=ground(e);if(!p)return null;let s=getState(),sn=snapRack(s,p,rackConfig,!e.altKey);p.x=sn.x;p.z=sn.z;let z=s.zones.find(z=>contains(z,p)),valid=true,reason='';try{placement(s,z?.id,p.x,p.z,rackConfig);validateLayoutAccess(s.racks,[...s.racks,{id:'preview-rack',zone:z?.id,x:p.x,z:p.z,...rackConfig}]);}catch(e){valid=false;reason=e.message;}return {p,valid,reason,snapped:sn.snapped};}
+function placeInfo(e){let p=ground(e);if(!p)return null;let s=getState(),sn=snapRack(s,p,rackConfig,!e.altKey);p.x=sn.x;p.z=sn.z;let z=s.zones.find(z=>contains(z,p)),valid=true,reason='';try{placement(s,z?.id,p.x,p.z,rackConfig);validateLayoutAccess(s.racks,[...s.racks,{id:'preview-rack',zone:z?.id,x:p.x,z:p.z,...rackConfig}],docksOf(s));}catch(e){valid=false;reason=e.message;}return {p,valid,reason,snapped:sn.snapped};}
 let corners=[];const draftLine=new T.Line(new T.BufferGeometry(),new T.LineBasicMaterial({color:0xb89a00,depthTest:false}));draftLine.renderOrder=20;scene.add(draftLine);
 function drawCorners(cursor){const ps=[...corners];if(cursor)ps.push(cursor);if(ps.length>1)ps.push(ps[0]);draftLine.geometry.dispose();draftLine.geometry=new T.BufferGeometry().setFromPoints(ps.map(p=>new T.Vector3(p.x,.2,p.z)));}
 function finishZone(){try{const z=polygonZone(corners);if(onDraw('zone',z)===false)return;corners=[];drawCorners();tooltip.hidden=true;}catch(e){tooltip.textContent=e.message;tooltip.hidden=false;tooltip.style.left='40%';tooltip.style.top='100px';}}

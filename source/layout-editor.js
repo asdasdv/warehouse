@@ -4,6 +4,7 @@ import {applyLayoutEdit, rowPositions} from './layout-edit.js';
 import {validateLayoutAccess, inaccessibleRacks} from './layout-access.js';
 import {addZone, addRack, colors, log} from './model.js';
 import {config, locations} from './storage.js';
+import {docksOf, dockRect, dockPort, snapDock, validateDocks} from './docks.js';
 
 // Warehouse layout editor (Figma "Editor" screens 1–13): a flat 2D plan plus the 3D scene,
 // a tool rail, the object list, an inspector and a draft that is saved or discarded as a whole.
@@ -27,7 +28,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   const $ = s => root.querySelector(s), svg = $('#edPlan');
 
   let open = false, view = '2D', tool = 'select', snap = true;
-  let sel = null;               // {type:'zone', id} | {type:'racks', ids:Set}
+  let sel = null;               // {type:'zone', id} | {type:'racks', ids:Set} | {type:'dock', id}
   let baseline = null, baselineTop = null, undo = [], redo = [], error = '';
   let pending = null;           // new zone before "Create zone": {x,z,w,d} | {points}
   let poly = null;              // polygon being drawn: [{x,z}]
@@ -37,8 +38,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   let vb = null;                // viewBox {x, z, w, h} in metres
 
   // ---------- draft history ----------
-  const snapshot = () => JSON.stringify({zones: getState().zones, racks: getState().racks});
-  function restore(json) { const s = getState(), v = JSON.parse(json); s.zones = v.zones; s.racks = v.racks; }
+  const snapshot = () => JSON.stringify({zones: getState().zones, racks: getState().racks, docks: docksOf(getState())});
+  function restore(json) { const s = getState(), v = JSON.parse(json); s.zones = v.zones; s.racks = v.racks; if (v.docks) s.docks = v.docks; }
   // Layout events logged after `since` (the newest history entry back then) are dropped when their edit is thrown away.
   const LAYOUT_EVENTS = new Set(['Zone created', 'Rack added', 'Rack updated']);
   function dropLayoutLog(since) {
@@ -48,7 +49,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   // Every edit goes through here: it is validated, can be undone, and fails without changing anything.
   function apply(fn) {
     const before = snapshot(), top = getState().history[0];
-    try { fn(); validateLayoutAccess(JSON.parse(before).racks, getState().racks); }
+    try { fn(); const was = JSON.parse(before), s = getState(); validateDocks(s); validateLayoutAccess(was.racks, s.racks, was.docks, docksOf(s)); }
     catch (e) { restore(before); dropLayoutLog(top); error = e.message; render(); return false; }
     undo.push(before); undo = undo.slice(-50); redo = []; error = ''; report = null;
     onChange(); render(); return true;
@@ -70,15 +71,17 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     };
     const z = count(was.zones, s.zones, (p, q) => JSON.stringify(p) !== JSON.stringify(q));
     const r = count(was.racks, s.racks, (p, q) => p.x !== q.x || p.z !== q.z || (p.rotation || 0) !== (q.rotation || 0) || p.zone !== q.zone);
+    const d = count(was.docks || [], docksOf(s), (p, q) => p.x !== q.x || p.z !== q.z || (p.rotation || 0) !== (q.rotation || 0));
     const words = (c, verb) => [c.added && `${c.added} added`, c.changed && `${c.changed} ${verb}`, c.deleted && `${c.deleted} deleted`].filter(Boolean).join(' · ');
     if (words(z, 'changed')) out.zones = words(z, 'changed');
     if (words(r, 'moved')) out.racks = words(r, 'moved');
+    out.docks = d.changed ? `${d.changed} moved` : '';
     return out;
   }
 
   // ---------- view: plan coordinates are metres, x → right, z → down ----------
   function fit() {
-    const s = getState(), ps = s.zones.flatMap(zonePoints).concat(s.racks.map(r => ({x: r.x, z: r.z})));
+    const s = getState(), ps = s.zones.flatMap(zonePoints).concat(s.racks.map(r => ({x: r.x, z: r.z})), docksOf(s).flatMap(d => { const b = dockRect(d); return [{x: b.x - b.width / 2, z: b.z - b.depth / 2}, {x: b.x + b.width / 2, z: b.z + b.depth / 2}]; }));
     if (!ps.length) { vb = {x: -50, z: -40, w: 100, h: 80}; return; }
     const minX = Math.min(...ps.map(p => p.x)), maxX = Math.max(...ps.map(p => p.x)), minZ = Math.min(...ps.map(p => p.z)), maxZ = Math.max(...ps.map(p => p.z));
     // Fit the plan into the space between the object list (left) and the inspector (right).
@@ -112,9 +115,9 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       const mid = facesZ ? (a.z < b.z ? a.z + a.depth / 2 : b.z + b.depth / 2) + gap / 2 : (a.x < b.x ? a.x + a.width / 2 : b.x + b.width / 2) + gap / 2;
       aisles.push({a: a.id, b: b.id, gap, ok: gap >= ROBOT_AISLE, line: facesZ ? [{x: ox[0], z: mid}, {x: ox[1], z: mid}] : [{x: mid, z: oz[0]}, {x: mid, z: oz[1]}]});
     }
-    const blocked = [...inaccessibleRacks(racks)];
+    const docks = docksOf(s), blocked = [...inaccessibleRacks(racks, docks)];
     const problems = [...aisles.filter(a => !a.ok).map(a => ({text: `Aisle between ${a.a} and ${a.b} is ${r1(a.gap)} m wide`, ids: [a.a, a.b]})),
-      ...blocked.map(id => ({text: `Rack ${id} has no robot route to Dispatch`, ids: [id]}))];
+      ...blocked.map(id => docks.some(d => d.id === id) ? {text: `${id} has no robot route to the other docks`, ids: [], dock: id} : {text: `Rack ${id} has no robot route to Dispatch`, ids: [id]})];
     return {aisles, blocked: new Set(blocked), problems, min: aisles.length ? Math.min(...aisles.map(a => a.gap)) : null};
   }
 
@@ -152,6 +155,17 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       if (selIds.has(r.id) && selIds.size === 1 && !moving)
         for (const [hx, hz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) el('rect', {x: r.x + hx * r.width / 2 - 2.5 * k, y: r.z + hz * r.depth / 2 - 2.5 * k, width: 5 * k, height: 5 * k, fill: '#fff', stroke: 'var(--accent-primary)', 'stroke-width': k}, svg);
       void z;
+    }
+    // Docks: the belt footprint, its name and the point where the robot stops.
+    for (const d of docksOf(s)) {
+      const moving = drag?.kind === 'dock' && drag.id === d.id, at = moving ? {...d, ...drag.to} : d, b = dockRect(at), port = dockPort(at);
+      const on = sel?.type === 'dock' && sel.id === d.id, bad = moving && !drag.valid || showAccess && report.blocked.has(d.id);
+      const g = el('g', {'data-dock': d.id}, svg);
+      el('rect', {x: b.x - b.width / 2, y: b.z - b.depth / 2, width: b.width, height: b.depth, rx: 1.2 * k, 'data-dock': d.id,
+        fill: bad ? 'var(--status-danger-tertiary)' : on ? 'var(--accent-secondary)' : d.kind === 'inbound' ? '#e4efdd' : '#f4edd2',
+        stroke: bad ? 'var(--status-danger)' : on ? 'var(--accent-primary)' : 'rgba(0,0,0,.35)', 'stroke-width': (on || bad ? 1.5 : .75) * k}, g);
+      el('circle', {cx: port.x, cy: port.z, r: 1.3, fill: 'none', stroke: on ? 'var(--accent-primary)' : 'rgba(0,0,0,.35)', 'stroke-width': k, 'stroke-dasharray': `${2 * k} ${2 * k}`, 'data-dock': d.id}, g);
+      const t = el('text', {x: b.x, y: b.z - b.depth / 2 - 4 * k, 'font-size': 9 * k, fill: '#000', 'text-anchor': 'middle'}, g); t.textContent = d.id;
     }
     if (showAccess) for (const a of report.aisles) {
       el('line', {x1: a.line[0].x, y1: a.line[0].z, x2: a.line[1].x, y2: a.line[1].z, stroke: a.ok ? 'var(--status-success-secondary)' : 'var(--status-danger)', 'stroke-width': 3 * k, 'stroke-linecap': 'round'}, svg);
@@ -216,15 +230,16 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
 
   function renderObjects() {
     const s = getState();
-    $('#edObjects').innerHTML = `<div class="ed-obj-head"><b>Objects</b><span>${s.zones.length} zones · ${s.racks.length} racks</span></div>${s.zones.map(z => {
+    $('#edObjects').innerHTML = `<div class="ed-obj-head"><b>Objects</b><span>${s.zones.length} zones · ${s.racks.length} racks · ${docksOf(s).length} docks</span></div>${s.zones.map(z => {
       const racks = s.racks.filter(r => r.zone === z.id), open = expanded.has(z.id), on = sel?.type === 'zone' && sel.id === z.id;
       return `<div class="ed-obj${on ? ' on' : ''}" data-zone="${z.id}"><button class="tw" data-expand="${z.id}" style="transform:rotate(${open ? 0 : -90}deg)">${ed('chevronDown', 14)}</button><i style="background:${zoneColor(z)}"></i><span>${esc(z.name)}</span><small>${racks.length}</small><button class="eye${hidden.has(z.id) ? ' off' : ''}" data-eye="${z.id}">${ed('eye', 14)}</button></div>`
         + (open ? racks.map(r => `<div class="ed-obj rack${sel?.type === 'racks' && sel.ids.has(r.id) ? ' on' : ''}" data-rack="${r.id}">${ed('rack', 14)}<span>${esc(r.id)}</span><button class="eye${hidden.has(z.id) ? ' off' : ''}" data-eye="${z.id}">${ed('eye', 14)}</button></div>`).join('') : '');
-    }).join('')}`;
+    }).join('')}${docksOf(s).map(d => `<div class="ed-obj${sel?.type === 'dock' && sel.id === d.id ? ' on' : ''}" data-dock="${esc(d.id)}">${ed(d.kind === 'inbound' ? 'receiving' : 'dispatch', 14)}<span>${esc(d.id)}</span></div>`).join('')}`;
     const o = $('#edObjects');
     o.querySelectorAll('[data-expand]').forEach(b => b.onclick = e => { e.stopPropagation(); const id = b.dataset.expand; expanded.has(id) ? expanded.delete(id) : expanded.add(id); renderObjects(); });
     o.querySelectorAll('[data-eye]').forEach(b => b.onclick = e => { e.stopPropagation(); const id = b.dataset.eye; hidden.has(id) ? hidden.delete(id) : hidden.add(id); render(); });
     o.querySelectorAll('.ed-obj[data-zone]').forEach(r => r.onclick = () => choose({type: 'zone', id: r.dataset.zone}));
+    o.querySelectorAll('.ed-obj[data-dock]').forEach(r => r.onclick = () => { choose({type: 'dock', id: r.dataset.dock}); centerOnDock(r.dataset.dock); render(); });
     o.querySelectorAll('.ed-obj[data-rack]').forEach(r => r.onclick = e => choose({type: 'racks', ids: new Set(e.shiftKey && sel?.type === 'racks' ? [...sel.ids, r.dataset.rack] : [r.dataset.rack])}));
   }
 
@@ -267,6 +282,12 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
         + section('Zone', prop('Area', `${fmt(Math.round(zoneArea(z)))} m²`) + prop('Perimeter', `${Math.round(perim)} m`))
         + banner() + `<div class="ed-actions"><button data-cmd="resetPoints">Reset</button><button class="primary" data-cmd="donePoints">Done</button></div>`;
     }
+    if (sel?.type === 'dock') {
+      const d = docksOf(s).find(d => d.id === sel.id);
+      return head(d.id, d.kind === 'inbound' ? 'Receiving dock' : 'Dispatch dock', `<button class="ed-ib" data-cmd="rotate" title="Rotate (R)">${ed('rotate')}</button>`)
+        + section('Position', input('X', 'dx', r1(d.x), 'm') + input('Y', 'dz', r1(d.z), 'm') + `<label class="ed-prop"><span>Rotation</span><span class="ed-in"><select data-in="drot">${[0, 90, 180, 270].map(a => `<option ${((d.rotation || 0) * 90) === a ? 'selected' : ''}>${a}</option>`).join('')}</select><em>°</em></span></label>`)
+        + section('Robots', prop('Stop point', 'Dashed circle on the plan')) + banner();
+    }
     if (sel?.type === 'zone') {
       const z = s.zones.find(z => z.id === sel.id), racks = s.racks.filter(r => r.zone === z.id), rect = !z.points;
       return head(z.name, `Zone · ${racks.length} racks`, `<button class="ed-ib" data-cmd="dupZone" title="Duplicate">${ed('duplicate')}</button><button class="ed-ib" data-cmd="delete" title="Delete">${ed('trash')}</button>`)
@@ -292,7 +313,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const box = $('#edInspector');
     box.innerHTML = inspectorHTML();
     box.querySelectorAll('[data-cmd]').forEach(b => b.onclick = () => command(b.dataset.cmd));
-    box.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { const p = report.problems[Number(b.dataset.show)]; sel = {type: 'racks', ids: new Set(p.ids)}; centerOn(p.ids); render(); });
+    box.querySelectorAll('[data-show]').forEach(b => b.onclick = () => { const p = report.problems[Number(b.dataset.show)]; if (p.dock) { sel = {type: 'dock', id: p.dock}; centerOnDock(p.dock); } else { sel = {type: 'racks', ids: new Set(p.ids)}; centerOn(p.ids); } render(); });
     box.querySelectorAll('[data-in]').forEach(i => { i.onchange = () => edit(i.dataset.in, i.value); i.onkeydown = e => { if (e.key === 'Enter') i.blur(); }; });
     box.querySelector('[data-color]')?.addEventListener('click', e => openColor(e.currentTarget));
   }
@@ -306,6 +327,11 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       if (name === 'name') return apply(() => { if (!value.trim()) throw Error('Enter a zone name.'); z.name = value.trim(); });
       if (name === 'w' || name === 'd') return apply(() => { if (!(n >= 4)) throw Error('Zones are at least 4 m on each side.'); applyLayoutEdit(s, {type: 'zone', id: z.id, points: zonePoints({...z, [name]: n})}); delete s.zones.find(x => x.id === z.id).points; Object.assign(s.zones.find(x => x.id === z.id), {[name]: n}); });
       if (name === 'px' || name === 'pz') return apply(() => { const ps = zonePoints(z).map(p => ({...p})); ps[pointIndex][name === 'px' ? 'x' : 'z'] = n; applyLayoutEdit(s, {type: 'zone', id: z.id, points: ps}); });
+    }
+    if (sel?.type === 'dock') {
+      const d = docksOf(s).find(d => d.id === sel.id);
+      if (name === 'dx' || name === 'dz') return apply(() => Object.assign(d, snapDock({x: name === 'dx' ? n : d.x, z: name === 'dz' ? n : d.z})));
+      if (name === 'drot') return apply(() => { d.rotation = Math.round(n / 90) % 4; });
     }
     if (sel?.type === 'racks' && sel.ids.size === 1) {
       const r = s.racks.find(r => sel.ids.has(r.id));
@@ -360,13 +386,14 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (cmd === 'cancel') return cancel();
     if (cmd === 'recheck') { report = accessReport(); return render(); }
     if (cmd === 'access') { report = null; return setTool('robot'); }
+    if (cmd === 'rotate' && sel?.type === 'dock') return apply(() => { const d = docksOf(s).find(d => d.id === sel.id); d.rotation = ((d.rotation || 0) + 1) % 4; });
     if (cmd === 'rotate' && selectedRacks().length) return apply(() => applyLayoutEdit(s, {type: 'rotate', ids: selectedRacks()}));
     if (cmd === 'duplicate' && selectedRacks().length) {
       const racks = s.racks.filter(r => sel.ids.has(r.id)), w = Math.max(...racks.map(r => r.x + r.width / 2)) - Math.min(...racks.map(r => r.x - r.width / 2)), d = Math.max(...racks.map(r => r.z + r.depth / 2)) - Math.min(...racks.map(r => r.z - r.depth / 2));
       const before = new Set(s.racks.map(r => r.id));
       for (const [dx, dz] of [[w + 1.5, 0], [0, d + 4], [-(w + 1.5), 0], [0, -(d + 4)]]) {
         const next = {...s, racks: s.racks.map(r => ({...r}))};
-        try { applyLayoutEdit(next, {type: 'copy', ids: selectedRacks(), dx, dz}); validateLayoutAccess(s.racks, next.racks); } catch { continue; }
+        try { applyLayoutEdit(next, {type: 'copy', ids: selectedRacks(), dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s)); } catch { continue; }
         apply(() => applyLayoutEdit(s, {type: 'copy', ids: selectedRacks(), dx, dz}));
         sel = {type: 'racks', ids: new Set(getState().racks.filter(r => !before.has(r.id)).map(r => r.id))};
         return render();
@@ -411,6 +438,10 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const x = racks.reduce((n, r) => n + r.x, 0) / racks.length, z = racks.reduce((n, r) => n + r.z, 0) / racks.length;
     vb.x = x - vb.w / 2; vb.z = z - vb.h / 2;
   }
+  function centerOnDock(id) {
+    const d = docksOf(getState()).find(d => d.id === id);
+    if (d && view === '2D' && vb) { const b = dockRect(d); vb.x = b.x - vb.w / 2; vb.z = b.z - vb.h / 2; }
+  }
   function nextZoneDefaults() {
     const s = getState(), used = new Set(s.zones.map(z => z.name));
     let i = 0; while (used.has(`Zone ${String.fromCharCode(65 + i)}`)) i++;
@@ -438,6 +469,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
 
   // ---------- 2D pointer input ----------
   const rackAt = p => getState().racks.find(r => !hidden.has(r.zone) && Math.abs(p.x - r.x) <= r.width / 2 && Math.abs(p.z - r.z) <= r.depth / 2);
+  const dockAt = p => docksOf(getState()).find(d => { const b = dockRect(d), q = dockPort(d); return Math.abs(p.x - b.x) <= b.width / 2 && Math.abs(p.z - b.z) <= b.depth / 2 || Math.hypot(p.x - q.x, p.z - q.z) < 1.5; });
   const zoneAt = p => getState().zones.find(z => !hidden.has(z.id) && contains(z, p));
   svg.addEventListener('pointerdown', e => {
     if (e.button !== 0 && e.button !== 1) return;
@@ -458,6 +490,12 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       if (i >= 0) { pointIndex = i; drag = {kind: 'point', i, p, ps: ps.map(q => ({...q})), next: ps}; return render(); }
       const z = zoneAt(p); if (z && z.id !== sel.id) { sel = {type: 'zone', id: z.id}; pointsStart = zonePoints(z).map(q => ({...q})); pointIndex = null; }
       return render();
+    }
+    const dock = dockAt(p);
+    if (dock) {
+      sel = {type: 'dock', id: dock.id}; if (tool === 'robot') tool = 'select';
+      drag = {kind: 'dock', id: dock.id, p, to: {x: dock.x, z: dock.z}, valid: true};
+      error = ''; onSelect?.(null); return render();
     }
     const r = rackAt(p);
     if (r) {
@@ -481,12 +519,19 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (drag.kind === 'ruler') { ruler.b = p; return drawPlan(); }
     if (drag.kind === 'marquee') { drag.end = p; return drawPlan(); }
     if (drag.kind === 'point') { const dx = Math.round(p.x - drag.p.x), dz = Math.round(p.z - drag.p.z); drag.next = drag.ps.map((q, i) => i === drag.i ? {x: q.x + dx, z: q.z + dz} : q); return drawPlan(); }
+    if (drag.kind === 'dock') {
+      const d = docksOf(getState()).find(d => d.id === drag.id);
+      drag.to = snapDock({x: d.x + p.x - drag.p.x, z: d.z + p.z - drag.p.z});
+      const s = getState(), next = {...s, docks: docksOf(s).map(o => o.id === d.id ? {...o, ...drag.to} : o)};
+      try { validateDocks(next); validateLayoutAccess(s.racks, s.racks, docksOf(s), next.docks); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      return drawPlan();
+    }
     if (drag.kind === 'move') {
       let dx = Math.round(p.x - drag.p.x), dz = Math.round(p.z - drag.p.z);
       if (snap && !e.altKey) { const a = drag.anchor, q = snapRack({racks: getState().racks.filter(r => !sel.ids.has(r.id))}, {x: a.x + dx, z: a.z + dz}, a); dx = q.x - a.x; dz = q.z - a.z; }
       drag.dx = dx; drag.dz = dz;
       const s = getState(), next = {...s, racks: s.racks.map(r => ({...r}))};
-      try { applyLayoutEdit(next, {type: 'move', ids: [...sel.ids], dx, dz}); validateLayoutAccess(s.racks, next.racks); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      try { applyLayoutEdit(next, {type: 'move', ids: [...sel.ids], dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s)); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
       $('#edContext').hidden = true; return drawPlan();
     }
   });
@@ -505,6 +550,12 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       const x0 = Math.min(d.p.x, d.end.x), x1 = Math.max(d.p.x, d.end.x), z0 = Math.min(d.p.z, d.end.z), z1 = Math.max(d.p.z, d.end.z);
       const ids = new Set([...(sel?.type === 'racks' ? sel.ids : []), ...s.racks.filter(r => !hidden.has(r.zone) && r.x >= x0 && r.x <= x1 && r.z >= z0 && r.z <= z1).map(r => r.id)]);
       sel = ids.size ? {type: 'racks', ids} : null;
+    }
+    if (d.kind === 'dock') {
+      const dock = docksOf(s).find(x => x.id === d.id);
+      if (d.to.x === dock.x && d.to.z === dock.z) return render();
+      if (!d.valid) { error = d.why; return render(); }
+      apply(() => Object.assign(dock, d.to)); return;
     }
     if (d.kind === 'move' && (d.dx || d.dz)) { if (!d.valid) { error = d.why; return render(); } apply(() => applyLayoutEdit(s, {type: 'move', ids: [...sel.ids], dx: d.dx, dz: d.dz})); return; }
     render();
@@ -531,8 +582,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (e.key === ' ') { space = true; return; }
     if (e.key === 'Escape') { if (pending || poly) { pending = null; poly = null; } else if (tool !== 'select') { return setTool('select'); } else sel = null; return render(); }
     if (e.key === 'Enter' && poly?.length >= 3) { try { pending = polygonZone(poly); poly = null; } catch (err) { error = err.message; } return render(); }
-    if ((e.key === 'Delete' || e.key === 'Backspace') && sel) { e.preventDefault(); return command('delete'); }
-    if (k === 'r' && selectedRacks().length) return command('rotate');
+    if ((e.key === 'Delete' || e.key === 'Backspace') && sel && sel.type !== 'dock') { e.preventDefault(); return command('delete'); }
+    if (k === 'r' && (selectedRacks().length || sel?.type === 'dock')) return command('rotate');
     const keys = {v: 'select', h: 'hand', m: 'rect', p: 'polygon', a: 'points', r: 'row', u: 'ruler'};
     if (keys[k]) setTool(keys[k]);
   });
@@ -553,10 +604,10 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   // ---------- open / save / cancel ----------
   function cancel() {
     const c = changes();
-    if (!c.zones.length && !c.racks.length) return close(false);
+    if (!c.zones.length && !c.racks.length && !c.docks) return close(false);
     const d = document.querySelector('#dialog');
     d.className = '';
-    d.innerHTML = `<div class="lc-dialog"><div class="lc-dlg-head"><h2>Discard changes?</h2><button type="button" class="icon" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><p class="lc-sub">Everything you did in this session will be lost:</p><div class="lc-details">${c.zones.length ? `<div><span>Zones</span><b>${c.zones}</b></div>` : ''}${c.racks.length ? `<div><span>Racks</span><b>${c.racks}</b></div>` : ''}</div><button class="lc-danger" data-discard>Discard changes</button></div>`;
+    d.innerHTML = `<div class="lc-dialog"><div class="lc-dlg-head"><h2>Discard changes?</h2><button type="button" class="icon" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><p class="lc-sub">Everything you did in this session will be lost:</p><div class="lc-details">${c.zones.length ? `<div><span>Zones</span><b>${c.zones}</b></div>` : ''}${c.racks.length ? `<div><span>Racks</span><b>${c.racks}</b></div>` : ''}${c.docks ? `<div><span>Docks</span><b>${c.docks}</b></div>` : ''}</div><button class="lc-danger" data-discard>Discard changes</button></div>`;
     d.querySelector('[data-close]').onclick = () => d.close();
     d.querySelector('[data-discard]').onclick = () => { d.close(); restore(baseline); dropLayoutLog(baselineTop); onChange(); close(false); };
     d.showModal();
@@ -565,7 +616,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const c = changes();
     open = false; root.hidden = true; sel = null; pending = null; poly = null; report = null;
     onExit(saved);
-    if (saved && (c.zones.length || c.racks.length)) toast('Layout saved', [c.zones.length && `Zones: ${c.zones}`, c.racks.length && `Racks: ${c.racks}`].filter(Boolean).join(' · '));
+    if (saved && (c.zones.length || c.racks.length || c.docks)) toast('Layout saved', [c.zones.length && `Zones: ${c.zones}`, c.racks.length && `Racks: ${c.racks}`, c.docks && `Docks: ${c.docks}`].filter(Boolean).join(' · '));
   }
   return {
     open() { open = true; root.hidden = false; baseline = snapshot(); baselineTop = getState().history[0]; undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
