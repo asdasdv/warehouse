@@ -504,3 +504,12 @@ input[type=search]::-webkit-search-cancel-button{display:none}
 /* The top-bar button rule (.ph-search>button) would show the × always; it stays hidden until there is text. */
 .ph-search>.lc-clear{display:none;width:16px;height:16px;padding:0;background:none}
 .ph-search:is(.is-open,:focus-within):has(input:not(:placeholder-shown))>.lc-clear{display:grid}
+/* Scroll areas in popovers and panels: a transparent border holds the scrollbar away from the rounded
+   edges (it is drawn inside the border in every browser); padding shrinks by the same amount, so the
+   content stays where it was. Backgrounds paint under the border (border-box). */
+#results,#viewMenu{border:6px solid transparent;padding:2px}
+#tasksPanel,#overview,#robotPanel,.ed-objects{border:6px solid transparent;padding:6px}
+.lc-places,.ed-inspector{border:6px solid transparent;padding:10px}
+.lc-suggest{border:4px solid transparent;padding:0}
+.lc-pop-list{border-right:4px solid transparent}
+dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px}
