@@ -5,7 +5,7 @@ import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
 import {mergeByMaterial} from './merge-meshes.js';
-import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, chargingDepots, depotStops, depotPosts, POST, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
+import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, chargingDepots, depotStops, POST, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
@@ -850,7 +850,7 @@ export function addWarehouseRobots(scene, getState) {
     const sk = JSON.stringify(s.spine || null) + JSON.stringify(docks);
     if (sk !== spineKey) { spineKey = sk; spine = s.spine || null; drawSpine(spine); }
     depots = chargingDepots(s);
-    const obstacles = [...layoutObstacles(s), ...depotPosts(depots)];
+    const obstacles = layoutObstacles(s);
     const area = depots.flatMap(d => [{x: d.x - 10, z: d.z - 10}, {x: d.x + d.w + 10, z: d.z + d.d + 10}]);
     router = createRouter(s.racks, obstacles, area);
     buildNetwork(stations.map(st => st.port), [...s.racks.flatMap(router.ports), ...depotStops(depots)], s.racks, obstacles, area);

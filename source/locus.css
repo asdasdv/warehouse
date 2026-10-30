@@ -495,3 +495,9 @@ th.lc-sortable.num>span{flex-direction:row-reverse}
 .lc-clear:hover{opacity:.6;background:none}
 .lc-input:has(input:not(:placeholder-shown))>.lc-clear,.ph-search:has(input:not(:placeholder-shown))>.lc-clear{display:grid}
 input[type=search]::-webkit-search-cancel-button{display:none}
+/* Field label with a secondary action on the right (Figma «Button / Style=Text»). */
+.lc-field-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.lc-field-head>span{font-size:12px;line-height:16px;color:var(--content-secondary)}
+.lc-text-btn{padding:0;height:auto;background:none;border:0;font-size:12px;line-height:16px;font-weight:500;color:var(--accent-primary)}
+.lc-text-btn:hover{background:none;color:var(--accent-primary-hover)}
+.lc-text-btn:disabled{color:var(--content-tertiary);opacity:1}

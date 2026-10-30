@@ -121,15 +121,16 @@ export function chargingDepots(s) {
     }
     return {id, x: x0, z: z0, w, d, bays, aisles};
   };
-  return [at(Math.floor((minX - edge - w) / 2) * 2, -24 - d, 'Charging west'), at(Math.ceil((maxX + edge) / 2) * 2, 24, 'Charging east')];
+  // Aligned to the 4 m lane grid: aisles lie on lanes (z ≡ 0 mod 4) and the posts sit between lanes
+  // (x ≡ 2, z ≡ ±2.1), so robots driving the lanes pass between the posts, never through them.
+  return [at(Math.floor((minX - edge - w) / 4) * 4, -26 - d, 'Charging west'), at(Math.ceil((maxX + edge) / 4) * 4, 26, 'Charging east')];
 }
 // Points along the depot aisles, for the lane network.
 export const depotStops = depots => depots.flatMap(d => d.aisles.flatMap(a => [a.x1 - 6, (a.x1 + a.x2) / 2, a.x2 + 6].map(x => ({x, z: a.z}))));
 
 // Everything robots must drive around: docks plus the spine and its buildings.
 export const layoutObstacles = s => [...docksOf(s).map(dockRect), ...spineRects(s.spine)];
-// Charging posts stand 2.1 m behind each bay's stop (see drawDepots): solid for routing, so robots drive
-// round the post rows instead of through them, while the stop itself stays reachable.
+// Charging posts stand 2.1 m behind each bay's stop (see drawDepots).
 export const POST = {back: 2.1, width: 1.1, depth: .35};
 export const depotPosts = depots => depots.flatMap(d => d.bays.map(b => ({x: b.x, z: b.z + b.face * POST.back, width: POST.width, depth: POST.depth})));
 
