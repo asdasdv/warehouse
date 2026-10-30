@@ -426,3 +426,7 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-pri
 #narrow{display:none}
 @media (max-width:899px){#narrow{display:flex;position:fixed;inset:0;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;background:var(--surface-primary);color:var(--content-primary)}
  #narrow b{font-size:20px;line-height:28px;font-weight:600}#narrow span{font-size:14px;line-height:20px;color:var(--content-secondary);max-width:320px}}
+/* Dialogs: the scrollbar stays inside the rounded corners. The standard thin scrollbar can't be inset,
+   so dialogs use the styled WebKit one with track margins equal to the corner radius. */
+dialog{scrollbar-width:auto;scrollbar-color:auto}
+dialog::-webkit-scrollbar-track{margin:24px 0}
