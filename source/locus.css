@@ -156,7 +156,7 @@ dialog .icon{width:28px;height:28px;border-radius:8px}
 .lc-field{display:flex;flex-direction:column;gap:8px;position:relative}
 .lc-field>span,.lc-label{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-input{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:12px;background:var(--surface-secondary)}
-.lc-input img{width:16px;height:16px;opacity:.6}
+.lc-input img{width:16px;height:16px;opacity:.35}
 .lc-input input,.lc-input select{flex:1;min-width:0;border:0;background:transparent;outline:0;height:100%;font-size:14px;padding:0}
 .lc-hint{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-stepper{display:grid;grid-template-columns:40px 1fr 40px;align-items:center;height:40px;border-radius:12px;background:var(--surface-secondary)}
@@ -231,7 +231,7 @@ dialog.lc-wide{width:880px}
 .lc-pop{position:absolute;left:0;top:36px;z-index:20;width:240px;padding:4px;border-radius:12px;background:var(--surface-primary);box-shadow:var(--pop);display:flex;flex-direction:column}
 .lc-pop.wide{width:260px}
 .lc-pop-search{display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--content-quaternary);margin-bottom:4px}
-.lc-pop-search img{opacity:.5}
+.lc-pop-search img{opacity:.35}
 .lc-pop-search input{border:0;background:none;outline:0;font-size:14px;flex:1;min-width:0}
 .lc-pop>button,.lc-pop-list button{display:flex;align-items:center;gap:8px;background:none;text-align:left;padding:6px 10px;border-radius:8px;width:100%}
 .lc-pop>button:hover,.lc-pop-list button:hover{background:var(--surface-secondary)}
@@ -389,7 +389,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .ph-search.is-open input,.ph-search:focus-within input{width:auto;flex:1;margin-left:6px}
 /* Open search: the magnifier is just the field's icon, not a button to hover or click. */
 .ph-search.is-open>button,.ph-search:focus-within>button{width:auto;height:auto;padding:0;background:none;pointer-events:none;cursor:default}
-.ph-search.is-open>button .fg-ic,.ph-search:focus-within>button .fg-ic{opacity:.5}
+.ph-search.is-open>button .fg-ic,.ph-search:focus-within>button .fg-ic{opacity:.35}
 .ph-search #results{top:45px;left:-54px}
 /* Tables (All zones, Inventory, History): rounded header and rows; a hovered row
    gets the grey fill and drops its own divider and the one above it. Separate
@@ -422,7 +422,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .map-tag.tag-dock,.map-tag.tag-building{padding:8px 16px;font:600 16px/20px Inter,Arial,sans-serif}
 .map-tag.tag-building{font-size:18px;line-height:22px}
 /* Keyboard and mouse focus stay visible on fields whose input has no outline of its own. */
-.lc-input:focus-within,.lc-stepper:focus-within,.ed-in:focus-within,.lc-pop-search:focus-within,.fg-search:focus-within{outline:2px solid var(--accent-primary);outline-offset:-1px}
+/* A focused field gets a slightly darker fill instead of a blue ring. */
+.lc-input:focus-within,.lc-stepper:focus-within,.ed-in:focus-within,.lc-pop-search:focus-within{background:var(--surface-tertiary)}
 button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px}
 /* No phone layout yet: below 900 px the app asks for a wider window instead of overlapping panels. */
 #narrow{display:none}
@@ -470,3 +471,12 @@ dialog .lc-table thead th{position:sticky;top:0;z-index:6;background:linear-grad
 .lc-qty{display:flex;align-items:center;justify-content:center;gap:4px;font-size:14px}
 .lc-qty input{width:2ch;text-align:right;padding:0}
 .lc-qty span{color:var(--content-secondary)}
+
+/* Placeholders and the icons beside them share one grey. */
+input::placeholder,textarea::placeholder{color:var(--content-tertiary);opacity:1}
+/* Empty table: one quiet line in the middle of the table area, no divider, no hover. */
+.lc-empty-row td{height:max(240px,calc(100vh - 360px));text-align:center;vertical-align:middle;border:0!important;background:none!important;color:var(--content-secondary)}
+.lc-empty-row td small{display:block;margin-top:4px;font-size:12px;line-height:16px;color:var(--content-tertiary)}
+/* History filters: the chosen one has an accent outline on the usual fill. */
+.ph-history-tabs button.active{background:var(--surface-secondary);box-shadow:inset 0 0 0 1.5px var(--accent-primary)}
+.ph-history-tabs button.active:hover{background:var(--surface-tertiary)}

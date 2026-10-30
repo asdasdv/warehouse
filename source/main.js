@@ -488,6 +488,11 @@ $('#phSearchButton').onclick = () => { searchWrap.classList.add('is-open'); $('#
 new MutationObserver(() => { $('#phSearchButton').tabIndex = searchWrap.classList.contains('is-open') ? -1 : 0; }).observe(searchWrap, {attributes: true, attributeFilter: ['class']});
 $('#search').addEventListener('focus', () => searchWrap.classList.add('is-open'));
 $('#search').addEventListener('blur', () => setTimeout(() => { if (!$('#search').value) searchWrap.classList.remove('is-open'); }, 180));
+// A click anywhere outside the search puts it back to the magnifier: the text is cleared and the results close.
+document.addEventListener('pointerdown', e => {
+  if (searchWrap.contains(e.target) || !searchWrap.classList.contains('is-open')) return;
+  $('#search').value = ''; $('#results').hidden = true; searchWrap.classList.remove('is-open'); $('#search').blur();
+});
 
 // ---------- controls ----------
 $('#receive').onclick = () => receivePhoenix();
