@@ -44,7 +44,9 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
  function showChosen(){if(!reveal||page!=='Fleet')return;const c=el.querySelector('.lc-robot.chosen');if(!c)return;reveal=false;const box=el.getBoundingClientRect(),r=c.getBoundingClientRect();
   if(r.top<box.top||r.bottom>box.bottom)el.scrollTo({top:el.scrollTop+r.top-box.top-(box.height-r.height)/2,behavior:'smooth'});}
  function render(){draw();showChosen();}
- function draw(){if(!page)return;el.classList.toggle('box-panel',page==='Box');const html=page==='Box'?boxHTML():fleetHTML();if(html===last)return;if(patch(html)){last=html;return;}last=html;const scroll=el.scrollTop;el.innerHTML=html;el.scrollTop=scroll;
+ function draw(){if(!page)return;
+  // A box that has left the warehouse (shipped, cancelled) closes its card and goes back to the warehouse view.
+  if(page==='Box'&&!sim.boxInfo(boxId)){close();onPick(null);return;}el.classList.toggle('box-panel',page==='Box');const html=page==='Box'?boxHTML():fleetHTML();if(html===last)return;if(patch(html)){last=html;return;}last=html;const scroll=el.scrollTop;el.innerHTML=html;el.scrollTop=scroll;
   el.querySelector('#shipBox')?.addEventListener('click',()=>onShip(boxId));
   el.querySelector('#moveBox')?.addEventListener('click',()=>onMove(boxId));
   el.querySelector('#closeRobots')?.addEventListener('click',close);
