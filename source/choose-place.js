@@ -4,7 +4,9 @@ const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`;
 // Free room in a cell for this product: 0 when another component is stored there.
 // Boxes by rack and cell, built once per dialog: looking cells up one by one in state.boxes took seconds.
 export function boxIndex(state){const idx=new Map();for(const b of state.boxes){let m=idx.get(b.rack);if(!m)idx.set(b.rack,m=new Map());let l=m.get(b.location);if(!l)m.set(b.location,l=[]);l.push(b);}return idx;}
-export function cellRoom(state,rackId,loc,product,exclude,idx){const bs=(idx?idx.get(rackId)?.get(loc):occupancy(state,rackId).get(loc))||[];if(exclude&&exclude.rack===rackId&&exclude.loc===loc)return 0;if(bs.length&&bs[0].product!==product)return 0;return CELL_CAPACITY-bs.length;}
+export function cellRoom(state,rackId,loc,product,exclude,idx){const bs=(idx?idx.get(rackId)?.get(loc):occupancy(state,rackId).get(loc))||[];if(exclude&&exclude.rack===rackId&&exclude.loc===loc)return 0;if(bs.length&&bs[0].product!==product)return 0;return Math.min(CELL_CAPACITY-bs.length,liveRoom?.(rackId,loc,product)??Infinity);}
+// The simulation also knows about boxes already on their way to a cell; set from main.js.
+let liveRoom=null;export function setLiveRoom(fn){liveRoom=fn;}
 export function bestAddress(state,rack,product,exclude,idx){let empty=null;for(const loc of locations(rack)){const room=cellRoom(state,rack.id,loc,product,exclude,idx);if(!room)continue;if(room<CELL_CAPACITY)return {rack:rack.id,loc};if(!empty)empty={rack:rack.id,loc};}return empty;}
 // "Choose another place": zone → rack → cell. onPick({rack, loc}) closes the chooser.
 export function placeChooser({dialog,state,product,qty=1,exclude,backLabel,onPick,onBack,instant=false}){

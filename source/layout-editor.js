@@ -1,7 +1,7 @@
 import {ed} from './editor-icons.js';
-import {zonePoints, contains, polygonZone, zoneArea, snapRack, fitsZone} from './zone-shape.js';
-import {applyLayoutEdit, rowPositions} from './layout-edit.js';
-import {validateLayoutAccess, inaccessibleRacks} from './layout-access.js';
+import {zonePoints, contains, polygonZone, zoneArea, snapRack, fitsZone, MIN_ZONE_SIDE, ZONE_SIZE_MESSAGE} from './zone-shape.js';
+import {applyLayoutEdit, rowPositions, createSessionLog} from './layout-edit.js';
+import {validateLayoutAccess, inaccessibleRacks, createAccessCheck} from './layout-access.js';
 import {addZone, addRack, colors, log} from './model.js';
 import {config, locations} from './storage.js';
 import {docksOf, dockRect, dockPort, snapDock, validateDocks, onSpine, spineRects} from './docks.js';
@@ -29,7 +29,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
 
   let open = false, view = '2D', tool = 'select', snap = true;
   let sel = null;               // {type:'zone', id} | {type:'racks', ids:Set} | {type:'dock', id}
-  let baseline = null, baselineTop = null, undo = [], redo = [], error = '';
+  let baseline = null, undo = [], redo = [], error = '';
   let pending = null;           // new zone before "Create zone": {x,z,w,d} | {points}
   let poly = null;              // polygon being drawn: [{x,z}]
   let drag = null, hover = null, ruler = null, rowPreview = null, rowGap = 1, pointIndex = null, pointsStart = null;
@@ -40,23 +40,23 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   // ---------- draft history ----------
   const snapshot = () => JSON.stringify({zones: getState().zones, racks: getState().racks, docks: docksOf(getState())});
   function restore(json) { const s = getState(), v = JSON.parse(json); s.zones = v.zones; s.racks = v.racks; if (v.docks) s.docks = v.docks; }
-  // Layout events logged after `since` (the newest history entry back then) are dropped when their edit is thrown away.
-  const LAYOUT_EVENTS = new Set(['Zone created', 'Rack added', 'Rack updated']);
-  function dropLayoutLog(since) {
-    const s = getState(), i = since ? s.history.indexOf(since) : s.history.length, head = i < 0 ? s.history : s.history.slice(0, i);
-    s.history = [...head.filter(e => !LAYOUT_EVENTS.has(e.type)), ...(i < 0 ? [] : s.history.slice(i))];
-  }
+  // History entries an edit writes (`Zone created`, `Rack added`, main.js's `Layout updated · move` from the 3D tools, …)
+  // live exactly as long as the edit: a failed edit and Undo take them out of History, Redo puts them back, and
+  // «Discard changes» removes every entry of the session. Each undo step carries its own entries.
+  const sessionLog = createSessionLog(getState);
   // Every edit goes through here: it is validated, can be undone, and fails without changing anything.
   function apply(fn) {
     const before = snapshot(), top = getState().history[0];
     try { fn(); const was = JSON.parse(before), s = getState(); validateDocks(s); validateLayoutAccess(was.racks, s.racks, was.docks, docksOf(s), s.spine); }
-    catch (e) { restore(before); dropLayoutLog(top); error = e.message; render(); return false; }
-    undo.push(before); undo = undo.slice(-50); redo = []; error = ''; report = null;
+    catch (e) { restore(before); sessionLog.forget(top); error = e.message; render(); return false; }
+    const logs = sessionLog.take(top);
+    undo.push({snap: before, logs}); undo = undo.slice(-50); redo = []; error = ''; report = null;
     onChange(); render(); return true;
   }
   function step(from, to) {
     if (!from.length) return;
-    to.push(snapshot()); restore(from.pop());
+    const item = from.pop(); to.push({snap: snapshot(), logs: item.logs}); restore(item.snap);
+    if (from === undo) sessionLog.drop(item.logs); else sessionLog.put(item.logs);
     if (sel?.type === 'zone' && !getState().zones.some(z => z.id === sel.id)) sel = null;
     if (sel?.type === 'racks') { sel.ids = new Set([...sel.ids].filter(id => getState().racks.some(r => r.id === id))); if (!sel.ids.size) sel = null; }
     error = ''; report = null; onChange(); render();
@@ -326,11 +326,11 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const s = getState(), n = Number(value);
     if (name === 'newName') { newName = value; return; }
     if (name === 'gap') { rowGap = Math.max(1, n || 1); return render(); } // racks keep at least 1 m apart
-    if (name === 'newW' || name === 'newD') { if (n >= 4) pending[name === 'newW' ? 'w' : 'd'] = n; return render(); }
+    if (name === 'newW' || name === 'newD') { if (n >= MIN_ZONE_SIDE) pending[name === 'newW' ? 'w' : 'd'] = n; return render(); }
     if (sel?.type === 'zone') {
       const z = s.zones.find(z => z.id === sel.id);
       if (name === 'name') return apply(() => { if (!value.trim()) throw Error('Enter a zone name.'); z.name = value.trim(); });
-      if (name === 'w' || name === 'd') return apply(() => { if (!(n >= 4)) throw Error('Zones are at least 4 m on each side.'); applyLayoutEdit(s, {type: 'zone', id: z.id, points: zonePoints({...z, [name]: n})}); delete s.zones.find(x => x.id === z.id).points; Object.assign(s.zones.find(x => x.id === z.id), {[name]: n}); });
+      if (name === 'w' || name === 'd') return apply(() => { if (!(n >= MIN_ZONE_SIDE)) throw Error(ZONE_SIZE_MESSAGE); applyLayoutEdit(s, {type: 'zone', id: z.id, points: zonePoints({...z, [name]: n})}); delete s.zones.find(x => x.id === z.id).points; Object.assign(s.zones.find(x => x.id === z.id), {[name]: n}); });
       if (name === 'px' || name === 'pz') return apply(() => { const ps = zonePoints(z).map(p => ({...p})); ps[pointIndex][name === 'px' ? 'x' : 'z'] = n; applyLayoutEdit(s, {type: 'zone', id: z.id, points: ps}); });
     }
     if (sel?.type === 'dock') {
@@ -502,14 +502,14 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const dock = dockAt(p);
     if (dock) {
       sel = {type: 'dock', id: dock.id}; if (tool === 'robot') tool = 'select';
-      drag = {kind: 'dock', id: dock.id, p, to: {x: dock.x, z: dock.z}, valid: true};
+      drag = {kind: 'dock', id: dock.id, p, to: {x: dock.x, z: dock.z}, valid: true, key: `${dock.x},${dock.z},${dock.rotation || 0}`}; accessCheck.reset();
       error = ''; onSelect?.(null); return render();
     }
     const r = rackAt(p);
     if (r) {
       if (e.shiftKey) { const ids = new Set(sel?.type === 'racks' ? sel.ids : []); ids.has(r.id) ? ids.delete(r.id) : ids.add(r.id); sel = ids.size ? {type: 'racks', ids} : null; }
       else if (!(sel?.type === 'racks' && sel.ids.has(r.id))) sel = {type: 'racks', ids: new Set([r.id])};
-      if (sel) drag = {kind: 'move', p, anchor: r, dx: 0, dz: 0, valid: true};
+      if (sel) { drag = {kind: 'move', p, anchor: r, dx: 0, dz: 0, valid: true, key: '0,0'}; accessCheck.reset(); }
       if (tool === 'robot') tool = 'select';
       error = ''; onSelect?.(sel?.ids?.size === 1 ? {type: 'rack', id: r.id} : null); return render();
     }
@@ -531,23 +531,38 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       const d = docksOf(getState()).find(d => d.id === drag.id);
       drag.to = dockAt2(d, getState().spine ? p : {x: d.x + p.x - drag.p.x, z: d.z + p.z - drag.p.z});
       const s = getState(), next = {...s, docks: docksOf(s).map(o => o.id === d.id ? {...o, ...drag.to} : o)};
-      try { validateDocks(next); validateLayoutAccess(s.racks, s.racks, docksOf(s), next.docks, s.spine); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      const key = `${drag.to.x},${drag.to.z},${drag.to.rotation || 0}`;
+      if (key === drag.key) return drawPlan();
+      drag.key = key;
+      try { validateDocks(next); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      if (drag.valid) liveAccess(key, () => validateLayoutAccess(s.racks, s.racks, docksOf(s), next.docks, s.spine));
       return drawPlan();
     }
     if (drag.kind === 'move') {
       let dx = Math.round(p.x - drag.p.x), dz = Math.round(p.z - drag.p.z);
       if (snap && !e.altKey) { const a = drag.anchor, q = snapRack({racks: getState().racks.filter(r => !sel.ids.has(r.id))}, {x: a.x + dx, z: a.z + dz}, a); dx = q.x - a.x; dz = q.z - a.z; }
-      drag.dx = dx; drag.dz = dz;
+      $('#edContext').hidden = true;
+      const key = `${dx},${dz}`;
+      if (key === drag.key) return drawPlan();
+      drag.dx = dx; drag.dz = dz; drag.key = key;
       const s = getState(), next = {...s, racks: s.racks.map(r => ({...r}))};
-      try { applyLayoutEdit(next, {type: 'move', ids: [...sel.ids], dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s), docksOf(s), s.spine); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
-      $('#edContext').hidden = true; return drawPlan();
+      try { applyLayoutEdit(next, {type: 'move', ids: [...sel.ids], dx, dz}); validateDocks(next); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      if (drag.valid) liveAccess(key, () => validateLayoutAccess(s.racks, next.racks, docksOf(s), docksOf(s), s.spine));
+      return drawPlan();
     }
   });
+  // Robot access while dragging: once per snapped position, at most every 100 ms (see createAccessCheck);
+  // the drop runs the full check in apply() anyway.
+  const accessCheck = createAccessCheck(100);
+  function liveAccess(key, fn) {
+    const d = drag, r = accessCheck.check(key, fn, (late, k) => { if (drag === d && d.key === k) { d.valid = late.valid; d.why = late.why; drawPlan(); } });
+    d.valid = r.valid; d.why = r.why;
+  }
   svg.addEventListener('pointerup', () => {
     const d = drag; drag = null;
     if (!d) return;
     const s = getState();
-    if (d.kind === 'rect') { if (pending && (pending.w < 4 || pending.d < 4)) { pending = null; error = 'Draw a zone at least 4 × 4 m.'; } return render(); }
+    if (d.kind === 'rect') { if (pending && (pending.w < MIN_ZONE_SIDE || pending.d < MIN_ZONE_SIDE)) { pending = null; error = ZONE_SIZE_MESSAGE; } return render(); }
     if (d.kind === 'row') {
       const qs = rowPreview || []; rowPreview = null;
       if (qs.length) apply(() => { for (const q of qs) addRack(s, s.zones.find(z => contains(z, q))?.id, q.x, q.z, rackDraft()); });
@@ -590,6 +605,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (e.key === ' ') { space = true; return; }
     if (e.key === 'Escape') { if (pending || poly) { pending = null; poly = null; } else if (tool !== 'select') { return setTool('select'); } else sel = null; return render(); }
     if (e.key === 'Enter' && poly?.length >= 3) { try { pending = polygonZone(poly); poly = null; } catch (err) { error = err.message; } return render(); }
+    // While a polygon is being drawn these keys take back its last corner (in 3D the scene does that) and never delete the selection.
+    if ((e.key === 'Delete' || e.key === 'Backspace') && (tool === 'polygon' || poly)) { e.preventDefault(); if (view === '2D' && poly) { poly.pop(); if (!poly.length) poly = null; hover = null; render(); } return; }
     if ((e.key === 'Delete' || e.key === 'Backspace') && sel && sel.type !== 'dock') { e.preventDefault(); return command('delete'); }
     if (k === 'r' && (selectedRacks().length || sel?.type === 'dock')) return command('rotate');
     const keys = {v: 'select', h: 'hand', m: 'rect', p: 'polygon', a: 'points', r: 'row', u: 'ruler'};
@@ -617,7 +634,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     d.className = '';
     d.innerHTML = `<div class="lc-dialog"><div class="lc-dlg-head"><h2>Discard changes?</h2><button type="button" class="icon" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><p class="lc-sub">Everything you did in this session will be lost:</p><div class="lc-details">${c.zones.length ? `<div><span>Zones</span><b>${c.zones}</b></div>` : ''}${c.racks.length ? `<div><span>Racks</span><b>${c.racks}</b></div>` : ''}${c.docks ? `<div><span>Docks</span><b>${c.docks}</b></div>` : ''}</div><button class="lc-danger" data-discard>Discard changes</button></div>`;
     d.querySelector('[data-close]').onclick = () => d.close();
-    d.querySelector('[data-discard]').onclick = () => { d.close(); restore(baseline); dropLayoutLog(baselineTop); onChange(); close(false); };
+    d.querySelector('[data-discard]').onclick = () => { d.close(); restore(baseline); sessionLog.discard(); onChange(); close(false); };
     d.showModal();
   }
   function close(saved) {
@@ -627,7 +644,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (saved && (c.zones.length || c.racks.length || c.docks)) toast('Layout saved', [c.zones.length && `Zones: ${c.zones}`, c.racks.length && `Racks: ${c.racks}`, c.docks && `Docks: ${c.docks}`].filter(Boolean).join(' · '));
   }
   return {
-    open() { open = true; root.hidden = false; baseline = snapshot(); baselineTop = getState().history[0]; undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
+    open() { open = true; root.hidden = false; baseline = snapshot(); sessionLog.clear(); undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
     apply, render,
     get isOpen() { return open; },
     // Selections made in the 3D scene.

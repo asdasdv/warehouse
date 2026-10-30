@@ -5,7 +5,7 @@ import {GLTFLoader} from 'three/addons/loaders/GLTFLoader.js';
 // The scene keeps its simple meshes until a model arrives, so a missing file only costs the detail.
 const cache = new Map();
 export function loadModel(name) {
-  if (typeof document === 'undefined') return Promise.resolve(null);
+  if (typeof document === 'undefined' || typeof location === 'undefined') return Promise.resolve(null);
   if (!cache.has(name)) cache.set(name, new GLTFLoader().loadAsync(`${import.meta.env?.BASE_URL ?? '/'}assets/models/${name}.glb`)
     .then(gltf => {
       gltf.scene.traverse(o => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });

@@ -29,8 +29,11 @@ const ROBOT_SCALE = BELT_TOP / .665; // robot.glb deck height 0.665 m
 const BELT_SPEED = 2.5;
 const SPINE_SPEED = 6;       // main conveyors: fast enough to keep up, slow enough to stop at a transfer
 const TRANSFER_SECONDS = .8; // a pop-up transfer pushes a box sideways between a main belt and a dock belt
-const AGE_METRES = 60;       // outbound picking: one day older is worth this many metres of extra driving
-const PICK_SAMPLE = 12;      // outbound picking: how many of a product's boxes are weighed against each other
+const AGE_METRES = 3;        // outbound picking: one day older is worth this many metres of extra driving
+const PICK_SAMPLE = 24;      // outbound picking: how many of a product's boxes are weighed against each other
+const USER_ROOM = 2;         // dispatch dock slots background orders leave free for the user's boxes
+const RECEIVE_AHEAD = 2;     // background boxes on a receiving dock still without a robot, at most (robots are sent for two at a time)
+const EMPTY_METRES = 12;     // put-away: an empty cell is worth this much more driving than topping up the same product
 // conveyor.glb: scanner portal 1.35 m from the hand-off end; lights hold their flash this long.
 const SCANNER_Z = BELT_START + 1.35 * BELT_TOP / .65, FLASH = 1.2;
 // Demand is tuned for the 24-zone spine warehouse (~40 robots); arrivals and orders come every few seconds.
@@ -52,6 +55,7 @@ export function addWarehouseRobots(scene, getState) {
   const book = createOrderBook();
   const transfers = []; // user moves: {id, rack, loc, status}
   const backlog = [];   // arrivals waiting for dock space: {product, target}
+  const overhead = [];  // boxes riding the overhead dispatch line: {st, q}
   let receiptSeq = 0;
   const held = new Map();     // box id -> {box, where: receiving|transit|dispatch, place}
   const reserved = new Set(); // shelf boxes promised to a robot
@@ -63,7 +67,7 @@ export function addWarehouseRobots(scene, getState) {
   let suspended = false, selected = null;
   let revision = 0, cargoDirty = true, serial = 0;
   let stored = 0, shipped = 0, delivered = 0;
-  let layoutClock = 1, arrivalClock = 0, orderClock = 4, balanceClock = 2;
+  let layoutClock = 1, arrivalClock = 0, orderClock = 4, balanceClock = 2, userClock = 0;
 
   // ---------- events and history ----------
   function note(text) { events.unshift(text); events.splice(30); }
@@ -88,19 +92,17 @@ export function addWarehouseRobots(scene, getState) {
     if (!posesDirty && !dirtyRacks.size) return;
     const s = getState();
     if (posesDirty) { rackPoses.clear(); for (const r of s.racks) dirtyRacks.add(r.id); }
-    const racks = new Map(s.racks.map(r => [r.id, r])), byRack = new Map([...dirtyRacks].map(id => [id, []]));
-    for (const b of s.boxes) byRack.get(b.rack)?.push(b);
+    const racks = new Map(s.racks.map(r => [r.id, r])), byRack = index().byRack;
     for (const id of dirtyRacks) {
       for (const p of rackPoses.get(id) || []) if (poseById.get(p.box.id) === p) poseById.delete(p.box.id);
       const r = racks.get(id);
       if (!r) { rackPoses.delete(id); continue; }
-      const list = boxLayout(r, byRack.get(id));
+      const list = boxLayout(r, [...(byRack.get(id) || [])]);
       rackPoses.set(id, list);
       for (const p of list) poseById.set(p.box.id, p);
     }
     if (posesDirty) for (const id of [...poseById.keys()]) if (!racks.has(poseById.get(id).box.rack)) poseById.delete(id);
-    poses = s.racks.flatMap(r => rackPoses.get(r.id) || []);
-    posesDirty = false; dirtyRacks.clear();
+    poses = null; posesDirty = false; dirtyRacks.clear();
   }
   const poseOf = id => { refreshPoses(); return poseById.get(id); };
 
@@ -110,7 +112,7 @@ export function addWarehouseRobots(scene, getState) {
   function index() {
     const s = getState();
     if (!boxIndex || indexedArray !== s.boxes || indexedLength !== s.boxes.length) {
-      boxIndex = {byId: new Map(), byProduct: new Map()};
+      boxIndex = {byId: new Map(), byProduct: new Map(), byRack: new Map()};
       for (const b of s.boxes) indexAdd(b);
       indexedArray = s.boxes; indexedLength = s.boxes.length;
     }
@@ -121,8 +123,11 @@ export function addWarehouseRobots(scene, getState) {
     let set = boxIndex.byProduct.get(b.product);
     if (!set) boxIndex.byProduct.set(b.product, set = new Set());
     set.add(b);
+    let rack = boxIndex.byRack.get(b.rack);
+    if (!rack) boxIndex.byRack.set(b.rack, rack = new Set());
+    rack.add(b);
   }
-  function indexRemove(b) { boxIndex.byId.delete(b.id); boxIndex.byProduct.get(b.product)?.delete(b); }
+  function indexRemove(b) { boxIndex.byId.delete(b.id); boxIndex.byProduct.get(b.product)?.delete(b); boxIndex.byRack.get(b.rack)?.delete(b); }
   const boxesOf = product => index().byProduct.get(product) || [];
 
   // ---------- address occupancy (kept up to date as robots pick and drop) ----------
@@ -151,27 +156,58 @@ export function addWarehouseRobots(scene, getState) {
     if (here && here.product !== product || coming && coming.product !== product) return false;
     return (here?.count || 0) + (coming?.count || 0) < MAX_PER_ADDRESS;
   }
-  // Same component first (fewest boxes), otherwise an empty address. Starts at a random rack to spread work.
-  function place(box, want = null, strict = false) {
+  // How many more boxes of `product` an address can take, counting the boxes there and those on their way.
+  function cellRoom(rack, loc, product) {
+    const r = typeof rack === 'string' ? getState().racks.find(x => x.id === rack) : rack;
+    if (!r || !locations(r).includes(loc)) return 0;
+    const {here, coming} = load(r, loc);
+    if (here && here.product !== product || coming && coming.product !== product) return 0;
+    return Math.max(0, MAX_PER_ADDRESS - (here?.count || 0) - (coming?.count || 0));
+  }
+  // The free cell on a rack closest to the wanted one (or the first free cell).
+  function nearestCell(r, product, wanted) {
+    const locs = locations(r), w = wanted ? locs.indexOf(wanted) : -1;
+    let best = null, d = Infinity;
+    locs.forEach((l, i) => { const k = Math.abs(i - w); if (k < d && fits(r, l, product)) { d = k; best = l; } });
+    return best;
+  }
+  const rackDist = (r, p) => Math.abs(r.x - p.x) + Math.abs(r.z - p.z);
+  let byDistance = new WeakMap(); // near point -> racks sorted by distance (dock ports are reused; dropped on a layout change)
+  // Same component first (fewest boxes), otherwise an empty address. With `near` (a dock, or a rack whose
+  // `zone` is skipped), the closest racks win; without it the search starts at a random rack to spread work.
+  // A wanted rack: its wanted cell, else the nearest free cell on it; `strict` gives up rather than leave the rack.
+  function place(box, want = null, strict = false, near = null) {
     const s = getState();
     if (want?.rack) {
       const r = s.racks.find(r => r.id === want.rack);
-      if (r) {
-        const loc = want.loc && locations(r).includes(want.loc) && fits(r, want.loc, box.product)
-          ? want.loc : locations(r).find(l => fits(r, l, box.product));
-        if (loc && (!strict || !want.loc || loc === want.loc)) return {rack: r, loc};
-      }
+      const loc = r && nearestCell(r, box.product, want.loc);
+      if (loc) return {rack: r, loc};
       if (strict) return null;
     }
+    const cellValue = (r, loc) => { const {here, coming} = load(r, loc), n = (here?.count || 0) + (coming?.count || 0); return n ? n : MAX_PER_ADDRESS / 2; };
     let best = null, score = Infinity;
+    if (near) {
+      let order = byDistance.get(near);
+      if (order?.racks !== s.racks || order.length !== s.racks.length) byDistance.set(near, order = Object.assign([...s.racks].sort((a, b) => rackDist(a, near) - rackDist(b, near)), {racks: s.racks}));
+      for (const r of order) {
+        const d = rackDist(r, near);
+        if (d >= score) break;
+        if (near.zone && r.zone === near.zone) continue;
+        for (const loc of locations(r)) {
+          if (!fits(r, loc, box.product)) continue;
+          const {here, coming} = load(r, loc), value = d + (here || coming ? 0 : EMPTY_METRES);
+          if (value < score) { score = value; best = {rack: r, loc}; }
+        }
+      }
+      return best;
+    }
     const racks = s.racks;
     const start = Math.floor(Math.random() * Math.max(1, racks.length));
     for (let i = 0; i < racks.length && score > 1; i++) {
       const r = racks[(start + i) % racks.length];
       for (const loc of locations(r)) {
         if (!fits(r, loc, box.product)) continue;
-        const {here, coming} = load(r, loc), n = (here?.count || 0) + (coming?.count || 0);
-        const value = n ? n : MAX_PER_ADDRESS / 2;
+        const value = cellValue(r, loc);
         if (value < score) { score = value; best = {rack: r, loc}; }
       }
     }
@@ -186,8 +222,8 @@ export function addWarehouseRobots(scene, getState) {
     if (c && --c.count <= 0) claims.delete(k);
   }
   function shelfDrop(rack, loc, box, size) {
-    const s = getState(), {coming} = load(rack, loc);
-    const list = s.boxes.filter(b => b.rack === rack.id && b.location === loc);
+    const {coming} = load(rack, loc);
+    const list = [...(index().byRack.get(rack.id) || [])].filter(b => b.location === loc);
     for (let i = 0; i < (coming?.count || 0); i++) list.push({...box, id: 'claim-' + i, location: loc});
     list.push({...box, location: loc});
     const p = boxLayout(rack, list).at(-1);
@@ -215,14 +251,25 @@ export function addWarehouseRobots(scene, getState) {
     const c = new T.Group(); c.add(cartonContent());
     c.position.set(x, y, z); c.scale.set(w, h, d); parent.add(c); return c;
   }
-  function label(parent, text, x, y, z) {
-    const c = document.createElement('canvas'); c.width = 512; c.height = 96;
-    const t = c.getContext('2d');
-    t.font = '500 40px Inter, Arial, sans-serif'; t.textAlign = 'center';
+  // Name tags are drawn again once Inter has loaded; drawn before that they would stay in the fallback font.
+  const LABEL_FONT = '500 40px Inter, Arial, sans-serif', labels = [];
+  function drawLabel(t, text) {
+    t.clearRect?.(0, 0, 512, 96);
+    t.font = LABEL_FONT; t.textAlign = 'center';
     const w = Math.min(500, (t.measureText?.(text).width ?? 200) + 56);
     t.fillStyle = 'rgba(255,255,255,.88)'; t.beginPath?.(); t.roundRect?.(256 - w / 2, 14, w, 68, 34); t.fill?.();
     t.fillStyle = '#4a5058'; t.fillText(text, 256, 62);
+  }
+  if (typeof document !== 'undefined' && document.fonts) {
+    const redraw = () => { for (const l of labels) { drawLabel(l.t, l.text); l.tex.needsUpdate = true; } };
+    Promise.resolve(document.fonts.load?.(LABEL_FONT)).then(() => document.fonts.ready).then(redraw, () => {});
+  }
+  function label(parent, text, x, y, z) {
+    const c = document.createElement('canvas'); c.width = 512; c.height = 96;
+    const t = c.getContext('2d');
+    drawLabel(t, text);
     const tex = new T.CanvasTexture(c); tex.colorSpace = T.SRGBColorSpace;
+    labels.push({t, text, tex});
     const sp = new T.Sprite(new T.SpriteMaterial({map: tex, depthTest: true, transparent: true, toneMapped: false}));
     sp.scale.set(5.5, 1.05, 1); sp.position.set(x, y, z); parent.add(sp); return sp;
   }
@@ -584,9 +631,12 @@ export function addWarehouseRobots(scene, getState) {
     const p = boxLayout(rack, Array.from({length: CELL_CAPACITY}, (_, i) => ({id: 'size-' + i, product: '', location: locations(rack)[0]})))[0];
     return {w: p.w, h: p.h, d: p.d};
   }
+  // A user's box goes to the dock where a robot can take it soonest (the ride along the receiving line, the
+  // boxes ahead of it, the drive to a chosen rack); background boxes spread over the docks, RECEIVE_AHEAD at most each.
   function arrive(item) {
-    const st = stations.filter(s => s.kind === 'inbound' && s.ready && s.queue.length < STATION_CAPACITY)
-      .sort((a, b) => a.queue.length - b.queue.length)[0];
+    const room = st => item.user ? st.queue.length < STATION_CAPACITY : st.queue.length < STATION_CAPACITY - 1 && st.queue.filter(q => !q.taken).length < RECEIVE_AHEAD, rack = item.target && getState().racks.find(r => r.id === item.target.rack);
+    const cost = st => item.user ? (spine ? (st.g.position.x - spine.x1) / SPINE_SPEED : 0) + st.queue.length * 15 + (rack ? rackDist(rack, st.port) / SPEED : 0) : st.queue.length;
+    const st = stations.filter(s => s.kind === 'inbound' && s.ready && room(s)).sort((a, b) => cost(a) - cost(b))[0];
     if (!st) return false;
     const s = getState();
     const b = {id: `BX-${++s.serial}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
@@ -602,7 +652,7 @@ export function addWarehouseRobots(scene, getState) {
     return true;
   }
   function updateDocks(dt) {
-    while (backlog.length && arrive(backlog[0])) backlog.shift();
+    for (let i = 0; i < backlog.length;) if (arrive(backlog[i])) backlog.splice(i, 1); else if (backlog[i].user) break; else i++;
     if (spine) updateReceivingLine(dt);
     for (const st of stations) {
       if (!st.ready) continue;
@@ -629,24 +679,28 @@ export function addWarehouseRobots(scene, getState) {
         if (p.z >= BELT_END) {
           st.portalFlash = FLASH;
           // Up the incline onto the overhead dispatch line.
-          if (spine) { p.z = BELT_END; q.onSpine = true; const top = new T.Vector3(st.g.position.x, UPPER + q.local.h / 2, 0); transfer(st, q, top, () => {}, top.distanceTo(q.mesh.getWorldPosition(new T.Vector3())) / BELT_SPEED, false); }
+          if (spine) { p.z = BELT_END; q.onSpine = true; const top = new T.Vector3(st.g.position.x, UPPER + q.local.h / 2, 0); transfer(st, q, top, () => { st.queue.splice(st.queue.indexOf(q), 1); overhead.push({st, q}); }, top.distanceTo(q.mesh.getWorldPosition(new T.Vector3())) / BELT_SPEED, false); }
           else ship(st, q);
         }
       }
       if (moving) st.tex.offset.y += (st.kind === 'inbound' ? -1 : 1) * dt * BELT_SPEED / 1.2;
       st.moving = moving;
     }
+    for (const {st, q} of [...overhead]) rideSpine(st, q, dt);
     for (const {tex, dir} of spineTextures) tex.offset.x -= dir * dt * SPINE_SPEED / 1.2;
   }
   function ship(st, q) {
-    q.mesh.parent?.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(q.box.id);
+    q.mesh.parent?.remove(q.mesh); held.delete(q.box.id);
+    const i = overhead.findIndex(o => o.q === q);
+    if (i >= 0) overhead.splice(i, 1); else st.queue.splice(st.queue.indexOf(q), 1);
     shipped++; getState().today.shipped++; book.ship(q.box.id);
     history('Shipped', q.box, st.id, 'Customer');
     pruneOrders();
     if (spine) doorFlash.dispatch = FLASH;
   }
   // Boxes on a conveyor: mid-transfer, or riding the overhead dispatch line into the dispatch building.
-  // (The receiving line moves its boxes together, in updateReceivingLine.)
+  // (The receiving line moves its boxes together, in updateReceivingLine.) Once up on the dispatch line a box
+  // is in `overhead`, no longer taking a place at its dock.
   function rideSpine(st, q, dt) {
     const p = q.mesh.position;
     if (q.move) return stepTransfer(st, q, dt);
@@ -661,19 +715,24 @@ export function addWarehouseRobots(scene, getState) {
 
   // ---------- demand: arrivals and orders never stop ----------
   function stockedProducts() { return [...new Set([...addresses().values()].map(a => a.product))]; }
+  // Background demand never runs ahead of the fleet: it tops up the work queues only to what the active
+  // robots can serve (`capacity`), and leans towards receiving or shipping to hold the starting stock level.
+  const stockLevel = () => (getState().boxes.length + held.size) / targetStock - 1;
+  const capacity = () => robots.filter(r => r.active && !r.charging && !r.paused).length;
+  const backgroundInbound = () => backlog.filter(x => !x.user).length + stations.filter(s => s.kind === 'inbound').reduce((n, s) => n + s.queue.filter(q => !q.taken && !q.user).length, 0);
+  const backgroundPending = () => book.orders.reduce((n, o) => n + (o.user ? 0 : o.quantity - o.allocated.length), 0);
   function generateDemand(dt) {
-    const stock = getState().boxes.length + held.size;
-    const low = stock < targetStock * .98, high = stock > targetStock * 1.02;
+    const level = stockLevel(), low = level < -.02, high = level > .02, cap = capacity();
     arrivalClock += dt;
     if (arrivalClock >= ARRIVAL_EVERY[low ? 'low' : high ? 'high' : 'normal'] / scale) {
       arrivalClock = 0;
-      if (backlog.length < STATION_CAPACITY * stations.filter(s => s.kind === 'inbound').length) backlog.push({product: pick(catalog)});
+      if (level < .01 && backgroundInbound() < cap * (level > .002 ? .25 : .5)) backlog.push({product: pick(catalog)});
     }
     orderClock += dt;
     if (orderClock >= ORDER_EVERY / scale) {
       orderClock = 0;
       const stockList = stockedProducts();
-      if (stockList.length && book.pending < PENDING[high ? 'high' : low ? 'low' : 'normal'] * scale) {
+      if (stockList.length && book.pending < PENDING[high ? 'high' : low ? 'low' : 'normal'] * scale && level > -.01 && backgroundPending() < cap * (level < -.002 ? .25 : .5)) {
         const o = book.create(pick(stockList), 1 + Math.floor(Math.random() * 5), Math.random() < .15 ? 'Urgent' : 'Normal');
         note(`${o.id} · ${o.quantity} × ${o.product}${o.priority === 'Urgent' ? ' · urgent' : ''}`);
       }
@@ -710,14 +769,33 @@ export function addWarehouseRobots(scene, getState) {
     for (const p of spots) for (const [dx, dz, sx, sz] of [[-1.6, 0, .16, 3.8], [1.6, 0, .16, 3.8], [0, -1.9, 3.36, .16], [0, 1.9, 3.36, .16]]) bays.push({x: p.x + dx, z: p.z + dz, sx, sz});
     instanced(flat, laneMat, strips); instanced(arrowGeo, laneMat, arrows); instanced(flat, bayMat, bays);
   }
-  let routeKey = null, networkJob = null, networkId = 0, networkPending = false;
+  let routeKey = null, networkJob = null, networkId = 0, networkPending = false, networkArgs = null;
   // The lane network is built in a worker in the browser (it takes a second or two on a large layout);
   // without workers (tests) it is built a step per frame. Robots route without it until it is ready.
-  const worker = typeof Worker !== 'undefined' && typeof window !== 'undefined' ? new Worker(new URL('./network-worker.js', import.meta.url), {type: 'module'}) : null;
-  if (worker) worker.onmessage = e => { if (e.data.id === networkId) { router.setNetwork(e.data.network); networkReady(e.data.segments); } };
+  // If the worker fails, it is dropped and the network is built here instead, so robots never freeze.
+  let worker = null;
+  try { worker = typeof Worker !== 'undefined' && typeof window !== 'undefined' ? new Worker(new URL('./network-worker.js', import.meta.url), {type: 'module'}) : null; }
+  catch (e) { console.warn('Route worker unavailable, building routes on the main thread', e); }
+  function workerFailed(e) {
+    console.warn('Route worker failed, building routes on the main thread', e?.message || e?.data?.error || e);
+    worker?.terminate(); worker = null;
+    if (networkPending && networkArgs) networkJob = router.networkSteps(networkArgs.hubs, networkArgs.stops);
+  }
+  if (worker) {
+    worker.onmessage = e => {
+      if (e.data.error) return workerFailed(e);
+      if (e.data.id !== networkId) return;
+      try { router.setNetwork(e.data.network); networkReady(e.data.segments); } catch (err) { workerFailed(err); }
+    };
+    worker.onerror = e => { e.preventDefault?.(); workerFailed(e); };
+    worker.onmessageerror = workerFailed;
+  }
   function buildNetwork(hubs, stops, racks, obstacles, area) {
-    networkId++; networkPending = true;
-    if (worker) { networkJob = null; worker.postMessage({id: networkId, racks, obstacles, area, hubs, stops}); return; }
+    networkId++; networkPending = true; networkArgs = {hubs, stops};
+    if (worker) {
+      networkJob = null;
+      try { worker.postMessage({id: networkId, racks, obstacles, area, hubs, stops}); return; } catch (e) { workerFailed(e); return; }
+    }
     networkJob = router.networkSteps(hubs, stops);
   }
   function stepNetwork(budgetMs) {
@@ -742,10 +820,21 @@ export function addWarehouseRobots(scene, getState) {
     drawLanes(router.segments(), [...spots, ...bays]);
     networkPending = false;
   }
+  // A cheap fingerprint of the racks: the layout editor replaces `state.racks` or edits rack objects in place,
+  // so every rack's id and geometry go into a running hash (no strings built, ~0.1 ms for 1200 racks).
+  function rackHash(racks) {
+    let h = racks.length;
+    const mix = v => { h = Math.imul(h ^ Math.round((+v || 0) * 1000), 0x01000193) | 0; };
+    for (const r of racks) {
+      for (let i = 0; i < r.id.length; i++) h = Math.imul(h ^ r.id.charCodeAt(i), 0x01000193) | 0;
+      mix(r.x); mix(r.z); mix(r.width); mix(r.depth); mix(r.height); mix(r.shelves); mix(r.places); mix(r.rotation);
+    }
+    return h;
+  }
   function checkLayout() {
     const s = getState(), docks = docksOf(s);
-    const k = JSON.stringify(s.racks.map(r => [r.id, r.x, r.z, r.width, r.depth, r.height, r.shelves, r.places, r.rotation || 0]));
-    if (k !== rackKey) { rackKey = k; posesDirty = true; cargoDirty = true; visualAll = true; revision++; }
+    const k = String(rackHash(s.racks));
+    if (k !== rackKey) { rackKey = k; byDistance = new WeakMap(); posesDirty = true; cargoDirty = true; visualAll = true; revision++; }
     // Routes are rebuilt once the layout editor closes, not on every edit while it is open.
     const rk = k + JSON.stringify(docks) + JSON.stringify(s.spine || null);
     if (rk === routeKey || suspended && routeKey !== null) return;
@@ -839,7 +928,7 @@ export function addWarehouseRobots(scene, getState) {
     if (t.transfer) t.transfer.status = 'Queued';
     if (t.queueItem) t.queueItem.taken = false;
     if (t.output) { t.outStation.g.remove(t.output.mesh); t.outStation.queue.splice(t.outStation.queue.indexOf(t.output), 1); }
-    r.task = null; r.cargo.visible = false; r.path = []; r.routeBlocked = false;
+    r.task = null; r.cargo.visible = false; r.path = []; r.routeBlocked = false; r.yieldFor = null;
   }
 
   // ---------- task assignment ----------
@@ -866,16 +955,43 @@ export function addWarehouseRobots(scene, getState) {
     r.mission = `${t.sourceStation ? 'IN' : t.target ? 'MOVE' : 'OUT'}-${++serial}`;
     r.from = t.source ? `${t.source.id} / ${t.box.location}` : t.sourceStation.id;
     r.to = t.target ? `${t.target.id} / ${t.slot}` : t.outStation.id;
-    r.routeBlocked = false; setPath(r, path); r.idle = 0; r.stage = 'To pickup'; r.status = r.stage; r.timer = 0; r.cargo.visible = false;
+    r.routeBlocked = false; r.yieldFor = null; setPath(r, path); r.idle = 0; r.stage = 'To pickup'; r.status = r.stage; r.timer = 0; r.cargo.visible = false;
     note(`${r.mission} · ${t.box.id} · ${r.from} → ${r.to}`);
     return true;
   }
-  function inboundJob(r) {
-    // Only the box waiting at the robot end of a belt can be picked up.
+  // Where a received box goes: the user's cell, else the nearest free cell on that rack; with the rack full
+  // (or no cell chosen) the closest free cell to the dock.
+  function receivePlace(q, st) {
+    const dest = q.target && place(q.box, q.target, true);
+    if (dest) return dest;
+    if (q.target && !q.redirected) { q.redirected = true; finished.push({kind: 'ReceiveRedirected', box: q.box, place: q.target.rack}); note(`${q.box.id} · ${q.target.rack} is full · stored nearby instead`); }
+    return place(q.box, null, false, st.port);
+  }
+  const userAt = st => st.queue.some(q => q.user);
+  const onBelt = st => st.queue.filter(q => !q.onSpine);
+  // A robot at a receiving dock loads the box at the front of the belt: if that is another robot's box (that
+  // robot still on its way), the two swap jobs; if it is nobody's, this robot takes it instead of its own.
+  function frontReady(r) {
+    const st = r.task.sourceStation, front = onBelt(st)[0];
+    if (!front?.atFront) return false;
+    if (front === r.task.queueItem) return true;
+    const o = robots.find(o => o.task?.queueItem === front);
+    if (o) {
+      if (o.stage !== 'To pickup') return false;
+      for (const k of ['task', 'product', 'boxId', 'mission', 'from', 'to']) [r[k], o[k]] = [o[k], r[k]];
+      return true;
+    }
+    cancel(r); inboundJob(r, st);
+    return false;
+  }
+  function inboundJob(r, only = null) {
+    // The first two boxes on a dock belt can be given out, so the next robot is on its way while one loads;
+    // whoever reaches the belt first takes the box at the front (see frontReady). A user's box is given out
+    // by serveUser (to the nearest robot), not to whichever robot happens to ask.
     const near = st => Math.abs(st.port.x - r.g.position.x) + Math.abs(st.port.z - r.g.position.z);
-    for (const st of stations.filter(s => s.kind === 'inbound' && s.ready).sort((a, b) => near(a) - near(b))) for (const q of st.queue.slice(0, 1)) {
-      if (!q.atFront || q.taken) continue;
-      const pickup = stationPose(st, q), dest = place(q.box, q.target);
+    for (const st of only ? [only] : stations.filter(s => s.kind === 'inbound' && s.ready).sort((a, b) => near(a) - near(b))) for (const q of onBelt(st).slice(0, 2)) {
+      if (q.taken || q.user && !only) continue;
+      const pickup = stationPose(st, q), dest = receivePlace(q, st);
       if (dest && start(r, {box: q.box, sourceStation: st, queueItem: q, target: dest.rack, slot: dest.loc, pickup,
         drop: shelfDrop(dest.rack, dest.loc, q.box, pickup)})) return true;
     }
@@ -886,8 +1002,8 @@ export function addWarehouseRobots(scene, getState) {
     for (const transfer of transfers.filter(t => t.status === 'Queued')) {
       const b = index().byId.get(transfer.id);
       if (!b || reserved.has(b.id)) { if (!b) transfer.status = 'Done'; continue; }
-      // The chosen cell may have filled up since the request: use another cell on that rack, else give the move up.
-      const dest = place(b, transfer, true) || place(b, {rack: transfer.rack}, true);
+      // The chosen cell may have filled up since the request: use the nearest free cell on that rack, else give the move up.
+      const dest = place(b, transfer, true);
       if (!dest) { transfer.status = 'Done'; finished.push({kind: 'MoveFailed', box: b, place: transfer.rack}); note(`Move cancelled · ${b.id} · ${transfer.rack} is full`); continue; }
       const pickup = {...poseOf(b.id)}, source = s.racks.find(x => x.id === b.rack);
       if (source && dest && start(r, {box: b, source, target: dest.rack, slot: dest.loc, transfer, pickup,
@@ -895,40 +1011,44 @@ export function addWarehouseRobots(scene, getState) {
     }
     return false;
   }
-  function outboundJob(r) {
-    const st = stations.filter(s => s.kind === 'outbound' && s.ready && s.queue.length < STATION_CAPACITY).sort((a, b) => a.queue.length - b.queue.length)[0];
-    if (!st) return false;
+  // Dispatch docks with room: a user's order may fill a dock, background orders leave USER_ROOM free.
+  const dispatchOpen = user => stations.filter(x => x.kind === 'outbound' && x.ready && x.queue.length < STATION_CAPACITY - (user ? 0 : USER_ROOM));
+  function outboundJob(r, userOnly = false) {
     const s = getState(), busy = new Set(transfers.filter(t => t.status !== 'Done').map(t => t.id));
     const promised = new Set(book.orders.map(o => o.boxId).filter(Boolean));
-    const open = book.orders.filter(o => o.allocated.length < o.quantity)
-      .sort((a, b) => (b.priority === 'Urgent') - (a.priority === 'Urgent'));
+    const tier = o => (o.user ? 2 : 0) + (o.priority === 'Urgent' ? 1 : 0);
+    const open = book.orders.filter(o => o.allocated.length < o.quantity && !o.user === !userOnly).sort((a, b) => tier(b) - tier(a));
+    // The best pick over the first few orders of the highest tier that has one (user, then urgent, then the rest).
+    let pick = null, seen = 0;
     for (const order of open) {
-      // Older stock first, like a WMS rotating inventory, weighed against the drive: each day of age is
-      // worth AGE_METRES of travel. Only a random handful of the product's boxes is compared, so one robot
-      // fetches from next door and another from the far end of the building.
-      let best = null, score = Infinity;
+      if (pick && (tier(order) < tier(pick.order) || ++seen > 8)) break;
+      // A user's chosen dock is kept to: the order waits for space there.
+      const docks = dispatchOpen(order.user).filter(x => !order.user || !order.station || x.id === order.station);
+      if (!docks.length) continue;
+      // Older stock first, like a WMS rotating inventory, weighed against the drive (robot → box → dock):
+      // each day of age is worth AGE_METRES of travel. A background order compares a random handful of the
+      // product's boxes; a user's order compares them all.
+      let best = null, bestDock = null, score = Infinity;
       const now = Date.now(), all = boxesOf(order.product), list = order.boxId ? [index().byId.get(order.boxId)].filter(Boolean) : [...all];
-      const pool = list.length <= PICK_SAMPLE ? list : Array.from({length: PICK_SAMPLE}, () => list[Math.floor(Math.random() * list.length)]);
+      const pool = order.user || list.length <= PICK_SAMPLE ? list : Array.from({length: PICK_SAMPLE}, () => list[Math.floor(Math.random() * list.length)]);
       for (const b of pool) {
         if (reserved.has(b.id) || busy.has(b.id)) continue;
         if (!order.boxId && promised.has(b.id)) continue;
         const p = poseOf(b.id); if (!p) continue;
         const days = b.receivedAt ? (now - Date.parse(b.receivedAt)) / 864e5 : 0;
-        const value = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) - days * AGE_METRES;
-        if (value < score) { score = value; best = b; }
+        let dock = null, drive = Infinity;
+        for (const x of docks) { const d = Math.abs(x.port.x - p.x) + Math.abs(x.port.z - p.z) + x.queue.length * 8; if (d < drive) { drive = d; dock = x; } }
+        const value = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) + drive - days * AGE_METRES;
+        if (value < score) { score = value; best = b; bestDock = dock; }
       }
-      if (!best) continue;
-      const source = s.racks.find(x => x.id === best.rack);
-      // The user's chosen dispatch dock, else the nearest open one.
-      const pose = poseOf(best.id), open = stations.filter(x => x.kind === 'outbound' && x.ready && x.queue.length < STATION_CAPACITY);
-      const cost = x => Math.abs(x.port.x - pose.x) + Math.abs(x.port.z - pose.z) + x.queue.length * 8;
-      const wanted = open.find(x => x.id === order.station) || open.sort((a, b) => cost(a) - cost(b))[0] || st;
-      if (start(r, {box: best, source, outStation: wanted, order, pickup: {...pose}})) return true;
+      if (best && (!pick || score < pick.score)) pick = {order, box: best, dock: bestDock, score};
     }
-    return false;
+    if (!pick) return false;
+    return start(r, {box: pick.box, source: s.racks.find(x => x.id === pick.box.rack), outStation: pick.dock, order: pick.order, pickup: {...poseOf(pick.box.id)}});
   }
   const waitingInbound = () => stations.filter(s => s.kind === 'inbound').reduce((n, s) => n + s.queue.filter(q => !q.taken).length, 0);
   const dispatchFull = () => stations.filter(s => s.kind === 'outbound').every(s => !s.ready || s.queue.length >= STATION_CAPACITY);
+  const stationFull = id => { const st = stations.find(s => s.id === id); return !!st && (!st.ready || st.queue.length >= STATION_CAPACITY); };
   // Internal move: a box goes from one rack to a rack in another zone (consolidation, as real warehouses do
   // between rushes). Keeps robots busy all over the building instead of waiting around the docks.
   function reslotJob(r) {
@@ -936,13 +1056,15 @@ export function addWarehouseRobots(scene, getState) {
     const s = getState();
     if (!s.racks.length) return false;
     refreshPoses();
+    // A box from a rack near the robot to the nearest rack in another zone: short trips, never across the building.
     for (let attempt = 0; attempt < 4; attempt++) {
-      const source = s.racks[Math.floor(Math.random() * s.racks.length)], poses = rackPoses.get(source.id) || [];
+      const source = Array.from({length: 6}, () => pick(s.racks)).sort((a, b) => rackDist(a, r.g.position) - rackDist(b, r.g.position))[0];
+      const poses = rackPoses.get(source.id) || [];
       if (!poses.length) continue;
       const box = poses[Math.floor(Math.random() * poses.length)].box;
       if (!boxInfo(box.id)?.actionable) continue;
-      const dest = place(box);
-      if (!dest || dest.rack.zone === source.zone) continue;
+      const dest = place(box, null, false, {x: source.x, z: source.z, zone: source.zone});
+      if (!dest) continue;
       const pickup = {...poseOf(box.id)};
       if (start(r, {box, source, target: dest.rack, slot: dest.loc, pickup, drop: shelfDrop(dest.rack, dest.loc, box, pickup), reslot: true})) return true;
     }
@@ -951,13 +1073,51 @@ export function addWarehouseRobots(scene, getState) {
   function assign(r) {
     if (!getState().racks.length || !router || networkPending) return;
     const urgent = book.orders.some(o => o.priority === 'Urgent' && o.allocated.length < o.quantity);
-    // User moves first, then alternate receiving and shipping per robot; a full dock or an urgent order jumps the line.
-    const inboundFirst = !urgent && (waitingInbound() >= STATION_CAPACITY * 1.5 || r.cycles % 2 === 0);
-    const jobs = inboundFirst ? [transferJob, inboundJob, outboundJob] : [transferJob, outboundJob, inboundJob];
+    // Background work only (serveUser hands out the user's): receiving and shipping, towards the starting
+    // stock level when it has drifted, else alternating per robot. An urgent order jumps the line.
+    const level = stockLevel();
+    const inboundFirst = !urgent && (level < -.001 || level <= .001 && r.cycles % 2 === 0);
+    const jobs = inboundFirst ? [inboundJob, outboundJob] : [outboundJob, inboundJob];
     for (const job of jobs) if (job(r)) return;
     if (reslotJob(r)) return;
     r.status = book.pending ? (dispatchFull() ? 'Waiting for dispatch capacity' : 'Waiting for stock or route') : 'Waiting for work';
   }
+  // User work does not wait for a robot to come free by chance: every second each piece of it still without a
+  // robot takes the nearest one that is free or only on its way to a background pickup (that job goes back
+  // in the queue). This is the only place user work is given out.
+  function serveUser() {
+    if (!router || networkPending) return;
+    const free = r => r.active && !r.paused && !r.charging && r.home && (!r.task || !userTask(r.task) && !isLoaded(r));
+    const jobs = [];
+    for (const tr of transfers) if (tr.status === 'Queued') { const p = poseOf(tr.id); if (p) jobs.push({p, run: r => transferJob(r)}); }
+    for (const st of stations) if (st.kind === 'inbound' && st.ready && userAt(st) && onBelt(st).slice(0, 2).some(q => !q.taken)) jobs.push({p: st.port, run: r => inboundJob(r, st)});
+    for (const o of book.orders) if (o.user && o.allocated.length < o.quantity && canShip(o)) {
+      const st = stations.find(x => x.id === o.station), b = o.boxId ? index().byId.get(o.boxId) : null;
+      for (let i = o.allocated.length; i < o.quantity; i++) jobs.push({p: (b && poseOf(b.id)) || st?.port || anchor, run: r => outboundJob(r, true)});
+    }
+    // A box ahead of a user's box on a receiving belt is handed to a much closer robot if its own is far away.
+    for (const st of stations) {
+      if (st.kind !== 'inbound' || !userAt(st)) continue;
+      for (const q of onBelt(st).slice(0, 2)) {
+        const o = q.taken && robots.find(o => o.task?.queueItem === q);
+        if (!o || o.stage !== 'To pickup') continue;
+        const far = rackDist(o.g.position, st.port);
+        if (far > 60 && robots.some(n => free(n) && n !== o && rackDist(n.g.position, st.port) + (n.task ? 30 : 0) + 40 < far)) { cancel(o); jobs.push({p: st.port, run: r => inboundJob(r, st)}); }
+      }
+    }
+    for (const job of jobs) {
+      const cost = r => Math.abs(r.g.position.x - job.p.x) + Math.abs(r.g.position.z - job.p.z) + (r.task ? 30 : 0);
+      const r = robots.filter(free).sort((a, b) => cost(a) - cost(b))[0];
+      if (!r) return;
+      const had = r.task;
+      if (had) cancel(r);
+      if (job.run(r)) continue;
+      if (had && !r.task) start(r, had);
+    }
+  }
+  const canShip = o => dispatchOpen(true).some(x => !o.station || x.id === o.station)
+    && [...boxesOf(o.product)].some(b => !reserved.has(b.id) && (!o.boxId || b.id === o.boxId));
+  const userTask = t => !!(t.transfer || t.order?.user || t.queueItem?.user);
   function balance() {
     const demand = waitingInbound() + book.pending + transfers.filter(t => t.status === 'Queued').length;
     const wanted = Math.min(ROBOTS, MIN_ACTIVE + Math.floor(demand / 4));
@@ -1112,9 +1272,26 @@ export function addWarehouseRobots(scene, getState) {
     return false;
   }
   // Stuck behind someone: first look for a way around the robots in the way, then step aside.
+  // Two robots heading for the same stop (a dock port, a rack face) can meet there and block each other: one
+  // steps aside and waits until the other is done there. A user's job goes first, then the box further forward
+  // on a receiving belt, then the lower robot number.
+  const rank = o => (o.task && userTask(o.task) ? 1e6 : 0) - (o.task?.sourceStation ? onBelt(o.task.sourceStation).indexOf(o.task.queueItem) * 1e3 : 0) - robots.indexOf(o);
+  const wantsStop = (o, goal) => same(o.path.at(-1), goal) && o.index < o.path.length || same(o.at, goal) && o.task && (o.stage === 'Loading' || o.stage === 'Unloading');
+  function yieldStop(r) {
+    const goal = r.path.at(-1), b = goal && blocker(r, r.path[r.index]);
+    if (!b || !wantsStop(b, goal) || rank(r) > rank(b)) return false;
+    const here = origin(r), spots = [[4, 0], [-4, 0], [0, 4], [0, -4], [6, 0], [-6, 0], [0, 6], [0, -6]]
+      .map(([ox, oz]) => router.point({x: here.x + ox, z: here.z + oz})).filter(q => q && !same(q, here) && !blocker(r, q))
+      .sort((a, c) => Math.hypot(c.x - goal.x, c.z - goal.z) - Math.hypot(a.x - goal.x, a.z - goal.z));
+    const path = spots.length && router.route(here, spots[0]);
+    if (!path) return false;
+    setPath(r, path); r.yieldFor = {robot: b, goal}; r.yieldTime = 0;
+    return true;
+  }
   function waitForTraffic(r, dt) {
     r.turnDir = 0; r.accel = 0;
     r.status = 'Waiting for traffic'; r.wait += dt;
+    if (r.wait > 1 && !r.yieldFor && r.task && yieldStop(r)) return false;
     const patience = 3 + robots.indexOf(r) % 4;
     if (r.wait < patience || r.wait < patience * 2 && r.detourTried) return false;
     const goal = r.path.at(-1), others = robots.filter(o => o !== r).flatMap(o => holds(o).map(q => ({...q, r: CLEAR})));
@@ -1216,11 +1393,18 @@ export function addWarehouseRobots(scene, getState) {
     const t = r.task;
     if (t.outStation && !t.outStation.ready || t.sourceStation && !t.sourceStation.ready && r.stage === 'To pickup') { r.status = 'Waiting for station'; return; }
     r.status = r.stage; r.battery = Math.max(5, r.battery - dt * DRAIN_WORK);
+    if (r.yieldFor) {
+      const {robot, goal} = r.yieldFor;
+      r.yieldTime += dt;
+      if (wantsStop(robot, goal) && robot.task !== t && r.yieldTime < 30) { if (r.path.length && move(r, dt)) r.path = []; r.status = 'Giving way'; return; }
+      r.yieldFor = null; setPath(r, router.route(origin(r), goal) || []);
+    }
     if (r.stage === 'To pickup' || r.stage === 'Transporting') {
       if (move(r, dt)) { r.stage = r.stage === 'To pickup' ? 'Loading' : 'Unloading'; r.timer = 0; }
       return;
     }
     if (r.stage === 'Unloading') { putDown(r); return; }
+    if (r.timer === 0 && t.sourceStation && !frontReady(r)) { r.speed = 0; r.status = 'Waiting at dock'; return; }
     if (r.timer === 0) pickUp(r);
     r.timer += dt;
     if (r.timer < HANDOFF_SECONDS) return;
@@ -1249,6 +1433,8 @@ export function addWarehouseRobots(scene, getState) {
     if (balanceClock >= 2) { balanceClock = 0; balance(); }
     generateDemand(dt);
     updateDocks(dt);
+    userClock += dt;
+    if (userClock >= 1) { userClock = 0; serveUser(); }
     rebuildHolds();
     for (const r of robots) updateRobot(r, dt);
     updateMarkers();
@@ -1307,9 +1493,12 @@ export function addWarehouseRobots(scene, getState) {
       return change;
     },
     posesOf(rackIds) { refreshPoses(); return rackIds.flatMap(id => rackPoses.get(id) || []); },
-    displayLayout() { checkLayout(); refreshPoses(); return poses; },
+    displayLayout() { checkLayout(); refreshPoses(); return poses ||= getState().racks.flatMap(r => rackPoses.get(r.id) || []); },
     products: stockedProducts,
     boxInfo,
+    // How many more boxes of `product` the address (rack id or rack, location) can take: boxes there and boxes
+    // robots are already bringing count; 0 if another product is there or on its way.
+    cellRoom,
     dashboard(s = getState()) {
       const counts = {stored: s.boxes.length, receiving: 0, transit: 0, dispatch: 0};
       for (const h of held.values()) counts[h.where]++;
@@ -1322,12 +1511,15 @@ export function addWarehouseRobots(scene, getState) {
       const r = robots.find(r => r.task?.box.id === id && isLoaded(r));
       if (r) { const v = r.cargo.getWorldPosition(new T.Vector3()); return {...r.task.pickup, x: v.x, y: v.y, z: v.z}; }
       for (const st of stations) { const q = st.queue.find(q => q.box.id === id && q.arrived); if (q) return stationPose(st, q); }
+      const up = overhead.find(o => o.q.box.id === id);
+      if (up) return stationPose(up.st, up.q);
       return null;
     },
     orderStatus(o) {
       if (o.shipped.length >= o.quantity) return 'Completed';
       if (o.allocated.length >= o.quantity) return 'In progress';
       if (![...boxesOf(o.product)].some(b => !reserved.has(b.id) && (!o.boxId || b.id === o.boxId))) return 'Waiting for matching stock';
+      if (o.user && o.station && stationFull(o.station)) return `Waiting for space at ${o.station}`;
       if (dispatchFull()) return 'Waiting for dispatch space';
       return 'Waiting for an available robot';
     },
@@ -1373,7 +1565,7 @@ export function addWarehouseRobots(scene, getState) {
         out.push({id: t.box.id, kind, to, robot: r.id, step, text, cancellable: !isLoaded(r)});
       }
       for (const tr of transfers.filter(t => t.status === 'Queued')) out.push({id: tr.id, kind: 'Move', to: `${tr.rack}${tr.loc ? ' · ' + tr.loc : ''}`, step: -1, text: 'Waiting for a free robot', cancellable: true});
-      for (const o of book.orders.filter(o => o.user)) for (let i = o.allocated.length; i < o.quantity; i++) out.push({id: `${o.id}#${i}`, kind: 'Ship', to: o.station || 'Dispatch', step: -1, text: 'Waiting for a free robot', cancellable: true});
+      for (const o of book.orders.filter(o => o.user)) for (let i = o.allocated.length; i < o.quantity; i++) out.push({id: `${o.id}#${i}`, kind: 'Ship', to: o.station || 'Dispatch', step: -1, text: o.station && stationFull(o.station) ? `Waiting for space at ${o.station}` : 'Waiting for a free robot', cancellable: true});
       for (const st of stations) for (const q of st.queue) if (q.user && !q.taken) out.push({id: q.box.id, kind: 'Receive', to: q.target ? `${q.target.rack} · ${q.target.loc}` : 'storage', step: -1, text: `${q.box.id} is waiting at ${st.id}`, cancellable: true});
       for (const q of backlog) if (q.user) out.push({id: q.id, kind: 'Receive', to: q.target ? `${q.target.rack} · ${q.target.loc}` : 'storage', step: -1, text: `${q.product} · waiting for dock space`, cancellable: true});
       return out;
@@ -1384,7 +1576,18 @@ export function addWarehouseRobots(scene, getState) {
       const tr = transfers.find(t => t.id === id && t.status !== 'Done');
       if (tr) { tr.status = 'Done'; note(`Move cancelled · ${id}`); return; }
       const order = book.orders.find(o => o.user && (id.startsWith(o.id + '#') || o.boxId === id));
-      if (order) { order.quantity--; if (order.quantity <= order.allocated.length && !order.allocated.length) book.orders.splice(book.orders.indexOf(order), 1); note(`Shipment cancelled · ${order.id}`); return; }
+      if (order) {
+        // A robot may have taken the box since the list was drawn: then its trip is cancelled instead, unless
+        // the box is already on it (or at the dock). The order never asks for fewer boxes than it has allocated.
+        if (order.allocated.length >= order.quantity) {
+          const busy = robots.find(r => r.task?.order === order && !isLoaded(r));
+          if (!busy) throw Error('The robot already has this box.');
+          cancel(busy);
+        }
+        order.quantity--;
+        if (!order.quantity) book.orders.splice(book.orders.indexOf(order), 1);
+        note(`Shipment cancelled · ${order.id}`); return;
+      }
       const waiting = backlog.findIndex(q => q.user && q.id === id);
       if (waiting >= 0) { backlog.splice(waiting, 1); note(`Receipt cancelled · ${id}`); return; }
       for (const st of stations) {
@@ -1400,7 +1603,7 @@ export function addWarehouseRobots(scene, getState) {
     get flow() {
       return {
         waiting: stations.filter(s => s.kind === 'inbound').reduce((n, s) => n + s.queue.length, 0),
-        outgoing: stations.filter(s => s.kind === 'outbound').reduce((n, s) => n + s.queue.filter(q => q.arrived).length, 0),
+        outgoing: stations.filter(s => s.kind === 'outbound').reduce((n, s) => n + s.queue.filter(q => q.arrived).length, 0) + overhead.length,
         received: stored, shipped, backlog: backlog.length,
         activeRobots: robots.filter(r => r.active).length,
         bottleneck: robots.some(r => r.routeBlocked) ? 'Route blocked'

@@ -1,3 +1,4 @@
+import {pageButtons} from './pager.js';
 import {itemOf} from './model.js';
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),fmt=n=>n.toLocaleString('en-US');
 const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`;
@@ -39,13 +40,13 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const metrics=filtered?[['Boxes stored',hit.length,''],['Received today',located?flowIn:histCount('Received'),''],['Shipped today',located?flowOut:histCount('Shipped'),'']]
    :[['Boxes on site',live.onSite??boxes.length,''],['Received today',live.today.received,pct(live.today.received,y.received)],['Shipped today',live.today.shipped,pct(live.today.shipped,y.shipped)]];
   const pill=b=>{const z=zoneOfRack(st,b.rack),[s]=b.location.split('-'),text=filters.get('Rack')?.size?b.location:`${b.rack} · ${s}`;return {key:text,zone:z,html:`<button class="lc-loc" data-rack="${esc(b.rack)}" style="background:${z?.color||'var(--accent-primary)'}">${esc(text)}</button>`};};
-  const locCell=bs=>{const seen=new Map();for(const b of bs)if(b.kind==='stored'){const p=pill(b);if(!seen.has(p.key))seen.set(p.key,p);}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};
+  const locCell=bs=>{const seen=new Map();for(const b of bs)if(b.kind==='stored'){const p=pill(b);if(!seen.has(p.key))seen.set(p.key,p);}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" tabindex="0" role="button" aria-haspopup="dialog" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};
   others.length=0;
   const st0=page*size;
   el.innerHTML=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
   <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(query)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
   <table class="ph-history-table lc-inv-table"><colgroup><col style="width:160px"><col><col style="width:80px"><col style="width:390px"></colgroup><thead><tr><th>SKU</th><th>Product</th><th class="num">Boxes</th><th>Location</th></tr></thead><tbody>${rows.slice(st0,st0+size).map(([p,bs])=>`<tr><td class="sub">${esc(itemOf(p)?.sku||'—')}</td><td>${esc(p)}</td><td class="num">${fmt(bs.length)}</td><td class="lc-locs">${locCell(bs)}</td></tr>`).join('')||'<tr><td colspan="4" class="sub">No matching stock. Try another search or remove a filter.</td></tr>'}</tbody></table>
-  ${pages>1?`<div class="ph-history-foot"><span>Showing ${st0+1}–${Math.min(st0+size,rows.length)} of ${fmt(rows.length)} products</span><div><button id="invPrev" ${page===0?'disabled':''}>‹</button>${Array.from({length:Math.min(pages,5)},(_,i)=>`<button data-page="${i}" class="${i===page?'active':''}">${i+1}</button>`).join('')}${pages>5?'<span>…</span>':''}<button id="invNext" ${page>=pages-1?'disabled':''}>›</button></div></div>`:''}`;
+  ${pages>1?`<div class="ph-history-foot"><span>Showing ${st0+1}–${Math.min(st0+size,rows.length)} of ${fmt(rows.length)} products</span><div><button id="invPrev" ${page===0?'disabled':''}>‹</button>${pageButtons(page,pages)}<button id="invNext" ${page>=pages-1?'disabled':''}>›</button></div></div>`:''}`;
   bind();
  }
  // "+N places" popover (Figma popover/Other places): the remaining places grouped by zone.
@@ -65,9 +66,12 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  }
  function hidePlaces(now){clearTimeout(hideTimer);hideTimer=setTimeout(()=>{tip.hidden=true;hovering=false;},now?0:150);}
  tip.onmouseenter=()=>clearTimeout(hideTimer);tip.onmouseleave=()=>hidePlaces();
+ tip.addEventListener('focusout',e=>{if(!tip.contains(e.relatedTarget))hidePlaces();});tip.addEventListener('keydown',e=>{if(e.key==='Escape')hidePlaces(true);});
  function keepFocus(sel,fn){const input=el.querySelector(sel),pos=input?.selectionStart;fn();const n=el.querySelector(sel);if(n){n.focus();n.setSelectionRange(pos,pos);}}
  function bind(){
-  el.querySelectorAll('[data-more]').forEach(m=>m.onmouseenter=()=>showPlaces(m,others[Number(m.dataset.more)]));
+  // The «+N places» list opens on hover, on focus and on Enter/Space; Escape closes it.
+  el.querySelectorAll('[data-more]').forEach(m=>{const open=()=>showPlaces(m,others[Number(m.dataset.more)]);m.onmouseenter=open;m.onfocus=open;m.onblur=()=>{if(!tip.contains(document.activeElement))hidePlaces();};
+   m.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();tip.querySelector('[data-rack]')?.focus();}if(e.key==='Escape')hidePlaces(true);};});
   el.querySelectorAll('[data-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();const k=b.dataset.open;popover=popover===k?null:k;popQuery='';render();el.querySelector('#popSearch')?.focus();});
   el.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>{filters.delete(b.dataset.remove);popover=null;page=0;render();});
   el.querySelectorAll('[data-add]').forEach(b=>b.onclick=e=>{e.stopPropagation();filters.set(b.dataset.add,new Set());popover=b.dataset.add;popQuery='';render();});
@@ -85,5 +89,5 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  document.addEventListener('click',e=>{if(active&&popover&&!e.target.closest('#invPop')){popover=null;render();}});
  function close(){active=false;popover=null;tip.hidden=true;hovering=false;el.hidden=true;document.body.classList.remove('inventory-mode');}
  setInterval(()=>{if(active&&!hovering&&!el.contains(document.activeElement))render();},1500);
- return {close,open(){active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
+ return {close,open(q){if(q!==undefined){query=q.toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
 }

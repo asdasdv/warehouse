@@ -1,5 +1,5 @@
 // Tasks panel (top left): one card per box the user asked to receive, move or ship.
-// Finished moves and shipments become toasts.
+// Finished receipts, moves and shipments become toasts.
 const STEPS = {Receive: ['Coming', 'Loading', 'Storing'], Move: ['Coming', 'Loading', 'Moving'], Ship: ['Coming', 'Loading', 'Delivering']};
 const TITLE = {Receive: 'Put away to', Move: 'Move to', Ship: 'Ship to'};
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
@@ -29,10 +29,16 @@ export function installTasksPanel(sim, toast, {onHistory, onRobot}) {
         render();
       });
     }
-    for (const f of sim.takeFinished()) {
-      if (f.kind === 'Move') toast(`${f.box.id} moved`, `Now at ${f.place} · ${f.robot} is free again`);
-      if (f.kind === 'MoveFailed') toast(`${f.box.id} was not moved`, `${f.place} has no free cell left · the box stays where it was`);
-      if (f.kind === 'Ship') toast(`${f.box.id} shipped`, `${f.robot} delivered it to ${f.place}`, {label: 'View history', run: onHistory});
+    // Boxes that finish together share one toast: «5 boxes shipped» instead of five toasts in a row.
+    const done = {};
+    for (const f of sim.takeFinished()) (done[f.kind] ||= []).push(f);
+    for (const [kind, list] of Object.entries(done)) {
+      const f = list[0], n = list.length, many = n > 1 ? `${n} boxes` : f.box.id;
+      if (kind === 'Receive') toast(`${many} put away`, n > 1 ? `Now on the shelves · last at ${list[n - 1].place}` : `Now at ${f.place} · ${f.robot} is free again`);
+      if (kind === 'Move') toast(`${many} moved`, n > 1 ? `Last one now at ${list[n - 1].place}` : `Now at ${f.place} · ${f.robot} is free again`);
+      if (kind === 'MoveFailed') toast(`${many} not moved`, `${f.place} has no free cell left · the ${n > 1 ? 'boxes stay' : 'box stays'} where ${n > 1 ? 'they were' : 'it was'}`);
+      if (kind === 'ReceiveRedirected') toast(`${many} stored elsewhere`, `${f.place} had no free cell left · put away near the dock`);
+      if (kind === 'Ship') toast(`${many} shipped`, n > 1 ? `Delivered to ${[...new Set(list.map(x => x.place))].join(', ')}` : `${f.robot} delivered it to ${f.place}`, {label: 'View history', run: onHistory});
     }
   }
   setInterval(render, 400);

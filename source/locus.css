@@ -121,9 +121,13 @@ button.primary:hover{background:var(--accent-primary-hover)}
 .history-mode #tasksPanel,.inventory-mode #tasksPanel{display:none}
 
 /* ---------- toast ---------- */
-#toast{left:50%;bottom:20px;display:flex;align-items:center;gap:16px;padding:12px 12px 12px 16px;border-radius:16px;max-width:560px;
-  background:var(--surface-elevated);backdrop-filter:blur(12px);color:var(--content-primary);box-shadow:var(--pop)}
-#toast.visible{pointer-events:auto}
+#toast{left:50%;bottom:20px;inset:auto auto 20px 50%;margin:0;border:0;padding:0;background:none;overflow:visible;opacity:1;transform:translateX(-50%);
+  display:flex;flex-direction:column;align-items:center;gap:8px;max-width:560px;pointer-events:none}
+#toast:not(.visible){display:none}
+#toast .toast{display:flex;align-items:center;gap:16px;padding:12px 12px 12px 16px;border-radius:16px;max-width:560px;
+  background:var(--surface-elevated);backdrop-filter:blur(12px);color:var(--content-primary);box-shadow:var(--pop);
+  opacity:0;transform:translateY(8px);transition:opacity .2s,transform .2s;pointer-events:auto}
+#toast .toast.visible{opacity:1;transform:none}
 #toast .t{display:flex;flex-direction:column;gap:2px;min-width:0}
 #toast .t b{font-weight:500}
 #toast .t small{font-size:12px;color:var(--content-secondary)}
@@ -250,7 +254,7 @@ dialog.lc-wide{width:880px}
 /* ---------- layout editor ---------- */
 #layoutEditor{position:absolute;inset:0;z-index:30;pointer-events:none}
 #layoutEditor>*{pointer-events:auto}
-.building .ph-topbar,.building #editor,.building #buildInfo,#builderTools,.building #toast:not(.visible){display:none!important}
+.building .ph-topbar,#builderTools,.building #toast:not(.visible){display:none!important}
 .ed-bar{position:absolute;left:0;right:0;top:0;height:52px;display:flex;align-items:center;gap:16px;padding:8px 12px;background:var(--surface-primary)}
 .ed-left,.ed-right{flex:1;display:flex;align-items:center;gap:8px}
 .ed-right{justify-content:flex-end}
@@ -414,3 +418,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .map-tag i{width:10px;height:10px;border-radius:3px;flex:none}
 .map-tag.tag-dock,.map-tag.tag-building{padding:8px 16px;font:600 16px/20px Inter,Arial,sans-serif}
 .map-tag.tag-building{font-size:18px;line-height:22px}
+/* Keyboard and mouse focus stay visible on fields whose input has no outline of its own. */
+.lc-input:focus-within,.lc-stepper:focus-within,.ed-in:focus-within,.lc-pop-search:focus-within,.fg-search:focus-within{outline:2px solid var(--accent-primary);outline-offset:-1px}
+.ph-search:has(input:focus-visible){outline:2px solid var(--accent-primary);outline-offset:-1px}
+button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-primary);outline-offset:2px}
+/* No phone layout yet: below 900 px the app asks for a wider window instead of overlapping panels. */
+#narrow{display:none}
+@media (max-width:899px){#narrow{display:flex;position:fixed;inset:0;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;background:var(--surface-primary);color:var(--content-primary)}
+ #narrow b{font-size:20px;line-height:28px;font-weight:600}#narrow span{font-size:14px;line-height:20px;color:var(--content-secondary);max-width:320px}}

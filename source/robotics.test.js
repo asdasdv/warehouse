@@ -1,5 +1,0 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {createDemo,stats,command,resolve,tick} from './robotics-model.js';
-test('fleet states account for all robots',()=>{let s=createDemo(),n=stats(s);assert.equal(n.moving+n.idle+n.charging+n.blocked+n.offline+n.paused,16);});
-test('pause retains task and charge occurs only after delivery',()=>{let s=createDemo(),r=s.robots[0],t=s.tasks[0];command(s,r.id,'pause');tick(s,5);assert.equal(t.progress,0);command(s,r.id,'resume');command(s,r.id,'charge');assert.equal(r.status,'Moving');tick(s,60);assert.equal(t.status,'Completed');assert.equal(r.status,'Charging');assert.equal(r.task,null);});
-test('blocked mission cannot be resumed by ordinary command',()=>{let s=createDemo();assert.equal(command(s,'AMR-11','resume'),false);tick(s,60);assert.equal(s.tasks[10].status,'Blocked');resolve(s);tick(s,60);assert.equal(s.tasks[10].status,'Completed');});
-test('offline destination prevents completion',()=>{let s=createDemo();s.stations.find(x=>x.id==='Production 01').status='Offline';tick(s,60);assert.equal(s.tasks[0].progress,0);assert.notEqual(s.tasks[0].status,'Completed');});

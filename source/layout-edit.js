@@ -23,3 +23,20 @@ export function applyLayoutEdit(s,a){
 }
 export function rowPositions(a,b,c,gap=1){const horizontal=Math.abs(b.x-a.x)>=Math.abs(b.z-a.z),step=(horizontal?c.width:c.depth)+gap,delta=horizontal?b.x-a.x:b.z-a.z,n=Math.min(100,Math.floor(Math.abs(delta)/step)+1);return Array.from({length:n},(_,i)=>({x:a.x+(horizontal?Math.sign(delta)*i*step:0),z:a.z+(horizontal?0:Math.sign(delta)*i*step)}));}
 export function narrowPassages(racks){const out=[];for(let i=0;i<racks.length;i++)for(let j=i+1;j<racks.length;j++){let a=racks[i],b=racks[j],dx=Math.abs(a.x-b.x)-(a.width+b.width)/2,dz=Math.abs(a.z-b.z)-(a.depth+b.depth)/2;let gap=dx>=0&&dz<0?dx:dz>=0&&dx<0?dz:null;if(gap!==null&&gap<3.6)out.push({a:a.id,b:b.id,gap,x:(a.x+b.x)/2,z:(a.z+b.z)/2});}return out;}
+// History entries written by layout edits in an editor session (`Zone created`, `Rack added`, `Layout updated · move`,
+// …) live exactly as long as their edit: `take(top)` claims what an edit logged since `top` (the newest entry before
+// it), `drop` takes entries out of History (failed edit, Undo), `put` brings them back (Redo) and `discard` removes
+// everything the session logged («Discard changes»).
+export function createSessionLog(getState){
+ const live=new Set();
+ const since=top=>{const h=getState().history,i=top?h.indexOf(top):h.length;return i<0?h.slice():h.slice(0,i);};
+ const drop=entries=>{if(!entries.length)return;const gone=new Set(entries),s=getState();s.history=s.history.filter(e=>!gone.has(e));for(const e of entries)live.delete(e);};
+ return {
+  clear(){live.clear();},
+  take(top){const entries=since(top);for(const e of entries)live.add(e);return entries;},
+  forget(top){drop(since(top));},
+  drop,
+  put(entries){if(!entries.length)return;const s=getState();s.history=[...entries,...s.history].slice(0,300);for(const e of entries)live.add(e);},
+  discard(){drop([...live]);},
+ };
+}

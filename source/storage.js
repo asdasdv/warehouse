@@ -1,12 +1,27 @@
 import {fitsZone} from './zone-shape.js';
 import {rackLevels} from './rack-levels.js';
+import {defaultDocks,dockRect,dockPort,lineSpan,BELT_HALF,BUILDING} from './docks.js';
 // Every cell (shelf × place) holds up to CELL_CAPACITY boxes of one component.
 export const CELL_CAPACITY=2;
 export const templates={small:{label:'Small',width:3,depth:1.5,height:3,shelves:3,places:3},standard:{label:'Standard',width:6,depth:4,height:7.3,shelves:7,places:4},large:{label:'Large',width:9,depth:4,height:8,shelves:6,places:6}};
 export function config(r={}){return {width:r.width??6,depth:r.depth??4,height:r.height??7.3,shelves:r.shelves??5,places:r.places??4};}
 export function locations(r){let a=[];for(let s=1;s<=r.shelves;s++)for(let p=1;p<=r.places;p++)a.push(`S${s}-P${p}`);return a;}
 export function validateConfig(r){for(let k of ['width','depth','height'])if(!Number.isFinite(r[k])||r[k]<1||r[k]>20)throw Error('Dimensions must be between 1 and 20 m.');for(let k of ['shelves','places'])if(!Number.isInteger(r[k])||r[k]<1||r[k]>12)throw Error('Use 1–12 shelves and 1–12 locations per shelf.');if(r.height/r.shelves<.3||r.width/r.places<.2)throw Error('Each shelf needs at least 0.3 m height and each location 0.2 m width.');}
-export function placement(s,zone,x,z,c,ignore=null){validateConfig(c);let a=s.zones.find(a=>a.id===zone);if(!a||!fitsZone(a,x,z,c))throw Error('Place the whole rack inside a zone.');if(s.racks.some(r=>r.id!==ignore&&Math.abs(r.x-x)<(config(r).width+c.width)/2+1&&Math.abs(r.z-z)<(config(r).depth+c.depth)/2+1))throw Error('Leave at least 1 m between racks.');}
+// Fixed floor equipment a rack must keep clear of (1 m around it, like docks keep from racks): every dock's belt,
+// tunnel or incline and its robot port, the conveyor lines with their legs and bridges, and the two buildings with
+// their plinths. Same footprints the 3D scene draws (warehouse-robots.js: drawSpine, drawTransfers, building).
+export function layoutKeepouts(s){
+ const docks=Array.isArray(s.docks)&&s.docks.length?s.docks:defaultDocks(s),out=[];
+ for(const d of docks){out.push({...dockRect(d),id:d.id,gap:1});out.push({...dockPort(d),width:3,depth:3,id:d.id,gap:.5});}
+ const sp=s.spine;
+ if(sp){const span=lineSpan(sp,docks),half=BELT_HALF+.9,L=BUILDING.length+3,W=BUILDING.width+3;
+  // Receiving line x1 → recvEnd at floor level, dispatch line dispStart → x2 overhead; legs stand 1.75 m off the axis.
+  for(const [a,b] of [[sp.x1,span.recvEnd],[span.dispStart,sp.x2]])if(b>a)out.push({id:'the conveyor',x:(a+b)/2,z:0,width:b-a,depth:half*2,gap:1});
+  out.push({id:'the receiving building',x:sp.x1-BUILDING.length/2,z:0,width:L,depth:W,gap:1},{id:'the dispatch building',x:sp.x2+BUILDING.length/2,z:0,width:L,depth:W,gap:1});}
+ return out;
+}
+export function keepoutAt(s,x,z,c){return layoutKeepouts(s).find(k=>Math.abs(k.x-x)<(k.width+c.width)/2+k.gap&&Math.abs(k.z-z)<(k.depth+c.depth)/2+k.gap)||null;}
+export function placement(s,zone,x,z,c,ignore=null){validateConfig(c);let a=s.zones.find(a=>a.id===zone);if(!a||!fitsZone(a,x,z,c))throw Error('Place the whole rack inside a zone.');if(s.racks.some(r=>r.id!==ignore&&Math.abs(r.x-x)<(config(r).width+c.width)/2+1&&Math.abs(r.z-z)<(config(r).depth+c.depth)/2+1))throw Error('Leave at least 1 m between racks.');const k=keepoutAt(s,x,z,c);if(k)throw Error(`Keep racks at least ${k.gap} m clear of ${k.id}.`);}
 export function occupancy(s,rack){let out=new Map();for(let b of s.boxes)if(b.rack===rack){if(!out.has(b.location))out.set(b.location,[]);out.get(b.location).push(b);}return out;}
 export function destination(s,rack,location,product,ignore=[],qty=1){let r=s.racks.find(r=>r.id===rack);if(!r||!locations(r).includes(location))throw Error('Choose a valid storage location.');let skip=new Set(ignore),here=s.boxes.filter(b=>b.rack===rack&&b.location===location&&!skip.has(b.id));if(here.some(b=>b.product!==product))throw Error('This location contains a different component. Choose an empty location or one with the same component.');if(here.length+qty>CELL_CAPACITY)throw Error(`Each cell holds ${CELL_CAPACITY} boxes. Choose a cell with enough free space.`);}
 export const rackCapacity=r=>r.shelves*r.places*CELL_CAPACITY;

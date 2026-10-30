@@ -1,4 +1,4 @@
-import {validateLayoutAccess} from './layout-access.js';
+import {validateLayoutAccess,createAccessCheck} from './layout-access.js';
 import {sceneOperations} from './scene-operations.js';
 import {zonePoints,contains,snapRack,polygonZone} from './zone-shape.js';
 import {rackLevels,shelfBase} from './rack-levels.js';
@@ -57,7 +57,8 @@ const layers={zones:true,robots:true,lanes:true,labels:true,zoneTags:true,dockTa
 const sharedGeometries=new Set(),sharedMaterials=new Set(Object.values(materials));
 let cv=document.createElement('canvas');cv.width=128;cv.height=80;let ctx=cv.getContext('2d');ctx.fillStyle='#f4f4ed';ctx.fillRect(0,0,128,80);ctx.fillStyle='#8a9097';ctx.fillRect(9,10,58,6);ctx.fillRect(9,21,38,4);ctx.fillStyle='#39434b';for(let i=0;i<39;i++)ctx.fillRect(9+i*2.8,36,i%3===0?2:1,30);const labelTexture=new T.CanvasTexture(cv);materials.label=new T.MeshStandardMaterial({map:labelTexture,roughness:1});sharedMaterials.add(materials.label);
 function mesh(g,x,y,z,w,h,d,m){let o=new T.Mesh(geometry,m);o.position.set(x,y,z);o.scale.set(w,h,d);g.add(o);return o;}
-function clear(g){while(g.children.length){let c=g.children[0];g.remove(c);if(c.geometry&&c.geometry!==geometry&&c.geometry!==cartonGeometry&&!sharedGeometries.has(c.geometry))c.geometry.dispose();if(c.isInstancedMesh)c.dispose();if(c.material&&!sharedMaterials.has(c.material)){c.material.map?.dispose();c.material.dispose();}}}
+function release(c){c.parent?.remove(c);if(c.geometry&&c.geometry!==geometry&&c.geometry!==cartonGeometry&&!sharedGeometries.has(c.geometry))c.geometry.dispose();if(c.isInstancedMesh)c.dispose();if(c.material&&!sharedMaterials.has(c.material)){c.material.map?.dispose();c.material.dispose();}}
+function clear(g){while(g.children.length)release(g.children[0]);}
 function partTransform(obj,part,x=0,z=0){obj.quaternion.identity();if(part.from){let a=new T.Vector3(...part.from),b=new T.Vector3(...part.to),delta=b.clone().sub(a);obj.position.copy(a.add(b).multiplyScalar(.5));obj.quaternion.setFromUnitVectors(new T.Vector3(0,1,0),delta.clone().normalize());obj.scale.set(part.thickness,delta.length(),part.thickness);}else {obj.position.set(...part.p);obj.scale.set(...part.size);}obj.position.x+=x;obj.position.z+=z;obj.updateMatrix();}
 // Shelf boxes use the Blender carton (bevelled edges, tape, handling marks) once it has loaded: its parts become
 // instanced batches over a unit cube centred on the origin, so every box is one matrix like the plain cube.
@@ -83,17 +84,33 @@ function cargoMeshes(layout,group,selectedId=null,selectedLoc=null,closeUp=false
   if(out.tape){obj.position.set(p.x,p.y+p.h/2+.003,p.z);obj.scale.set(p.w*.13,.006,p.d*.98);obj.updateMatrix();out.tape.setMatrixAt(i,obj.matrix);}
   if(simple)return;const f=frontOf(racks.get(p.box.rack)),across=f.nx?p.d:p.w,depth=f.nx?p.w:p.d;obj.position.set(p.x+f.nx*(depth/2+.008),p.y-p.h*.04,p.z+f.nz*(depth/2+.008));obj.rotation.set(0,f.angle,0);obj.scale.set(across*.46,p.h*.34,1);obj.updateMatrix();out.labels.setMatrixAt(i,obj.matrix);});
  for(const m of Object.values(out))group.add(m);return out;}
-function rebuild(){clearHover();clear(world);clear(detail);clear(selection);targets=[];const s=getState();updateLighting(s);for(const a of s.zones){let m=new T.MeshStandardMaterial({color:new T.Color('#f3f4f6').lerp(new T.Color(a.color),.62),roughness:.9});let shape=new T.Shape(zonePoints(a).map(p=>new T.Vector2(p.x,-p.z)));let o=new T.Mesh(new T.ShapeGeometry(shape),m);o.rotation.x=-Math.PI/2;o.position.y=.01;o.userData={type:'zone',id:a.id};o.receiveShadow=true;world.add(o);targets.push(o);}syncTags();
-// Rack parts are batched per zone (so zones out of view are culled) and per kind. Far away a zone shows one
-// block per rack instead, tinted by how full the rack is (see zoneLevel).
-const batches=new Map();for(const r of s.racks){if(!batches.has(r.zone))batches.set(r.zone,{});const b=batches.get(r.zone);for(const part of rackParts(r))(b[part.kind]??=[]).push({r,part});}
-let dummy=new T.Object3D();zoneBlocks.clear();for(const [zone,kinds] of batches){for(const [kind,items] of Object.entries(kinds)){let inst=new T.InstancedMesh(geometry,materials[kind],items.length);items.forEach(({r,part},i)=>{partTransform(dummy,part,r.x,r.z);inst.setMatrixAt(i,dummy.matrix);});
-// Only uprights and decks cast shadows: bolts, beams and braces add most of the triangles and little to the shadow.
-inst.castShadow=kind==='frame'||kind==='deck';inst.receiveShadow=true;inst.userData.partKind=kind;inst.userData.zone=zone;world.add(inst);}
- const racks=s.racks.filter(r=>r.zone===zone),block=new T.InstancedMesh(geometry,blockMaterial,racks.length);dummy.quaternion.identity();racks.forEach((r,i)=>{dummy.position.set(r.x,r.height/2,r.z);dummy.scale.set(r.width,r.height,r.depth);dummy.updateMatrix();block.setMatrixAt(i,dummy.matrix);block.setColorAt(i,blockEmpty);});
- block.castShadow=true;block.receiveShadow=true;block.userData={rackBlock:true,zone};block.visible=false;world.add(block);zoneBlocks.set(zone,{mesh:block,racks:racks.map(r=>r.id)});}
-let rackHits=new T.InstancedMesh(geometry,new T.MeshBasicMaterial({visible:false}),s.racks.length);dummy.quaternion.identity();s.racks.forEach((r,i)=>{dummy.position.set(r.x,r.height/2,r.z);dummy.scale.set(r.width,r.height,r.depth);dummy.updateMatrix();rackHits.setMatrixAt(i,dummy.matrix);});rackHits.userData={type:'racks'};world.add(rackHits);targets.push(rackHits);
-rebuildCargo();}
+// Layout edits redraw only the zones they touch: each zone's floor, rack parts and far-away blocks are kept
+// (with a key of the zone's shape and its racks) and rebuilt when that key changes. Materials are shared, so a
+// rebuild never disposes one and the shaders are never recompiled.
+const zoneParts=new Map(),zoneFloorMaterials=new Map();let rackHits=null;
+const rackKeyOf=r=>[r.id,r.x,r.z,r.width,r.depth,r.height,r.shelves,r.places,r.rotation||0].join(',');
+function zoneFloorMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshStandardMaterial({color:new T.Color('#f3f4f6').lerp(new T.Color(color),.62),roughness:.9});zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
+function buildZoneParts(a,racks,zoneId){const meshes=[],dummy=new T.Object3D();
+ if(a){let shape=new T.Shape(zonePoints(a).map(p=>new T.Vector2(p.x,-p.z)));let o=new T.Mesh(new T.ShapeGeometry(shape),zoneFloorMaterial(a.color));o.rotation.x=-Math.PI/2;o.position.y=.01;o.userData={type:'zone',id:a.id};o.receiveShadow=true;meshes.push(o);}
+ if(!racks.length){zoneBlocks.delete(zoneId);return meshes;}
+ // Rack parts are batched per zone (so zones out of view are culled) and per kind. Far away a zone shows one
+ // block per rack instead, tinted by how full the rack is (see zoneLevel).
+ const kinds={};for(const r of racks)for(const part of rackParts(r))(kinds[part.kind]??=[]).push({r,part});
+ for(const [kind,items] of Object.entries(kinds)){let inst=new T.InstancedMesh(geometry,materials[kind],items.length);items.forEach(({r,part},i)=>{partTransform(dummy,part,r.x,r.z);inst.setMatrixAt(i,dummy.matrix);});
+  // Only uprights and decks cast shadows: bolts, beams and braces add most of the triangles and little to the shadow.
+  inst.castShadow=kind==='frame'||kind==='deck';inst.receiveShadow=true;inst.userData.partKind=kind;inst.userData.zone=zoneId;meshes.push(inst);}
+ const block=new T.InstancedMesh(geometry,blockMaterial,racks.length);dummy.quaternion.identity();racks.forEach((r,i)=>{dummy.position.set(r.x,r.height/2,r.z);dummy.scale.set(r.width,r.height,r.depth);dummy.updateMatrix();block.setMatrixAt(i,dummy.matrix);block.setColorAt(i,blockEmpty);});
+ block.castShadow=true;block.receiveShadow=true;block.userData={rackBlock:true,zone:zoneId};block.visible=false;meshes.push(block);zoneBlocks.set(zoneId,{mesh:block,racks:racks.map(r=>r.id)});
+ return meshes;}
+function rebuild(){clearHover();clear(detail);clear(selection);placeAccess.reset();const s=getState();updateLighting(s);
+ const byZone=new Map(s.zones.map(a=>[a.id,[]]));for(const r of s.racks){if(!byZone.has(r.zone))byZone.set(r.zone,[]);byZone.get(r.zone).push(r);}
+ for(const [id,entry] of zoneParts)if(!byZone.has(id)){for(const m of entry.meshes)release(m);zoneParts.delete(id);zoneBlocks.delete(id);}
+ for(const [id,racks] of byZone){const a=s.zones.find(z=>z.id===id),key=JSON.stringify([a?zonePoints(a):null,a?.color,racks.map(rackKeyOf)]),entry=zoneParts.get(id);if(entry?.key===key)continue;
+  if(entry)for(const m of entry.meshes)release(m);const meshes=buildZoneParts(a,racks,id);for(const m of meshes)world.add(m);zoneParts.set(id,{key,meshes});}
+ // One invisible box per rack for picking; its instance i is rack ids[i].
+ if(rackHits)release(rackHits);rackHits=new T.InstancedMesh(geometry,rackHitMaterial,Math.max(1,s.racks.length));rackHits.count=s.racks.length;const dummy=new T.Object3D();s.racks.forEach((r,i)=>{dummy.position.set(r.x,r.height/2,r.z);dummy.scale.set(r.width,r.height,r.depth);dummy.updateMatrix();rackHits.setMatrixAt(i,dummy.matrix);});rackHits.computeBoundingSphere();rackHits.userData={type:'racks',ids:s.racks.map(r=>r.id)};world.add(rackHits);
+ targets=[...[...zoneParts.values()].flatMap(e=>e.meshes.filter(m=>m.userData.type==='zone')),rackHits];syncTags();
+ rebuildCargo();}
 // Every box on the shelves, one instanced batch. Rebuilt alone when robots move stock.
 // Shelf boxes by distance, per zone: near (< NEAR) every box is drawn (the Blender carton with a sticker);
 // mid (< MID) each shelf shows one kraft fill as long as its boxes; far, the zone's racks are single blocks tinted
@@ -101,24 +118,39 @@ rebuildCargo();}
 const cargoGroup=new T.Group();scene.add(cargoGroup);
 const zoneCargo=new Map(),zoneBlocks=new Map(),zoneLevel=new Map(),NEAR=110,MID=380,zeroMatrix=new T.Matrix4().makeScale(0,0,0);let rackZone=new Map();
 const blockMaterial=new T.MeshStandardMaterial({color:'#ffffff',roughness:.8}),blockEmpty=new T.Color('#eef0f2'),blockFull=new T.Color('#c9a274');
+const rackHitMaterial=new T.MeshBasicMaterial({visible:false});
 const fillMaterial=new T.MeshStandardMaterial({color:'#cba67a',roughness:.95});
+// Built once and reused by every rebuild: disposing them would recompile their shaders on the next frame.
+for(const m of [blockMaterial,rackHitMaterial,fillMaterial])sharedMaterials.add(m);
 function disposeBatch(meshes){for(const m of Object.values(meshes||{})){m.parent?.remove(m);m.dispose();}}
 function dropNear(z){disposeBatch(z.near);z.near=null;}
-function buildZone(zoneId,rackIds){let z=zoneCargo.get(zoneId);if(z){disposeBatch(z.mid);dropNear(z);}else{z={zone:zoneId,group:new T.Group(),center:new T.Vector3(),radius:0,userData:{}};cargoGroup.add(z.group);zoneCargo.set(zoneId,z);}
- z.rackIds=rackIds;z.layout=robotics.posesOf(rackIds);z.indices=Object.fromEntries(rackIds.map(id=>[id,[]]));z.layout.forEach((p,i)=>z.indices[p.box.rack].push(i));
+// Same boxes in the same places: a zone's cargo batches can stay as they are.
+const samePose=(p,q)=>p.box.id===q.box.id&&p.box.location===q.box.location&&p.x===q.x&&p.y===q.y&&p.z===q.z&&p.w===q.w&&p.h===q.h&&p.d===q.d;
+const sameLayout=(a,b)=>a.length===b.length&&a.every((p,i)=>samePose(p,b[i]));
+// `reuse`: keep the zone's batches when its racks and boxes have not changed (a full refresh after a layout edit
+// elsewhere); its centre and far-level tint are still brought up to date.
+function buildZone(zoneId,rackIds,reuse=false){let z=zoneCargo.get(zoneId);const layout=robotics.posesOf(rackIds);
+ if(reuse&&z?.mid&&z.rackIds.length===rackIds.length&&z.rackIds.every((id,i)=>id===rackIds[i])&&sameLayout(z.layout,layout)){zoneFrame(z);tintBlocks(z);return;}
+ if(z){disposeBatch(z.mid);dropNear(z);}else{z={zone:zoneId,group:new T.Group(),center:new T.Vector3(),radius:0,userData:{}};cargoGroup.add(z.group);zoneCargo.set(zoneId,z);}
+ z.rackIds=rackIds;z.layout=layout;z.indices=Object.fromEntries(rackIds.map(id=>[id,[]]));z.layout.forEach((p,i)=>z.indices[p.box.rack].push(i));
  z.userData={type:'boxes',shelfCargo:true,ids:z.layout.map(p=>p.box.id),racks:z.layout.map(p=>p.box.rack),layout:z.layout};
- const zone=getState().zones.find(a=>a.id===zoneId);if(zone){z.center.set(zone.x+zone.w/2,3,zone.z+zone.d/2);z.radius=Math.hypot(zone.w,zone.d)/2;}
+ zoneFrame(z);
  // Mid level: one fill per occupied shelf, the box spanning the boxes on it.
  const shelves=new Map();for(const p of z.layout){const k=p.box.rack+'|'+p.box.location.slice(0,p.box.location.indexOf('-'));let b=shelves.get(k);if(!b)shelves.set(k,b={rack:p.box.rack,box:new T.Box3()});b.box.expandByPoint(new T.Vector3(p.x-p.w/2,p.y-p.h/2,p.z-p.d/2)).expandByPoint(new T.Vector3(p.x+p.w/2,p.y+p.h/2,p.z+p.d/2));}
  const list=[...shelves.values()],mid=new T.InstancedMesh(geometry,fillMaterial,Math.max(1,list.length)),o=new T.Object3D(),c=new T.Vector3(),sz=new T.Vector3();
  z.midIndex={};list.forEach((b,i)=>{b.box.getCenter(c);b.box.getSize(sz);o.position.copy(c);o.scale.copy(sz);o.updateMatrix();mid.setMatrixAt(i,o.matrix);(z.midIndex[b.rack]??=[]).push(i);});
  mid.count=list.length;mid.receiveShadow=true;mid.raycast=()=>{};z.group.add(mid);z.mid={body:mid};
- // Far level: rack blocks tinted by fill.
- const blocks=zoneBlocks.get(zoneId);if(blocks){const s=getState(),racks=new Map(s.racks.map(r=>[r.id,r]));blocks.racks.forEach((id,i)=>{const r=racks.get(id),cap=r?locations(r).length*2:1;blocks.mesh.setColorAt(i,blockEmpty.clone().lerp(blockFull,Math.min(1,(z.indices[id]?.length||0)/cap)));});if(blocks.mesh.instanceColor)blocks.mesh.instanceColor.needsUpdate=true;}}
+ tintBlocks(z);}
+function zoneFrame(z){const zone=getState().zones.find(a=>a.id===z.zone);if(zone){z.center.set(zone.x+zone.w/2,3,zone.z+zone.d/2);z.radius=Math.hypot(zone.w,zone.d)/2;}}
+// Far level: rack blocks tinted by fill.
+function tintBlocks(z){const blocks=zoneBlocks.get(z.zone);if(blocks){const s=getState(),racks=new Map(s.racks.map(r=>[r.id,r]));blocks.racks.forEach((id,i)=>{const r=racks.get(id),cap=r?locations(r).length*2:1;blocks.mesh.setColorAt(i,blockEmpty.clone().lerp(blockFull,Math.min(1,(z.indices[id]?.length||0)/cap)));});if(blocks.mesh.instanceColor)blocks.mesh.instanceColor.needsUpdate=true;}}
 function tagBatch(z,meshes){Object.assign(meshes.body.userData,z.userData);}
 function rebuildCargo(change={all:true}){const s=getState();
- if(change.all){for(const z of zoneCargo.values()){disposeBatch(z.mid);dropNear(z);cargoGroup.remove(z.group);}zoneCargo.clear();rackZone=new Map(s.racks.map(r=>[r.id,r.zone]));
-  const byZone=new Map();for(const r of s.racks){if(!byZone.has(r.zone))byZone.set(r.zone,[]);byZone.get(r.zone).push(r.id);}for(const [id,ids] of byZone)buildZone(id,ids);}
+ if(change.all){rackZone=new Map(s.racks.map(r=>[r.id,r.zone]));
+  const byZone=new Map();for(const r of s.racks){if(!byZone.has(r.zone))byZone.set(r.zone,[]);byZone.get(r.zone).push(r.id);}
+  // Zones that lost all their racks (or were deleted) drop their cargo; the others are redrawn only if their boxes changed.
+  for(const [id,z] of zoneCargo)if(!byZone.has(id)){disposeBatch(z.mid);dropNear(z);cargoGroup.remove(z.group);zoneCargo.delete(id);}
+  for(const [id,ids] of byZone)buildZone(id,ids,true);}
  else{const zones=new Set([...change.racks].map(id=>rackZone.get(id)).filter(Boolean));for(const id of zones)buildZone(id,zoneCargo.get(id)?.rackIds||s.racks.filter(r=>r.zone===id).map(r=>r.id));}
  hideSelectedCargo();}
 // Level of detail per zone from the camera's distance to the zone's edge: 0 near, 1 mid, 2 far.
@@ -134,7 +166,9 @@ function hideSelectedCargo(only=null){if(!hiddenRack)return;const z=zoneCargo.ge
  for(const i of z.midIndex?.[hiddenRack]||[])z.mid.body.setMatrixAt(i,zeroMatrix);z.mid.body.instanceMatrix.needsUpdate=true;}
 const hitBox=new T.Box3(),hitPoint=new T.Vector3();
 // Instead of ray-testing every box in the warehouse, test only the boxes of the rack under the cursor.
-function cargoHit(rid){const z=zoneCargo.get(rackZone.get(rid));if(!z||zoneLevel.get(z.zone)===2)return null;const body=z.near?.body||z;let best=null;for(const i of z.indices[rid]||[]){const p=z.layout[i];hitBox.min.set(p.x-p.w/2,p.y-p.h/2,p.z-p.d/2);hitBox.max.set(p.x+p.w/2,p.y+p.h/2,p.z+p.d/2);if(ray.ray.intersectBox(hitBox,hitPoint)){const distance=hitPoint.distanceTo(ray.ray.origin);if(!best||distance<best.distance)best={object:body,instanceId:i,distance};}}return best;}
+// Only near a zone are boxes drawn one by one (mid: shelf fills, far: rack blocks), so only there can a box be hit;
+// further away the hit stays on the rack. The hit object is always the near batch, a real InstancedMesh.
+function cargoHit(rid){const z=zoneCargo.get(rackZone.get(rid));if(!z||(zoneLevel.get(z.zone)??0)!==0||!z.near?.body)return null;const body=z.near.body;let best=null;for(const i of z.indices[rid]||[]){const p=z.layout[i];hitBox.min.set(p.x-p.w/2,p.y-p.h/2,p.z-p.d/2);hitBox.max.set(p.x+p.w/2,p.y+p.h/2,p.z+p.d/2);if(ray.ray.intersectBox(hitBox,hitPoint)){const distance=hitPoint.distanceTo(ray.ray.origin);if(!best||distance<best.distance)best={object:body,instanceId:i,distance};}}return best;}
 function rackBounds(r){return new T.Box3(new T.Vector3(r.x-r.width/2-.1,0,r.z-r.depth/2-.1),new T.Vector3(r.x+r.width/2+.1,r.height+.15,r.z+r.depth/2+.1));}
 let current=null;
 // When the selection leaves a rack, its zone is redrawn so the rack's boxes come back.
@@ -168,17 +202,26 @@ function partBounds(sel){const s=getState();if(sel.type==='zone'){const z=s.zone
  return new T.Box3().setFromCenterAndSize(new T.Vector3(r.x+hx,y0+gap/2,r.z+hz),new T.Vector3(turns%2?ld:cell,gap,turns%2?cell:ld));}
 let panelSel=null;
 function outlinePart(sel){panelSel=sel;clearHover();const bounds=sel&&partBounds(sel);if(!bounds)return;hoverKey='panel';const line=new T.Box3Helper(bounds,0x2f8fe6);line.material.depthTest=false;line.renderOrder=10;hover.add(line);const fill=new T.Mesh(geometry,new T.MeshBasicMaterial({color:0x4ca8f8,transparent:true,opacity:.32,depthWrite:false}));bounds.getCenter(fill.position);bounds.getSize(fill.scale);hover.add(fill);}
-function hit(e){cast(e);let hits=ray.intersectObjects(building?targets.filter(t=>!t.userData.detail):[...targets,...(layers.robots?robotics.hits:[])],false);let first=hits[0];if(first?.object.userData.type==='racks'){let rid=getState().racks[first.instanceId]?.id;let detailHit=hits.find(h=>h.object.userData.type==='boxes'&&h.object.userData.racks?.[h.instanceId]===rid)||cargoHit(rid);if(detailHit)first=detailHit;}return first;}
-function identity(h){if(!h)return null;let d=h.object.userData;if(d.type==='boxes')return {type:'box',id:d.ids[h.instanceId]};if(d.type==='racks')return {type:'rack',id:getState().racks[h.instanceId].id};return {type:d.type,id:d.id};}
-function placeInfo(e){let p=ground(e);if(!p)return null;let s=getState(),sn=snapRack(s,p,rackConfig,!e.altKey);p.x=sn.x;p.z=sn.z;let z=s.zones.find(z=>contains(z,p)),valid=true,reason='';try{placement(s,z?.id,p.x,p.z,rackConfig);validateLayoutAccess(s.racks,[...s.racks,{id:'preview-rack',zone:z?.id,x:p.x,z:p.z,...rackConfig}],docksOf(s),docksOf(s),s.spine);}catch(e){valid=false;reason=e.message;}return {p,valid,reason,snapped:sn.snapped};}
+function hit(e){cast(e);let hits=ray.intersectObjects(building?targets.filter(t=>!t.userData.detail):[...targets,...(layers.robots?robotics.hits:[])],false);let first=hits[0];if(first?.object.userData.type==='racks'){let rid=first.object.userData.ids?.[first.instanceId];let detailHit=hits.find(h=>h.object.userData.type==='boxes'&&h.object.userData.racks?.[h.instanceId]===rid)||cargoHit(rid);if(detailHit)first=detailHit;}return first;}
+// What a ray hit stands for, whatever kind of object it is; null when it stands for nothing pickable.
+function identity(h){if(!h?.object)return null;let d=h.object.userData||{},id=null;if(d.type==='boxes'){id=d.ids?.[h.instanceId];return id==null?null:{type:'box',id};}if(d.type==='racks'){id=d.ids?.[h.instanceId];return id==null?null:{type:'rack',id};}return d.type&&d.id!=null?{type:d.type,id:d.id}:null;}
+// The outline around a hovered box: from its instance when the hit is an instanced batch, otherwise from its pose.
+function boxBounds(h,id,out){if(typeof h.object.getMatrixAt==='function'&&h.instanceId!=null){const m=new T.Matrix4();h.object.getMatrixAt(h.instanceId,m);return out.setFromCenterAndSize(new T.Vector3(),new T.Vector3(1.08,1.08,1.08)).applyMatrix4(m).applyMatrix4(h.object.matrixWorld);}
+ const p=robotics.boxPose(id);return p?out.setFromCenterAndSize(new T.Vector3(p.x,p.y,p.z),new T.Vector3(p.w+.08,p.h+.08,p.d+.08)):out.setFromObject(h.object);}
+// The robot-access part of the preview check runs once per snapped spot, at most every 100 ms (createAccessCheck);
+// a click still goes through the full validation. `onLate` repaints the preview when a deferred check finishes.
+const placeAccess=createAccessCheck(100);let placeKey='';
+function placeInfo(e,onLate){let p=ground(e);if(!p)return null;let s=getState(),sn=snapRack(s,p,rackConfig,!e.altKey);p.x=sn.x;p.z=sn.z;let z=s.zones.find(z=>contains(z,p)),valid=true,reason='';const key=[p.x,p.z,rackConfig.width,rackConfig.depth,s.racks.length].join(',');placeKey=key;
+ try{placement(s,z?.id,p.x,p.z,rackConfig);const r=placeAccess.check(key,()=>validateLayoutAccess(s.racks,[...s.racks,{id:'preview-rack',zone:z?.id,x:p.x,z:p.z,...rackConfig}],docksOf(s),docksOf(s),s.spine),late=>{if(placeKey===key)onLate?.({p,valid:late.valid,reason:late.why,snapped:sn.snapped});});valid=r.valid;reason=r.why;}catch(e){valid=false;reason=e.message;}return {p,valid,reason,snapped:sn.snapped};}
+function showPlace(info,e){ghost.visible=true;ghost.position.set(info.p.x,0,info.p.z);ghostMaterial.color.set(info.valid?(info.snapped?0x47adbe:0x80a45c):0xd46c56);tooltip.hidden=false;tooltip.textContent=info.valid?(info.snapped?'Aligned · Click to place':'Click to place'):info.reason;tooltip.style.left=(e.offsetX+18)+'px';tooltip.style.top=(e.offsetY-30)+'px';}
 let corners=[];const draftLine=new T.Line(new T.BufferGeometry(),new T.LineBasicMaterial({color:0xb89a00,depthTest:false}));draftLine.renderOrder=20;scene.add(draftLine);
 function drawCorners(cursor){const ps=[...corners];if(cursor)ps.push(cursor);if(ps.length>1)ps.push(ps[0]);draftLine.geometry.dispose();draftLine.geometry=new T.BufferGeometry().setFromPoints(ps.map(p=>new T.Vector3(p.x,.2,p.z)));}
 function finishZone(){try{const z=polygonZone(corners);if(onDraw('zone',z)===false)return;corners=[];drawCorners();tooltip.hidden=true;}catch(e){tooltip.textContent=e.message;tooltip.hidden=false;tooltip.style.left='40%';tooltip.style.top='100px';}}
-document.addEventListener('keydown',e=>{if(mode!=='polygon'||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.key==='Enter'){e.preventDefault();finishZone();}if(e.key==='Backspace'){e.preventDefault();corners.pop();drawCorners();}});
+document.addEventListener('keydown',e=>{if(mode!=='polygon'||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName))return;if(e.key==='Enter'){e.preventDefault();finishZone();}if(e.key==='Backspace'||e.key==='Delete'){e.preventDefault();e.stopImmediatePropagation();corners.pop();drawCorners();}});
 
-function showHover(e){if(mode!=='browse'||down)return;let h=hit(e),sel=identity(h);if(!sel){clearHover();container.style.cursor='grab';return;}let key=sel.type+sel.id;if(key!==hoverKey){clearHover();hoverKey=key;let s=getState(),bounds=new T.Box3();if(sel.type==='zone'){let z=s.zones.find(z=>z.id===sel.id);bounds.set(new T.Vector3(z.x,.04,z.z),new T.Vector3(z.x+z.w,.2,z.z+z.d));tooltip.textContent=z.name;}else if(sel.type==='rack'){let r=s.racks.find(r=>r.id===sel.id);bounds.copy(rackBounds(r));tooltip.textContent='Rack '+r.id;}else if(sel.type==='robot'){bounds.setFromObject(h.object);tooltip.textContent=sel.id;}else{let m=new T.Matrix4();h.object.getMatrixAt(h.instanceId,m);bounds.setFromCenterAndSize(new T.Vector3(),new T.Vector3(1.08,1.08,1.08)).applyMatrix4(m).applyMatrix4(h.object.matrixWorld);tooltip.textContent=sel.id;}let line=new T.Box3Helper(bounds,0xb39a00);line.material.depthTest=false;line.renderOrder=10;hover.add(line);let fill=new T.Mesh(geometry,new T.MeshBasicMaterial({color:0x4ca8f8,transparent:true,opacity:.16,depthWrite:false}));bounds.getCenter(fill.position);bounds.getSize(fill.scale);hover.add(fill);}tooltip.hidden=false;tooltip.style.left=Math.min(e.offsetX+18,container.clientWidth-160)+'px';tooltip.style.top=Math.max(10,e.offsetY-36)+'px';container.style.cursor='pointer';}
+function showHover(e){if(mode!=='browse'||down)return;let h=hit(e),sel=identity(h);if(!sel){clearHover();container.style.cursor='grab';return;}let key=sel.type+sel.id;if(key!==hoverKey){clearHover();hoverKey=key;let s=getState(),bounds=new T.Box3();if(sel.type==='zone'){let z=s.zones.find(z=>z.id===sel.id);if(!z){clearHover();return;}bounds.set(new T.Vector3(z.x,.04,z.z),new T.Vector3(z.x+z.w,.2,z.z+z.d));tooltip.textContent=z.name;}else if(sel.type==='rack'){let r=s.racks.find(r=>r.id===sel.id);if(!r){clearHover();return;}bounds.copy(rackBounds(r));tooltip.textContent='Rack '+r.id;}else if(sel.type==='box'){boxBounds(h,sel.id,bounds);tooltip.textContent=sel.id;}else{bounds.setFromObject(h.object);tooltip.textContent=sel.id;}let line=new T.Box3Helper(bounds,0xb39a00);line.material.depthTest=false;line.renderOrder=10;hover.add(line);let fill=new T.Mesh(geometry,new T.MeshBasicMaterial({color:0x4ca8f8,transparent:true,opacity:.16,depthWrite:false}));bounds.getCenter(fill.position);bounds.getSize(fill.scale);hover.add(fill);}tooltip.hidden=false;tooltip.style.left=Math.min(e.offsetX+18,container.clientWidth-160)+'px';tooltip.style.top=Math.max(10,e.offsetY-36)+'px';container.style.cursor='pointer';}
 renderer.domElement.addEventListener('pointerdown',e=>{if(e.button!==0)return;down={x:e.clientX,y:e.clientY};clearHover();if(mode==='zone'){start=ground(e);renderer.domElement.setPointerCapture(e.pointerId);}});
-renderer.domElement.addEventListener('pointermove',e=>{lastPointer=e;if(mode==='polygon'){let p=ground(e);if(p)drawCorners({x:Math.round(p.x),z:Math.round(p.z)});return;}if(mode==='rack'){let info=placeInfo(e);if(info){ghost.visible=true;ghost.position.set(info.p.x,0,info.p.z);ghostMaterial.color.set(info.valid?(info.snapped?0x47adbe:0x80a45c):0xd46c56);tooltip.hidden=false;tooltip.textContent=info.valid?(info.snapped?'Aligned · Click to place':'Click to place'):info.reason;tooltip.style.left=(e.offsetX+18)+'px';tooltip.style.top=(e.offsetY-30)+'px';}}else if(start&&mode==='zone'){let p=ground(e);if(p){preview.visible=true;preview.position.set((p.x+start.x)/2,.2,(p.z+start.z)/2);preview.scale.set(Math.abs(p.x-start.x),Math.abs(p.z-start.z),1);}}else showHover(e);});
+renderer.domElement.addEventListener('pointermove',e=>{lastPointer=e;if(mode==='polygon'){let p=ground(e);if(p)drawCorners({x:Math.round(p.x),z:Math.round(p.z)});return;}if(mode==='rack'){let info=placeInfo(e,late=>{if(mode==='rack')showPlace(late,e);});if(info)showPlace(info,e);}else if(start&&mode==='zone'){let p=ground(e);if(p){preview.visible=true;preview.position.set((p.x+start.x)/2,.2,(p.z+start.z)/2);preview.scale.set(Math.abs(p.x-start.x),Math.abs(p.z-start.z),1);}}else showHover(e);});
 renderer.domElement.addEventListener('pointerleave',()=>{clearHover();ghost.visible=false;});
 renderer.domElement.addEventListener('pointercancel',()=>{down=null;start=null;preview.visible=false;});
 renderer.domElement.addEventListener('pointerup',e=>{if(e.button!==0)return;let origin=down;down=null;if(mode==='zone'&&start){let p=ground(e);if(p)onDraw('zone',{x:Math.min(start.x,p.x),z:Math.min(start.z,p.z),w:Math.abs(p.x-start.x),d:Math.abs(p.z-start.z)});start=null;preview.visible=false;return;}if(!origin||Math.hypot(e.clientX-origin.x,e.clientY-origin.y)>6)return;if(mode==='polygon'){let p=ground(e);if(p){let q={x:Math.round(p.x),z:Math.round(p.z)};if(corners.length>=3&&Math.hypot(q.x-corners[0].x,q.z-corners[0].z)<1.5)finishZone();else{corners.push(q);drawCorners();}}return;}if(mode==='rack'){let info=placeInfo(e);if(info)onDraw('rack',info.p);return;}onPick(identity(hit(e)));});

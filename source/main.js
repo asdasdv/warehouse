@@ -11,15 +11,15 @@ import {docksOf} from './docks.js';
 import {validateLayoutAccess} from './layout-access.js';
 import {applyLayoutEdit} from './layout-edit.js';
 import {contains} from './zone-shape.js';
-import {seed, catalog, itemOf, addProduct, addZone, addRack, updateRack, log} from './model.js';
-import {templates, config, locations, validateConfig, occupancy} from './storage.js';
+import {seed, catalog, itemOf, addProduct, addZone, addRack, log} from './model.js';
+import {templates, config, locations} from './storage.js';
 import {createScene} from './scene.js';
-import {placeChooser, cellRoom, boxIndex} from './choose-place.js';
+import {placeChooser, cellRoom, boxIndex, setLiveRoom} from './choose-place.js';
 
 // Concept demo: everything lives in memory and the robot simulation always runs.
 // A reload starts the demo warehouse again.
-const state = seed('large'); // 24 zones, ~1300 racks, ~45k boxes, ~170 robots
-let selected = null, editing = false, undo = [], rackDraft = config(templates.standard);
+const state = seed('large'); // 35 zones, 1203 racks, ~44.7k boxes, ~76 robots
+let selected = null, editing = false, rackDraft = config(templates.standard);
 let lastPanelHTML = '', occupancyOn = false;
 
 const $ = s => document.querySelector(s);
@@ -43,26 +43,37 @@ $('#app').innerHTML = `<main>
  </div>
  <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Zone names', 'zoneTags'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
  <aside class="right card" id="overview"></aside>
- <div id="editor" hidden><div><strong>Build mode</strong><span id="modeHint"></span></div><button data-mode="browse" class="chosen">Select</button><button data-mode="zone">Rectangle</button><button data-mode="polygon">Custom zone</button><button id="finishZone" hidden>Close zone</button><button data-mode="rack">Place racks</button><button id="undo">Undo</button><button id="topView">Top view</button><button id="done">Finish building</button></div>
- <div id="buildInfo" hidden><span class="eyebrow">Warehouse builder</span><h2>Make room for what’s next.</h2><p>Draw zones, then place racks. Changes last until you reload the page.</p><span class="rack-cap">Rack catalog</span><div id="rackCatalog"></div><div id="buildSelection"></div></div>
- <div id="toast" role="status"></div>
+ <div id="toast" role="status" popover="manual"></div>
+ <div id="narrow" role="note"><b>Open Locus on a wider screen</b><span>The warehouse map, panels and dialogs need a window at least 900 px wide.</span></div>
  <dialog id="dialog" autofocus></dialog>
 </main>`;
 
 const scene = createScene($('#scene'), () => state, pick, draw);
 const sim = scene.robotics;
 const live = () => sim.dashboard(state);
+setLiveRoom((rack, loc, product) => sim.cellRoom?.(rack, loc, product));
 
-// Toast: a title, one line of detail and an optional action ({label, run}).
+// Toasts: a title, one line of detail and an optional action ({label, run}). Up to three stack at once.
+// The stack is a manual popover, so it sits in the top layer and stays visible over an open dialog.
 function toast(title, text = '', action = null) {
-  const el = $('#toast');
+  const stack = $('#toast'), el = document.createElement('div');
+  el.className = 'toast';
   el.innerHTML = `<div class="t"><b>${esc(title)}</b>${text ? `<small>${esc(text)}</small>` : ''}</div>${action ? `<button>${esc(action.label)}</button>` : ''}`;
-  if (action) el.querySelector('button').onclick = () => { el.classList.remove('visible'); action.run(); };
-  el.classList.add('visible');
-  clearTimeout(toast.timer); toast.timer = setTimeout(() => el.classList.remove('visible'), action ? 6000 : 4000);
+  if (action) el.querySelector('button').onclick = () => { dismiss(el); action.run(); };
+  stack.append(el);
+  while (stack.children.length > 3) stack.firstElementChild.remove();
+  stack.classList.add('visible');
+  if (stack.showPopover) { if (stack.matches(':popover-open')) stack.hidePopover(); stack.showPopover(); }
+  requestAnimationFrame(() => el.classList.add('visible'));
+  setTimeout(() => dismiss(el), action ? 6000 : 4000);
 }
+function dismiss(el) {
+  el.classList.remove('visible');
+  setTimeout(() => { el.remove(); const stack = $('#toast'); if (!stack.children.length) { stack.classList.remove('visible'); if (stack.matches(':popover-open')) stack.hidePopover(); } }, 200);
+}
+toast.clear = () => $('#toast').querySelectorAll('.toast').forEach(dismiss);
 
-// ---------- layout changes (with session undo) ----------
+// ---------- layout changes ----------
 const layoutSnapshot = () => JSON.stringify({zones: state.zones, racks: state.racks});
 function commit(fn) {
   // While the layout editor is open, edits join its draft (undo, redo, save or discard).
@@ -77,20 +88,9 @@ function commit(fn) {
     if ($('#dialog').open && $('#error')) $('#error').textContent = e.message;
     return false;
   }
-  undo.push(before); undo = undo.slice(-10);
   refresh();
   return true;
 }
-function undoLast() {
-  if (!undo.length) return toast('Nothing to undo.');
-  const prev = JSON.parse(undo.at(-1)), racks = new Map(prev.racks.map(r => [r.id, r]));
-  if (state.boxes.some(b => !racks.has(b.rack) || !locations(racks.get(b.rack)).includes(b.location)))
-    return toast('Can’t undo: robots already stored boxes where this change would remove space.');
-  undo.pop();
-  state.zones = prev.zones; state.racks = prev.racks; selected = null;
-  refresh(); toast('Last change undone.');
-}
-
 // ---------- selection and right panel ----------
 function exists(sel) {
   if (!sel) return true;
@@ -109,14 +109,18 @@ function pick(s) {
   if (s?.type === 'robot') return robotPanels.open('Fleet', s.id);
   robotPanels.close(); setNav('warehouse');
   selected = s;
-  scene.select(sceneSel(s), !editing); renderPanel(); renderBuildSelection();
+  scene.select(sceneSel(s), !editing); renderPanel();
 }
 function refresh() {
   if (!exists(selected)) selected = null;
-  scene.rebuild(); scene.select(sceneSel(selected), false); renderPanel(); renderBuildSelection();
+  scene.rebuild(); scene.select(sceneSel(selected), false); renderPanel();
 }
 function bindPicks(root) {
-  root.querySelectorAll('[data-pick]').forEach(el => el.onclick = () => { if ($('#dialog').open) $('#dialog').close(); pick({type: el.dataset.pick, id: el.dataset.id}); });
+  root.querySelectorAll('[data-pick]').forEach(el => {
+    el.onclick = () => { if ($('#dialog').open) $('#dialog').close(); pick({type: el.dataset.pick, id: el.dataset.id}); };
+    // Table rows aren't buttons: give them Tab and Enter/Space like one.
+    if (el.tagName !== 'BUTTON') { el.tabIndex = 0; el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); } }; }
+  });
   root.querySelector('[data-root]')?.addEventListener('click', () => pick(null));
 }
 function renderPanel() {
@@ -149,14 +153,6 @@ function tableDialog(html) {
 }
 
 // ---------- dialogs: Receive, Ship and Move hand work to the robots ----------
-function modal(title, body, onSubmit) {
-  const d = $('#dialog');
-  d.className = '';
-  d.innerHTML = `<form><div class="title"><h2>${title}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div>${body}<p class="form-error" id="error"></p></form>`;
-  $('#closeDialog').onclick = () => d.close();
-  d.querySelector('form').onsubmit = e => { e.preventDefault(); onSubmit?.(new FormData(e.target)); };
-  if (!d.open) d.showModal();
-}
 // Figma dialog frame: optional back link, title, body; returns the form.
 function dialogFrame({title, back, body, onBack, onSubmit}) {
   const d = $('#dialog');
@@ -183,14 +179,34 @@ function productField(form, {value, list, onPick, onCreate}) {
   const show = () => {
     const q = input.value.trim().toLowerCase();
     const hits = list().filter(p => !q || p.toLowerCase().includes(q) || itemOf(p)?.sku.toLowerCase().includes(q));
-    box.innerHTML = hits.map(p => `<button type="button" data-p="${esc(p)}">${esc(p)}<small>SKU · ${esc(itemOf(p)?.sku || '—')}</small></button>`).join('') + (onCreate ? `<button type="button" class="create" id="createNew">Create new</button>` : '');
+    active = -1;
+    box.innerHTML = hits.map(p => `<button type="button" tabindex="-1" role="option" data-p="${esc(p)}">${esc(p)}<small>SKU · ${esc(itemOf(p)?.sku || '—')}</small></button>`).join('') + (onCreate ? `<button type="button" class="create" id="createNew">Create new</button>` : '');
     box.hidden = !box.innerHTML;
     // The list floats above the dialog (fixed), full field width, down to the bottom of the window; long lists scroll inside.
     const r = input.closest('.lc-input').getBoundingClientRect();
     Object.assign(box.style, {left: `${r.left}px`, top: `${r.bottom + 4}px`, width: `${r.width}px`, maxHeight: `${Math.max(200, innerHeight - r.bottom - 16)}px`});
-    box.querySelectorAll('[data-p]').forEach(b => b.onmousedown = e => { e.preventDefault(); input.value = b.dataset.p; box.hidden = true; onPick(b.dataset.p); });
+    box.querySelectorAll('[data-p]').forEach(b => b.onmousedown = e => { e.preventDefault(); choose(b.dataset.p); });
     box.querySelector('#createNew')?.addEventListener('mousedown', e => { e.preventDefault(); onCreate(input.value.trim()); });
   };
+  let active = -1;
+  const choose = p => { input.value = p; box.hidden = true; onPick(p); };
+  // Arrows walk the list, Enter picks, Escape closes the list (not the dialog).
+  input.onkeydown = e => {
+    const items = [...box.querySelectorAll('[data-p], #createNew')];
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (box.hidden) show();
+      if (!items.length) return;
+      active = e.key === 'ArrowDown' ? (active + 1) % items.length : (active <= 0 ? items.length : active) - 1;
+      items.forEach((b, i) => b.classList.toggle('on', i === active));
+      items[active]?.scrollIntoView({block: 'nearest'});
+    } else if (e.key === 'Enter' && !box.hidden && items[active]) {
+      e.preventDefault();
+      const b = items[active];
+      if (b.id === 'createNew') onCreate(input.value.trim()); else choose(b.dataset.p);
+    } else if (e.key === 'Escape' && !box.hidden) { e.preventDefault(); box.hidden = true; }
+  };
+  input.setAttribute('role', 'combobox'); box.setAttribute('role', 'listbox');
   input.value = value || '';
   input.onfocus = show;
   // Editing the text drops the picked product until a name from the list is chosen again.
@@ -251,14 +267,15 @@ function receivePhoenix(preset = {}) {
       if (!catalog.some(p => p.name === product)) throw Error('Choose a product from the list or create a new one.');
       sim.receive(product, qty, choice);
       $('#dialog').close();
-      toast(`${plural(qty, 'box', 'boxes')} received`, `Robots are taking ${qty === 1 ? 'it' : 'them'} to ${choice ? `${choice.rack} · ${choice.loc}` : 'storage'}`, {label: 'View robots', run: () => robotPanels.open('Fleet')});
+      toast(`${plural(qty, 'box', 'boxes')} received`, `Queued for robots · going to ${choice ? `${choice.rack} · ${choice.loc}` : 'storage'}`, {label: 'View robots', run: () => robotPanels.open('Fleet')});
     }});
   const render = () => {
     const p = isNew ? '__new__' : product;
     if (choice && !cellRoom(state, choice.rack, choice.loc, p)) choice = null;
     const options = p ? receiveOptions(p, qty) : [];
     if (!choice && options[0]) choice = {rack: options[0].rack, loc: options[0].loc};
-    placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; render(); });
+    if (!p) form.querySelector('#places').innerHTML = '<p class="lc-empty">Choose a product to see free cells.</p>';
+    else placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; render(); });
     form.querySelector('#submitBtn').textContent = submitLabel();
   };
   if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p !== product) { product = p; choice = null; render(); } },
@@ -320,7 +337,7 @@ function movePhoenix(preset = {}) {
   const form = dialogFrame({title: 'Move box',
     body: `<div class="lc-field"><span>From</span><div class="lc-card"><i style="width:16px;height:16px;border-radius:4px;background:${zoneColor(box.rack)}"></i><div>${esc(box.product)}<small>${esc(box.id)} · ${esc(box.rack)} · ${esc(box.location)}</small></div><em>${itemOf(box.product)?.pcs || 1} pcs</em></div></div><div class="lc-field"><span>To</span><div class="lc-options" id="places"></div></div><button type="button" class="lc-outline" id="chooseOther">Choose another place</button>`, onSubmit: () => {}});
   // Picking a place is the order itself: the robot is sent and the dialog closes, with no confirm step.
-  const go = c => { sim.requestMove([box.id], c.rack, c.loc); $('#dialog').close(); };
+  const go = c => { try { sim.requestMove([box.id], c.rack, c.loc); $('#dialog').close(); } catch (e) { $('#dialog').close(); toast(e.message); } };
   const render = () => placeList(form.querySelector('#places'), best, () => null, go);
   form.querySelector('#chooseOther').onclick = () => placeChooser({dialog: $('#dialog'), state, product: box.product, exclude, backLabel: 'Move box', instant: true,
     onPick: go, onBack: () => movePhoenix({box: box.id})});
@@ -328,60 +345,13 @@ function movePhoenix(preset = {}) {
 }
 
 // ---------- build mode ----------
-function rackFields(c) {
-  const fields = [['width', 'Width (m)'], ['depth', 'Depth (m)'], ['height', 'Height (m)'], ['shelves', 'Shelves'], ['places', 'Locations / shelf']];
-  return `<label>Template<select id="templateChoice"><option value="custom">Custom</option>${Object.entries(templates).map(([k, t]) => `<option value="${k}">${t.label}</option>`).join('')}</select></label><div class="rack-fields">${fields.map(([k, label]) => {
-    const whole = k === 'shelves' || k === 'places';
-    return `<label>${label}<input name="${k}" type="number" min="1" max="${whole ? 12 : 20}" step="${whole ? 1 : .1}" value="${c[k]}" required></label>`;
-  }).join('')}</div><p class="helper" id="locationTotal">${c.shelves * c.places} storage locations.</p>`;
-}
-function configureRack(id = null) {
-  const r = id ? state.racks.find(r => r.id === id) : rackDraft;
-  modal(id ? 'Configure ' + esc(id) : 'Rack to place', rackFields(config(r)) + `<p class="helper">${id ? 'Empty locations before removing them.' : 'These settings apply to new racks you place.'}</p><button class="primary wide">${id ? 'Save rack' : 'Use this rack'}</button>`, fd => {
-    const c = Object.fromEntries(['width', 'depth', 'height', 'shelves', 'places'].map(k => [k, Number(fd.get(k))]));
-    try {
-      validateConfig(c);
-      if (id) { if (!commit(() => updateRack(state, id, c))) return; }
-      else { rackDraft = c; scene.setRackConfig(c); renderCatalog(); }
-      $('#dialog').close();
-    } catch (e) { $('#error').textContent = e.message; }
-  });
-  const total = () => $('#locationTotal').textContent = Number($('#dialog [name="shelves"]').value) * Number($('#dialog [name="places"]').value) + ' storage locations.';
-  $('#templateChoice').onchange = e => {
-    const t = templates[e.target.value];
-    if (t) { for (const k of ['width', 'depth', 'height', 'shelves', 'places']) $('#dialog').querySelector(`[name="${k}"]`).value = t[k]; total(); }
-  };
-  $('#dialog').querySelectorAll('input').forEach(el => el.oninput = total);
-}
-function renderCatalog() {
-  $('#rackCatalog').innerHTML = `${Object.entries(templates).map(([k, t]) => `<button data-template="${k}" class="fg-tmpl ${['width', 'depth', 'height', 'shelves', 'places'].every(p => rackDraft[p] === t[p]) ? 'chosen' : ''}"><i></i><span>${t.label}</span><em>${t.width} × ${t.depth} × ${t.height} m</em></button>`).join('')}<button id="draftConfigure" class="outline">Customize dimensions</button>`;
-  $('#rackCatalog').querySelectorAll('[data-template]').forEach(b => b.onclick = () => { rackDraft = config(templates[b.dataset.template]); scene.setRackConfig(rackDraft); renderCatalog(); });
-  $('#draftConfigure').onclick = () => configureRack();
-}
-const hints = {
-  polygon: 'Click corners · Enter to close · Backspace undo corner · Esc cancel',
-  zone: 'Drag on empty ground · Right-drag to pan · Scroll to zoom',
-  rack: 'Click repeatedly to place · Snap to neighbours · Alt disables snap · Red = blocked',
-  browse: 'Select an object to inspect or remove it.',
-};
 function setMode(m) {
   scene.setMode(m);
   if (editing && m === 'browse') builderTools.select();
-  $('#finishZone').hidden = m !== 'polygon';
-  document.querySelectorAll('[data-mode]').forEach(b => b.classList.toggle('chosen', b.dataset.mode === m));
-  $('#modeHint').textContent = hints[m];
-}
-function renderBuildSelection() {
-  const s = selected, el = $('#buildSelection');
-  if (!editing || !s || !['zone', 'rack'].includes(s.type)) { el.innerHTML = ''; return; }
-  el.innerHTML = `<div class="build-object"><strong>${s.type === 'zone' ? esc(state.zones.find(z => z.id === s.id)?.name || s.id) : 'Rack ' + esc(s.id)}</strong><p>Selected on the plan</p>${s.type === 'zone' ? '<button id="buildRename">Rename</button>' : '<button id="buildConfigure">Configure rack</button>'}<button id="buildDelete">Remove empty object</button></div>`;
-  $('#buildConfigure')?.addEventListener('click', () => configureRack(s.id));
-  $('#buildRename')?.addEventListener('click', renameZone);
-  $('#buildDelete')?.addEventListener('click', removeSelected);
 }
 function toggleEdit(value) {
   // A toast's action (View robots / View history) would leave the editor half-open, so it goes away first.
-  if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); $('#toast').classList.remove('visible'); }
+  if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); toast.clear(); }
   editing = value;
   document.body.classList.toggle('building', value);
   $('#results').hidden = true;
@@ -397,38 +367,15 @@ function draw(type, p) {
     else id = addRack(state, state.zones.find(z => contains(z, p))?.id, p.x, p.z, rackDraft);
   });
   if (!ok) return false;
-  selected = {type, id}; scene.select(selected, false); renderBuildSelection();
+  selected = {type, id}; scene.select(selected, false);
   layoutEditor.select(selected);
   return true;
 }
-function removeSelected() {
-  const s = selected;
-  const racks = s.type === 'zone' ? new Set(state.racks.filter(r => r.zone === s.id).map(r => r.id)) : new Set([s.id]);
-  if (state.boxes.some(b => racks.has(b.rack))) return toast('Move or ship all boxes before deleting this layout object.');
-  modal('Remove ' + (s.type === 'zone' ? 'zone' : 'rack'), `<p>Remove ${esc(s.id)}${s.type === 'zone' ? ' and its empty racks' : ''}? You can undo this change.</p><button class="danger wide" type="submit">Remove</button>`, () => {
-    commit(() => {
-      state.racks = state.racks.filter(r => !racks.has(r.id));
-      if (s.type === 'zone') state.zones = state.zones.filter(z => z.id !== s.id);
-      log(state, 'Layout updated', `Removed ${s.id}`); selected = null;
-    });
-    $('#dialog').close();
-  });
-}
-function renameZone() {
-  const id = selected.id, z = state.zones.find(z => z.id === id);
-  modal('Rename zone', `<label>Name<input name="name" value="${esc(z.name)}" maxlength="40" required></label><button class="primary wide">Save name</button>`, fd => {
-    const name = fd.get('name').trim();
-    if (!name) return;
-    commit(() => { state.zones.find(z => z.id === id).name = name; });
-    $('#dialog').close();
-  });
-}
-
 // ---------- pages ----------
 // Only one section of the top bar is lit at a time.
 const setNav = id => document.querySelectorAll('.ph-nav .nav').forEach(b => b.classList.toggle('active', b.id === id));
 function showHistory(type) { if (editing) toggleEdit(false); $('#results').hidden = true; robotPanels.close(); inventoryPage.close(); historyPage.open(typeof type === 'string' ? type : 'All'); setNav('historyAll'); }
-function showInventory() { if (editing) toggleEdit(false); $('#results').hidden = true; historyPage.close(); robotPanels.close(); inventoryPage.open(); }
+function showInventory(query) { if (editing) toggleEdit(false); $('#results').hidden = true; historyPage.close(); robotPanels.close(); inventoryPage.open(typeof query === 'string' ? query : undefined); }
 function setOccupancy(on) {
   occupancyOn = on; scene.setOccupancy(on);
   $('#vmSwitch').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`;
@@ -457,10 +404,21 @@ $('#search').oninput = e => {
   const hits = [
     ...state.zones.filter(z => z.name.toLowerCase().includes(q)).map(z => ({type: 'zone', id: z.id, label: z.name, sub: 'Zone', color: z.color})),
     ...state.racks.filter(r => r.id.toLowerCase().includes(q)).slice(0, 8).map(r => ({type: 'rack', id: r.id, label: r.id, sub: zoneOf(r.zone)?.name || 'Rack', color: zoneOf(r.zone)?.color})),
-    ...state.boxes.filter(b => `${b.id} ${b.product} ${itemOf(b.product)?.sku || ''}`.toLowerCase().includes(q)).slice(0, 15).map(b => ({type: 'box', id: b.id, label: b.product, sub: b.id, value: `${b.rack} · ${b.location.split('-')[0]}`, color: rackZone(b.rack)?.color})),
+    ...sim.stations.filter(st => st.id.toLowerCase().includes(q)).slice(0, 6).map(st => ({type: 'dock', id: st.id, label: st.id, sub: st.kind === 'inbound' ? 'Receiving dock' : 'Dispatch dock'})),
+    // A product is one row (it opens Inventory filtered to it), not a box per shelf.
+    ...catalog.filter(p => `${p.name} ${p.sku}`.toLowerCase().includes(q)).slice(0, 6).map(p => ({type: 'product', id: p.name, label: p.name, sub: `SKU ${p.sku}`, value: `${fmt(sim.inStock(p.name))} in stock`})),
+    // Boxes match by id: on shelves, at docks and on robots.
+    ...[...state.boxes.filter(b => b.id.toLowerCase().includes(q)).slice(0, 8).map(b => ({type: 'box', id: b.id, label: b.id, sub: b.product, value: `${b.rack} · ${b.location.split('-')[0]}`, color: rackZone(b.rack)?.color})),
+      ...sim.heldBoxes().filter(h => h.box.id.toLowerCase().includes(q)).slice(0, 4).map(h => ({type: 'box', id: h.box.id, label: h.box.id, sub: h.box.product, value: h.kind === 'transit' ? 'On a robot' : h.place}))],
   ].slice(0, 15);
-  el.innerHTML = hits.length ? hits.map(h => `<button class="ph-row" data-type="${h.type}" data-id="${esc(h.id)}"><i style="background:${h.color || 'var(--accent-primary)'}"></i><span>${esc(h.label)}<small>${esc(h.sub)}</small></span>${h.value ? `<em>${esc(h.value)}</em>` : ''}</button>`).join('') : '<p>No results. Try “A-01” or “WAGO”.</p>';
-  el.querySelectorAll('button').forEach(b => b.onclick = () => pick({type: b.dataset.type, id: b.dataset.id}));
+  el.innerHTML = hits.length ? hits.map(h => `<button class="ph-row" data-type="${h.type}" data-id="${esc(h.id)}"><i style="background:${h.color || 'var(--accent-primary)'}"></i><span>${esc(h.label)}<small>${esc(h.sub)}</small></span>${h.value ? `<em>${esc(h.value)}</em>` : ''}</button>`).join('') : '<p>No results. Try “A-01”, “WAGO” or “Dispatch”.</p>';
+  el.querySelectorAll('button').forEach(b => b.onclick = () => {
+    const {type, id} = b.dataset;
+    el.hidden = true;
+    if (type === 'product') return showInventory(id);
+    if (type === 'dock') { pick(null); return scene.focusIssue(id); }
+    pick({type, id});
+  });
 };
 const searchWrap = $('.ph-search');
 $('#phSearchButton').onclick = () => { $('#search').focus(); searchWrap.classList.add('is-open'); };
@@ -473,12 +431,8 @@ $('#ship').onclick = () => shipDialog();
 $('#warehouse').onclick = () => pick(null);
 $('#inventory').onclick = showInventory;
 $('#historyAll').onclick = showHistory;
-$('#topView').onclick = () => scene.topView();
-$('#done').onclick = () => toggleEdit(false);
-$('#undo').onclick = undoLast;
-$('#finishZone').onclick = () => scene.finishZone();
-document.querySelectorAll('[data-mode]').forEach(b => b.onclick = () => setMode(b.dataset.mode));
-$('.ph-nav').addEventListener('click', e => { const b = e.target.closest('button'); if (b && b.id !== 'inventory') inventoryPage.close(); }, true);
+// Going to another section or to a search result closes Inventory; opening the search field doesn't.
+$('.ph-nav').addEventListener('click', e => { const b = e.target.closest('.nav, #results .ph-row'); if (b && b.id !== 'inventory' && b.dataset.type !== 'product') inventoryPage.close(); }, true);
 
 const viewMenu = $('#viewMenu');
 $('.ph-gear').addEventListener('click', e => { e.stopPropagation(); viewMenu.hidden = !viewMenu.hidden; });
@@ -502,7 +456,6 @@ document.addEventListener('keydown', e => {
 });
 
 scene.setRackConfig(rackDraft);
-renderCatalog();
 refresh();
 
 // The panel follows the simulation.

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
-    "test": "node --test model.test.js robotics.test.js robot-routing.test.js robot-traffic.test.js docks.test.js box-handoff.test.js order-book.test.js shadow-frustum.test.js zone-shape.test.js layout-edit.test.js operations-view.test.js layout-access.test.js",
+    "test": "node --test",
     "bench": "node bench.mjs"
   },
   "dependencies": {

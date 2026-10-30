@@ -6,8 +6,10 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
  const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`,chev='<img src="/assets/fg/chevron-right.svg" alt="">';
  const when=t=>new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).replace(',',' ·');
- function open(name,robot){const entering=!page;beforeOpen();page=name==='Box'?'Box':'Fleet';if(robot){id=robot;reveal=true;}document.body.classList.add('robot-mode');el.hidden=false;document.querySelectorAll('[data-robot-view]').forEach(b=>b.classList.toggle('active',page==='Fleet'));document.querySelector('#warehouse').classList.toggle('active',page==='Box');if(robot)scene.followRobot(robot);else if(page==='Fleet'&&entering)scene.focusRobot(null);last='';render();}
- function close(){scene.followRobot(null);page=null;el.hidden=true;document.body.classList.remove('robot-mode');document.querySelectorAll('[data-robot-view]').forEach(b=>b.classList.remove('active'));document.querySelector('#warehouse').classList.add('active');}
+ function open(name,robot){const entering=!page;beforeOpen();page=name==='Box'?'Box':'Fleet';if(robot){id=robot;reveal=true;}document.body.classList.add('robot-mode');el.hidden=false;lightNav();if(robot)scene.followRobot(robot);else if(page==='Fleet'&&entering)scene.focusRobot(null);last='';render();}
+ function close(){scene.followRobot(null);page=null;el.hidden=true;document.body.classList.remove('robot-mode');lightNav();}
+ // One lit section in the top bar: Fleet for the fleet, Warehouse for a box card or the map.
+ function lightNav(){document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',page==='Fleet'?b.hasAttribute('data-robot-view'):b.id==='warehouse'));}
  function boxHTML(){
   const b=sim.boxInfo(boxId),st=getState(),rack=st?.racks.find(x=>x.id===b?.rack),zone=st?.zones.find(z=>z.id===rack?.zone),item=itemOf(b?.product);
   if(!b)return `<div class="lc-crumb"><button data-close>Warehouse</button></div><p>This box has left the warehouse.</p>`;
