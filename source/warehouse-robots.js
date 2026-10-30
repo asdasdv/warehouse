@@ -396,7 +396,7 @@ export function addWarehouseRobots(scene, getState) {
   const proxyLoad = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: '#c9a274', roughness: .9}), ROBOTS);
   const proxyObj = new T.Object3D();
   for (const m of [proxyBody, proxyLoad]) { m.count = 0; m.frustumCulled = false; m.raycast = () => {}; group.add(m); }
-  const pickupMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#ffd900', wireframe: true, depthTest: false}));
+  const pickupMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#2f8fe6', wireframe: true, depthTest: false}));
   const dropMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#6c9ee8', wireframe: true, depthTest: false}));
   pickupMarker.renderOrder = dropMarker.renderOrder = 15;
   const routeLine = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({color: '#4ca8f8', transparent: true, opacity: .85}));
