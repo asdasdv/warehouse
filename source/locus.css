@@ -96,7 +96,7 @@ button.primary:hover{background:var(--accent-primary-hover)}
 .lc-robot-steps i{flex:1;height:4px;border-radius:2px;background:var(--content-quaternary)}
 .lc-robot-steps i.on{background:var(--accent-primary)}
 .lc-robot.chosen{outline:1px solid var(--accent-primary)}
-.lc-batt{display:inline-flex;align-items:center;gap:6px;font-variant-numeric:tabular-nums}
+.lc-batt{display:inline-flex;align-items:center;gap:4px;font-variant-numeric:tabular-nums}
 .lc-batt>i{position:relative;display:block;width:20px;height:10px;padding:1px;border:1px solid var(--content-tertiary);border-radius:3px}
 .lc-batt>i::after{content:'';position:absolute;right:-3px;top:2px;width:2px;height:4px;border-radius:0 1px 1px 0;background:var(--content-tertiary)}
 .lc-batt>i>i{display:block;height:100%;border-radius:1px;background:var(--batt)}
@@ -106,7 +106,7 @@ button.primary:hover{background:var(--accent-primary-hover)}
 #tasksPanel{position:absolute;left:8px;top:calc(var(--topbar-h) + 8px);width:336px;max-height:calc(100% - var(--topbar-h) - 16px);overflow:auto;z-index:8;padding:12px;border-radius:16px;
   background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);display:flex;flex-direction:column;gap:8px}
 #tasksPanel>p{font-size:12px;line-height:16px;color:var(--content-secondary)}
-.lc-task{background:var(--surface-secondary);border-radius:12px;padding:12px 12px 8px;display:flex;flex-direction:column;gap:10px}
+.lc-task{background:var(--surface-secondary);border-radius:12px;padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
 .lc-task-line{display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
 .lc-task-line small{font-size:12px;color:var(--content-secondary)}
 .lc-task>p{font-size:12px;line-height:16px;color:var(--content-secondary)}
@@ -135,15 +135,15 @@ button.primary:hover{background:var(--accent-primary-hover)}
 /* ---------- dialogs ---------- */
 dialog{border-radius:24px;padding:24px}
 dialog::backdrop{background:var(--surface-scrim)}
-.lc-dialog{display:flex;flex-direction:column;gap:20px}
+.lc-dialog{display:flex;flex-direction:column;gap:16px}
 /* Figma modal: Head ·24· Body (fields ·20·) ·24· Button; head rows are 8 apart, text fields 4 from their label. */
-.lc-dlg-head{margin-bottom:4px}
-.lc-dlg-top{margin-bottom:-12px}
-.lc-dlg-top+h2{margin-bottom:4px}
+.lc-dlg-head{margin-bottom:8px}
+.lc-dlg-top{margin-bottom:-8px}
+.lc-dlg-top+h2{margin-bottom:8px}
 .lc-dlg-top+h2:has(+.lc-sub){margin-bottom:0}
-.lc-dialog>button.primary{margin-top:4px}
+.lc-dialog>button.primary{margin-top:8px}
 .lc-field:has(>.lc-input){gap:4px}
-.lc-field:has(.lc-options)+.lc-outline{margin-top:-12px}
+.lc-field:has(.lc-options)+.lc-outline{margin-top:-8px}
 dialog .icon{width:28px;height:28px;border-radius:8px}
 .lc-dlg-top{display:flex;align-items:center;justify-content:space-between;min-height:28px}
 /* Back button (Figma component "Back button"): ghost button, grey bg + primary text on hover. */
@@ -152,7 +152,7 @@ dialog .icon{width:28px;height:28px;border-radius:8px}
 .lc-back:hover .fg-ic{opacity:1}
 .lc-dlg-head{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .lc-dlg-head h2,.lc-dialog h2{font-size:32px;line-height:1;font-weight:600;letter-spacing:-.8px}
-.lc-sub{font-size:12px;line-height:16px;color:var(--content-secondary);margin:-12px 0 4px}
+.lc-sub{font-size:12px;line-height:16px;color:var(--content-secondary);margin:-8px 0 8px}
 .lc-field{display:flex;flex-direction:column;gap:8px;position:relative}
 .lc-field>span,.lc-label{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-input{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:12px;background:var(--surface-secondary)}
@@ -187,7 +187,7 @@ dialog .icon{width:28px;height:28px;border-radius:8px}
 .lc-error{font-size:12px;color:var(--status-danger)}
 .lc-error:empty{display:none}
 /* cell grid in "Choose place · cell" */
-.lc-grid{display:grid;grid-template-columns:24px repeat(var(--cols),1fr);gap:6px;align-items:center;font-size:12px;color:var(--content-secondary)}
+.lc-grid{display:grid;grid-template-columns:24px repeat(var(--cols),1fr);gap:4px;align-items:center;font-size:12px;color:var(--content-secondary)}
 .lc-grid>span{text-align:center}
 .lc-grid>span.s{text-align:left}
 .lc-cell{height:36px;padding:0;border-radius:10px;background:var(--surface-secondary);display:flex;align-items:center;justify-content:center;gap:4px;outline:1.5px solid transparent;outline-offset:-1.5px}
@@ -210,16 +210,16 @@ dialog.lc-wide{width:880px}
 .lc-table tbody tr{cursor:pointer}
 .lc-table tbody tr:hover td{background:var(--surface-secondary)}
 .lc-table .muted{color:var(--content-secondary)}
-.lc-name{display:flex;align-items:center;gap:10px}
+.lc-name{display:flex;align-items:center;gap:8px}
 .lc-name i{width:20px;height:20px;border-radius:6px}
-.lc-fillcell{display:flex;align-items:center;gap:10px}
+.lc-fillcell{display:flex;align-items:center;gap:8px}
 
 /* ---------- inventory ---------- */
 #inventoryPage.lc-inv{padding:var(--topbar-h) 12px 16px;overflow:auto}
 #historyPage{padding-top:var(--topbar-h)}
 .lc-filters{position:relative;display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 16px}
 .lc-token{display:flex;align-items:center;height:36px;border:1px solid var(--content-quaternary);border-radius:12px;font-size:14px;overflow:hidden}
-.lc-token>*{position:relative;height:100%;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:0;background:none;font-size:14px;line-height:20px}
+.lc-token>*{position:relative;height:100%;display:flex;align-items:center;gap:4px;padding:0 8px;border-radius:0;background:none;font-size:14px;line-height:20px}
 /* Figma "Filter token": 1×20 dividers between field · operator · value · remove */
 .lc-token>*+*{margin-left:1px}
 .lc-token>*+*::before{content:"";position:absolute;left:-1px;top:7px;width:1px;height:20px;background:var(--content-quaternary)}
@@ -247,7 +247,7 @@ dialog.lc-wide{width:880px}
 .lc-inv-metrics .lc-stat{height:112px}
 .lc-inv-search{width:320px}
 .lc-inv-table .num{text-align:right}
-.lc-locs{display:flex;align-items:center;gap:6px;height:44px}
+.lc-locs{display:flex;align-items:center;gap:4px;height:44px}
 .lc-loc{padding:2px 8px;border-radius:6px;font-size:14px;line-height:20px;color:var(--content-primary)}
 .lc-loc:hover{filter:brightness(.95)}
 .lc-locs .more{color:var(--content-secondary)}
@@ -279,7 +279,7 @@ dialog.lc-wide{width:880px}
 .ed-rail{border-radius:12px}
 .ed-obj-head{display:flex;justify-content:space-between;font-size:12px;padding:0 0 8px}
 .ed-obj-head span{color:var(--content-secondary)}
-.ed-obj{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px 0 6px;border-radius:8px;font-size:12px;cursor:pointer;color:var(--content-primary)}
+.ed-obj{display:flex;align-items:center;gap:4px;height:28px;padding:0 8px 0 6px;border-radius:8px;font-size:12px;cursor:pointer;color:var(--content-primary)}
 .ed-obj.rack{padding-left:30px}
 .ed-obj:hover{background:var(--surface-secondary)}
 .ed-obj.on{background:var(--surface-tertiary)}
@@ -300,7 +300,7 @@ dialog.lc-wide{width:880px}
 .ed-prop{display:flex;align-items:center;gap:8px;min-height:32px;font-size:12px}
 .ed-prop>span:first-child{width:92px;flex:none;color:var(--content-secondary)}
 .ed-prop>b{flex:1;text-align:right;font-weight:500}
-.ed-in{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:8px;background:var(--surface-secondary);font-size:12px;height:26px}
+.ed-in{flex:1;min-width:0;display:flex;align-items:center;gap:4px;padding:4px 8px;border-radius:8px;background:var(--surface-secondary);font-size:12px;height:26px}
 .ed-in input,.ed-in select{flex:1;min-width:0;border:0;background:none;outline:0;font-size:12px;padding:0}
 .ed-in em{font-style:normal;color:var(--content-secondary)}
 .ed-colorbtn{justify-content:flex-start;text-align:left;color:var(--content-primary);height:30px}
@@ -322,7 +322,7 @@ dialog.lc-wide{width:880px}
 .ed-flyout button small{font-size:12px;color:var(--content-secondary)}
 .ed-flyout button.on,.ed-flyout button:hover{background:var(--surface-tertiary)}
 .ed-color{position:absolute;z-index:3;width:248px;padding:16px;border-radius:16px;box-shadow:var(--pop);display:flex;flex-direction:column;gap:12px}
-.ed-swatches{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
+.ed-swatches{display:grid;grid-template-columns:repeat(8,1fr);gap:4px}
 .ed-swatches button{aspect-ratio:1;padding:0;border-radius:999px;outline:2px solid transparent;outline-offset:1px}
 .ed-swatches button.on{outline-color:var(--accent-primary)}
 .ed-hex{display:flex;gap:8px;align-items:center}
@@ -340,9 +340,9 @@ dialog.lc-wide{width:880px}
 .lc-places{position:absolute;z-index:40;width:360px;overflow:auto;padding:16px;border-radius:16px;display:flex;flex-direction:column;gap:12px;
   background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:0 8px 32px rgba(0,0,0,.12)}
 .lc-places b{font-weight:500}
-.lc-places>div{display:flex;flex-direction:column;gap:6px}
+.lc-places>div{display:flex;flex-direction:column;gap:4px}
 .lc-places small{font-size:12px;line-height:16px;color:var(--content-secondary)}
-.lc-places-row{display:flex;flex-wrap:wrap;gap:6px}
+.lc-places-row{display:flex;flex-wrap:wrap;gap:4px}
 /* Panels are translucent, so the warehouse panel must not show through Fleet or a box card. */
 .robot-mode #overview{visibility:hidden}
 /* Dialogs take focus themselves on open, so the close button gets no focus ring until Tab is pressed. */
@@ -410,14 +410,14 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .ed-ins-head{padding-bottom:8px}
 .ed-ins-head>div:first-child{display:flex;flex-direction:column;gap:2px}
 .ed-sec{display:flex;flex-direction:column;gap:4px}
-.lc-dlg-head+.lc-sub{margin-top:-16px;font-size:14px;line-height:20px}
-.lc-dialog .lc-details{margin-top:4px}
+.lc-dlg-head+.lc-sub{margin-top:-12px;font-size:14px;line-height:20px}
+.lc-dialog .lc-details{margin-top:8px}
 .lc-dialog .lc-details div{padding:10px 0}
-.lc-dialog>button.lc-danger{margin-top:4px}
+.lc-dialog>button.lc-danger{margin-top:8px}
 
 /* Map tags: zone and dock names over the 3D view — white plate with the panel blur, crisp text. */
 .map-tags{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
-.map-tag{position:absolute;left:0;top:0;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;white-space:nowrap;
+.map-tag{position:absolute;left:0;top:0;display:flex;align-items:center;gap:4px;padding:6px 12px;border-radius:999px;white-space:nowrap;
   background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);color:var(--content-primary);font:500 13px/16px Inter,Arial,sans-serif}
 /* No will-change on tags: it stops Chrome from blurring the 3D view behind them and they render solid white. */
 .map-tag i{width:10px;height:10px;border-radius:3px;flex:none}
@@ -441,8 +441,8 @@ dialog>.lc-dialog::before,dialog>.lc-dialog::after{content:'';position:sticky;di
   background:linear-gradient(var(--fade-dir,to bottom),var(--surface-primary) 0%,rgba(255,255,255,0) 100%);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent);-webkit-mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent)}
-dialog>.lc-dialog::before{top:0;margin-top:0;margin-bottom:-60px}
-dialog>.lc-dialog::after{--fade-dir:to top;bottom:0;margin-top:-60px;margin-bottom:0}
+dialog>.lc-dialog::before{top:0;margin-top:0;margin-bottom:-56px}
+dialog>.lc-dialog::after{--fade-dir:to top;bottom:0;margin-top:-56px;margin-bottom:0}
 /* The scroll area has no top/bottom padding (the dialog holds it): sticky strips stop at the padding edge,
    so any padding there would leave a band where rows show again past the blur. */
 dialog.cut-top>.lc-dialog::before,dialog.cut-bottom>.lc-dialog::after{opacity:1}
