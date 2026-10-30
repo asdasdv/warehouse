@@ -14,12 +14,12 @@ export function placeChooser({dialog,state,product,qty=1,exclude,backLabel,onPic
  const free=racks=>racks.reduce((n,r)=>n+rackCapacity(r)-(used.get(r.id)||0),0);
  const color=zid=>state.zones.find(z=>z.id===zid)?.color||'var(--accent-primary)';
  let step='zone',zone=null,rack=null,choice=null;
- const frame=(back,title,sub,body)=>`<div class="lc-dialog"><div class="lc-dlg-top"><button type="button" class="lc-back" data-back><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" data-close aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2><p class="lc-sub">${sub}</p>${body}</div>`;
+ const frame=(back,title,sub,body)=>`<div class="lc-dialog"><div class="lc-dlg-top"><button type="button" class="lc-back" data-back><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" data-close aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2>${sub?`<p class="lc-sub">${sub}</p>`:''}${body}</div>`;
  const option=(id,name,value,c)=>`<button type="button" class="lc-option" data-go="${esc(id)}"><i style="background:${c}"></i><span>${esc(name)}</span><em>${value}</em><img src="/assets/fg/chevron-right.svg" alt=""></button>`;
  function draw(){
   if(step==='zone'){
    const zones=state.zones.map(z=>({z,free:free(state.racks.filter(r=>r.zone===z.id))})).sort((a,b)=>b.free-a.free);
-   dialog.innerHTML=frame(backLabel,'Choose a zone','Where should the boxes go? Sorted by free room.',`<div class="lc-options">${zones.map(({z,free})=>option(z.id,z.name,`${free} free`,z.color)).join('')}</div>`);
+   dialog.innerHTML=frame(backLabel,'Choose a zone','',`<div class="lc-options">${zones.map(({z,free})=>option(z.id,z.name,`${free} free`,z.color)).join('')}</div>`);
   }else if(step==='rack'){
    const z=state.zones.find(z=>z.id===zone),racks=state.racks.filter(r=>r.zone===zone).map(r=>({r,free:free([r])})).sort((a,b)=>b.free-a.free||a.r.id.localeCompare(b.r.id));
    dialog.innerHTML=frame('Zones',z?.name||zone,'Choose a rack · sorted by free room',`<div class="lc-options">${racks.map(({r,free})=>option(r.id,r.id,`${free} free`,z?.color)).join('')||'<p class="lc-empty">No racks in this zone.</p>'}</div>`);

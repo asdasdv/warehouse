@@ -428,18 +428,18 @@ button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-pri
 #narrow{display:none}
 @media (max-width:899px){#narrow{display:flex;position:fixed;inset:0;z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:24px;text-align:center;background:var(--surface-primary);color:var(--content-primary)}
  #narrow b{font-size:20px;line-height:28px;font-weight:600}#narrow span{font-size:14px;line-height:20px;color:var(--content-secondary);max-width:320px}}
-/* Dialogs: the scrollbar stays inside the rounded corners. The standard thin scrollbar can't be inset,
-   so dialogs use the styled WebKit one with track margins equal to the corner radius. */
-dialog{scrollbar-width:auto;scrollbar-color:auto}
-dialog::-webkit-scrollbar-track{margin:24px 0}
-/* Scroll edges: a sticky blurred strip fades in at the top or bottom while content continues past it. */
-dialog::before,dialog::after{content:'';position:sticky;display:block;z-index:5;height:40px;margin-inline:-24px;pointer-events:none;opacity:0;transition:opacity .15s;
+/* Dialogs: the dialog itself doesn't scroll; its one content block (.lc-dialog) does, 16px in from the top and
+   bottom edges, so in every browser the scrollbar stays clear of the rounded corners. */
+dialog{padding:16px 0;overflow:hidden;scrollbar-width:auto;scrollbar-color:auto}
+dialog>.lc-dialog{max-height:calc(100vh - 64px);overflow:auto;padding:8px 24px}
+/* Scroll edges: a sticky blurred strip fades in at the top or bottom while content continues past it.
+   The strips are flex items of .lc-dialog: their negative margins cancel their height and the 20px gap. */
+dialog>.lc-dialog::before,dialog>.lc-dialog::after{content:'';position:sticky;display:block;flex:none;z-index:5;height:40px;margin-inline:-24px;pointer-events:none;opacity:0;transition:opacity .15s;
   background:linear-gradient(var(--fade-dir,to bottom),var(--surface-primary) 0%,rgba(255,255,255,0) 100%);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
   mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent);-webkit-mask-image:linear-gradient(var(--fade-dir,to bottom),#000 30%,transparent)}
-dialog::before{top:0;margin-top:-24px;margin-bottom:-16px}
-dialog::after{--fade-dir:to top;bottom:0;margin-top:-16px;margin-bottom:-24px}
-dialog.cut-top::before,dialog.cut-bottom::after{opacity:1}
-/* Wide table dialogs: the column header stays pinned under the top edge while rows scroll beneath it. */
-dialog .lc-table thead th{position:sticky;top:16px;z-index:6;background:linear-gradient(var(--surface-secondary),var(--surface-secondary)) var(--surface-primary)}
-dialog.lc-wide::before{height:60px;margin-bottom:-36px;background:linear-gradient(to bottom,var(--surface-primary) 0 18px,rgba(255,255,255,0) 100%);mask-image:linear-gradient(#000 45%,transparent);-webkit-mask-image:linear-gradient(#000 45%,transparent)}
+dialog>.lc-dialog::before{top:0;margin-top:-8px;margin-bottom:-52px}
+dialog>.lc-dialog::after{--fade-dir:to top;bottom:0;margin-top:-52px;margin-bottom:-8px}
+dialog.cut-top>.lc-dialog::before,dialog.cut-bottom>.lc-dialog::after{opacity:1}
+/* Wide table dialogs: the column header stays pinned at the top while rows scroll beneath it. */
+dialog .lc-table thead th{position:sticky;top:0;z-index:6;background:linear-gradient(var(--surface-secondary),var(--surface-secondary)) var(--surface-primary)}
