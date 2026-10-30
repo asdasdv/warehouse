@@ -1,3 +1,4 @@
+import {sortHead, sortRows} from './table-sort.js';
 import {CELL_CAPACITY,rackCapacity,locations} from './storage.js';
 import {itemOf} from './model.js';
 const fmt=n=>n.toLocaleString('en-US');
@@ -45,13 +46,15 @@ export function overviewHTML(state,sel){
  return `${crumb([...trail,{label:rack.id,type:'rack',id:rack.id},{label:shelf,type:'shelf',id:`${rack.id}|${shelf}`},{label:place}])}${hero({stored:here.length,total:CELL_CAPACITY,free:CELL_CAPACITY-here.length,pct:Math.round(here.length/CELL_CAPACITY*100)})}<div class="lc-group">${head(`Boxes · ${here.length}`,'Quantity')}<div class="lc-rows">${here.map(b=>row(b.product,`${itemOf(b.product)?.pcs||1} pcs`,'box',b.id,color,b.id)).join('')||'<p class="lc-empty">This cell is empty.</p>'}</div></div>`;
 }
 // "All zones" / "Zone A · all racks" tables.
-function table(rows,first,firstLabel){return `<table class="lc-table"><colgroup><col style="width:190px"><col style="width:80px"><col style="width:150px"><col style="width:200px"><col style="width:90px"><col style="width:122px"></colgroup><thead><tr><th>${firstLabel}</th><th>${first}</th><th>Stored / capacity</th><th>Fill</th><th>Free</th><th>Today</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;}
+// Rows are {name, count, s, f, …}; every column sorts (see table-sort.js).
+const tableValue=(x,k)=>k==='name'?x.name:k==='count'?x.count:k==='stored'?x.s.stored:k==='fill'?x.s.stored/(x.s.total||1):k==='free'?x.s.free:x.f.in+x.f.out;
+function table(items,first,firstLabel,sort){return `<table class="lc-table"><colgroup><col style="width:190px"><col style="width:80px"><col style="width:150px"><col style="width:200px"><col style="width:90px"><col style="width:122px"></colgroup><thead><tr>${sortHead(firstLabel,'name',sort,'','asc')}${sortHead(first,'count',sort)}${sortHead('Stored / capacity','stored',sort)}${sortHead('Fill','fill',sort)}${sortHead('Free','free',sort)}${sortHead('Today','today',sort)}</tr></thead><tbody>${sortRows(items,sort,tableValue).map(tableRow).join('')}</tbody></table>`;}
 function tableRow(x){return `<tr data-pick="${x.type}" data-id="${esc(x.id)}"><td><span class="lc-name"><i style="background:${x.color}"></i>${esc(x.name)}</span></td><td class="muted">${x.count}</td><td>${fmt(x.s.stored)} / ${fmt(x.s.total)}</td><td><span class="lc-fillcell">${bar(x.s.pct,x.color,'sm')}${x.s.pct}%</span></td><td class="muted">${fmt(x.s.free)}</td><td class="muted">+${x.f.in} / −${x.f.out}</td></tr>`;}
-export function allZonesHTML(state){
+export function allZonesHTML(state,sort={key:'fill',dir:'desc'}){
  const s=stock(state),zones=zonesByFill(state);
- return `<div class="lc-modal-head"><h2>All zones <small>${zones.length}</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p>${zoneBar(state,zones,s.free)}</div>${table(zones.map(z=>{const racks=state.racks.filter(r=>r.zone===z.id);return tableRow({type:'zone',id:z.id,name:z.name,color:z.color,count:racks.length,s:z.s,f:flowOf(state,racks)});}),'Racks','Zone')}`;
+ return `<div class="lc-modal-head"><h2>All zones <small>${zones.length}</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p>${zoneBar(state,zones,s.free)}</div>${table(zones.map(z=>{const racks=state.racks.filter(r=>r.zone===z.id);return {type:'zone',id:z.id,name:z.name,color:z.color,count:racks.length,s:z.s,f:flowOf(state,racks)};}),'Racks','Zone',sort)}`;
 }
-export function allRacksHTML(state,zoneId){
+export function allRacksHTML(state,zoneId,sort={key:'stored',dir:'desc'}){
  const z=state.zones.find(z=>z.id===zoneId),racks=state.racks.filter(r=>r.zone===zoneId).map(r=>({r,s:stock(state,[r])})).sort((a,b)=>b.s.stored-a.s.stored),s=stock(state,racks.map(x=>x.r));
- return `<div class="lc-modal-head"><h2>${esc(z?.name||zoneId)} <small>${racks.length} racks</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p></div>${table(racks.map(({r,s})=>tableRow({type:'rack',id:r.id,name:r.id,color:z?.color,count:r.shelves,s,f:flowOf(state,[r])})),'Shelves','Rack')}`;
+ return `<div class="lc-modal-head"><h2>${esc(z?.name||zoneId)} <small>${racks.length} racks</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p></div>${table(racks.map(({r,s})=>({type:'rack',id:r.id,name:r.id,color:z?.color,count:r.shelves,s,f:flowOf(state,[r])})),'Shelves','Rack',sort)}`;
 }

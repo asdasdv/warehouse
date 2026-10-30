@@ -15,6 +15,7 @@ import {seed, catalog, itemOf, addProduct, addZone, addRack, log} from './model.
 import {templates, config, locations} from './storage.js';
 import {createScene} from './scene.js';
 import {placeChooser, cellRoom, boxIndex, setLiveRoom} from './choose-place.js';
+import {toggleSort, bindSort} from './table-sort.js';
 
 // Concept demo: everything lives in memory and the robot simulation always runs.
 // A reload starts the demo warehouse again.
@@ -48,6 +49,22 @@ $('#app').innerHTML = `<main>
  <dialog id="dialog" autofocus></dialog>
 </main>`;
 
+// Search fields (a magnifier + input) get a × once they hold text: it clears the text in one click.
+// Fields are re-rendered often, so the button is added to any new field as it appears.
+const clearIcon = '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M4.75 4.75l6.5 6.5M11.25 4.75l-6.5 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+function addClearButtons(root = document) {
+  for (const box of root.querySelectorAll('.lc-input, .ph-search')) {
+    if (box.querySelector(':scope > .lc-clear') || !box.querySelector('.fg-ic[src*="search"], .fg-ic[src*="search"]') || !box.querySelector('input')) continue;
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'lc-clear'; b.tabIndex = -1; b.setAttribute('aria-label', 'Clear'); b.innerHTML = clearIcon;
+    box.append(b);
+  }
+}
+new MutationObserver(() => addClearButtons()).observe(document.body, {childList: true, subtree: true});
+document.addEventListener('pointerdown', e => { if (e.target.closest('.lc-clear')) e.preventDefault(); }, true); // keep focus in the field
+document.addEventListener('click', e => {
+  const b = e.target.closest('.lc-clear'); if (!b) return;
+  const input = b.parentElement.querySelector('input'); input.value = ''; input.dispatchEvent(new Event('input', {bubbles: true})); input.focus();
+});
 // A click on the backdrop closes the dialog. Only when the press also started outside,
 // so selecting text inside and releasing outside doesn't close it.
 {
@@ -170,14 +187,17 @@ function renderPanel() {
     view.addEventListener('pointerover', e => { const row = e.target.closest('.lc-row[data-pick]'); scene.preview(row ? {type: row.dataset.pick, id: row.dataset.id} : null); });
     view.addEventListener('pointerleave', () => scene.preview(null));
   }
-  $('#allZones')?.addEventListener('click', () => tableDialog(() => allZonesHTML(live())));
-  $('#allRacks')?.addEventListener('click', () => { const zone = selected.id; tableDialog(() => allRacksHTML(live(), zone)); });
+  $('#allZones')?.addEventListener('click', () => tableDialog(sort => allZonesHTML(live(), sort), {key: 'fill', dir: 'desc'}));
+  $('#allRacks')?.addEventListener('click', () => { const zone = selected.id; tableDialog(sort => allRacksHTML(live(), zone, sort), {key: 'stored', dir: 'desc'}); });
 }
-function tableDialog(html) {
+function tableDialog(html, sort) {
   const d = $('#dialog');
-  d.className = 'lc-wide'; d.innerHTML = `<div class="lc-dialog">${html()}</div>`;
-  d.querySelector('[data-close]').onclick = () => d.close();
-  bindPicks(d);
+  // Re-sorting keeps the scroll position of the list.
+  const draw = () => { const top = d.querySelector('.lc-dialog')?.scrollTop || 0;
+    d.className = 'lc-wide'; d.innerHTML = `<div class="lc-dialog">${html(sort)}</div>`; d.querySelector('.lc-dialog').scrollTop = top;
+    d.querySelector('[data-close]').onclick = () => d.close();
+    bindPicks(d); bindSort(d, (k, f) => { sort = toggleSort(sort, k, f); draw(); }); };
+  draw();
   if (!d.open) d.showModal();
 }
 
