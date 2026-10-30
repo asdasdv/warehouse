@@ -117,7 +117,7 @@ function rebuild(){clearHover();clear(detail);clear(selection);placeAccess.reset
 // by how full they are, and nothing on the shelves is drawn. Only the changed zone is redrawn when robots move.
 const cargoGroup=new T.Group();scene.add(cargoGroup);
 const zoneCargo=new Map(),zoneBlocks=new Map(),zoneLevel=new Map(),NEAR=110,MID=380,zeroMatrix=new T.Matrix4().makeScale(0,0,0);let rackZone=new Map();
-const blockMaterial=new T.MeshStandardMaterial({color:'#ffffff',roughness:.8}),blockEmpty=new T.Color('#eef0f2'),blockFull=new T.Color('#c9a274');
+const blockMaterial=new T.MeshStandardMaterial({color:'#ffffff',roughness:.8}),blockEmpty=new T.Color('#e2e5e9'),blockFull=new T.Color('#e2e5e9')/* far racks keep the rack colour (beams) so they don't change colour as you zoom in; fill shows in Occupancy */;
 const rackHitMaterial=new T.MeshBasicMaterial({visible:false});
 const fillMaterial=new T.MeshStandardMaterial({color:'#cba67a',roughness:.95});
 // Built once and reused by every rebuild: disposing them would recompile their shaders on the next frame.
