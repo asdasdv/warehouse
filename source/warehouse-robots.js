@@ -5,7 +5,7 @@ import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
 import {mergeByMaterial} from './merge-meshes.js';
-import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, docksOf, dockPort, layoutObstacles, spineLift, spineBreaks, loopPath, outStart} from './docks.js';
+import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
@@ -27,6 +27,7 @@ const BELT_SPEED = 2.5;
 const SPINE_SPEED = 6;       // main conveyors: fast enough to keep up, slow enough to stop at a transfer
 const TRANSFER_SECONDS = .8; // a pop-up transfer pushes a box sideways between a main belt and a dock belt
 const AGE_METRES = 60;       // outbound picking: one day older is worth this many metres of extra driving
+const PICK_SAMPLE = 12;      // outbound picking: how many of a product's boxes are weighed against each other
 // conveyor.glb: scanner portal 1.35 m from the hand-off end; lights hold their flash this long.
 const SCANNER_Z = BELT_START + 1.35 * BELT_TOP / .65, FLASH = 1.2;
 // Demand is tuned for the 24-zone spine warehouse (~40 robots); arrivals and orders come every few seconds.
@@ -241,12 +242,23 @@ export function addWarehouseRobots(scene, getState) {
   function beltTexture() {
     const c = document.createElement('canvas'); c.width = 16; c.height = 64;
     const t = c.getContext('2d');
-    t.fillStyle = '#4b5459'; t.fillRect(0, 0, 16, 64); t.fillStyle = '#626c71'; t.fillRect(0, 0, 16, 10);
+    t.fillStyle = '#626a6f'; t.fillRect(0, 0, 16, 64); t.fillStyle = '#737c81'; t.fillRect(0, 0, 16, 10);
     const tex = new T.CanvasTexture(c);
     tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(1, (BELT_END - BELT_START + 1) / 1.2);
     return tex;
   }
-  const frameMat = new T.MeshStandardMaterial({color: '#aab2b8', roughness: .45, metalness: .35});
+  // One palette for every model (racks use the same in scene.js): white and light matte metal, dark belts
+  // and robot tops, one safety yellow. Blender models are recoloured to it by material name.
+  const PALETTE = {white: '#f3f4f6', metal: '#c3c9cf', steel: '#d5d9dd', dark: '#3b4248', belt: '#6b7378', rubber: '#4a5055', yellow: '#e9c84a'};
+  const frameMat = new T.MeshStandardMaterial({color: PALETTE.metal, roughness: .5, metalness: .25});
+  const MODEL_COLOURS = [[/brushed steel/, 'steel'], [/silver enclosure|tunnel|ceramic/, 'white'], [/blue grey frame/, 'metal'], [/rubber|tyre/, 'rubber'], [/graphite/, 'dark'], [/safety yellow/, 'yellow']];
+  const recoloured = new WeakSet();
+  function recolour(material) {
+    if (!material || recoloured.has(material)) return;
+    recoloured.add(material);
+    const hit = MODEL_COLOURS.find(([re]) => re.test(material.name || ''));
+    if (hit) { material.color.set(PALETTE[hit[1]]); material.metalness = Math.min(material.metalness ?? 0, .3); }
+  }
   const tunnelMat = new T.MeshStandardMaterial({color: '#e9ecef', roughness: .8});
   for (const {id, kind} of docksOf(getState())) {
     const g = new T.Group(), body = new T.Group();
@@ -281,6 +293,7 @@ export function addWarehouseRobots(scene, getState) {
         o.material = leds[key];
       });
       r.leds = leds.main ? leds : null;
+      m.traverse(o => { if (o.isMesh) recolour(o.material); });
       // One mesh per material instead of sixteen parts.
       for (const mesh of mergeByMaterial(m)) if (Object.values(leds).includes(mesh.material)) mesh.castShadow = false;
     }
@@ -302,8 +315,7 @@ export function addWarehouseRobots(scene, getState) {
         if (o.name.startsWith('Roller')) rollers.push(o);
         // On conveyors the dock belt ends at a transfer, not in the model's dispatch tunnel.
         if (getState().spine && /^Dispatch_(rear|side|roof)/.test(o.name)) o.visible = false;
-        // Calm palette: the model's dark blue-grey frame becomes light metal like the racks.
-        if (/blue grey frame/.test(o.material.name)) o.material.color.set('#a4adb4');
+        recolour(o.material);
       });
       // The 59 rollers become one instanced mesh (they spin together); everything else that does not
       // light up is merged per material: ~10 meshes per dock instead of ~170.
@@ -324,7 +336,7 @@ export function addWarehouseRobots(scene, getState) {
     for (const r of robots) { r.cargo.clear(); r.cargo.add(cartonContent()); }
   });
   const ROBOT_NEAR = 150;
-  const proxyBody = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: '#2e3437', roughness: .6}), ROBOTS);
+  const proxyBody = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: PALETTE.dark, roughness: .6}), ROBOTS);
   const proxyLoad = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: '#c9a274', roughness: .9}), ROBOTS);
   const proxyObj = new T.Object3D();
   for (const m of [proxyBody, proxyLoad]) { m.count = 0; m.frustumCulled = false; m.raycast = () => {}; group.add(m); }
@@ -334,14 +346,14 @@ export function addWarehouseRobots(scene, getState) {
   const routeLine = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({color: '#baa51a', transparent: true, opacity: .6}));
   group.add(pickupMarker, dropMarker, routeLine);
 
-  // ---------- conveyors: receiving loop and dispatch line ----------
-  // Boxes leave the receiving building onto the loop and circulate until their dock has room; dispatch
-  // docks push boxes onto the dispatch line, which carries them into the dispatch building. Both climb
-  // onto bridges where robots cross underneath (see docks.js).
+  // ---------- conveyors: receiving line below, dispatch line above ----------
+  // Boxes leave the receiving building on the floor-level receiving line and turn off it at their dock.
+  // Dispatch docks lift boxes up an incline onto the overhead dispatch line, which carries them into the
+  // dispatch building. Robots drive under both where the receiving line climbs a bridge (see docks.js).
   const spineGroup = new T.Group(), spineItems = new T.Group(); group.add(spineGroup, spineItems);
-  const spineTextures = [], yellowMat = new T.MeshStandardMaterial({color: '#e9c84a', roughness: .6});
-  const beltMat = new T.MeshStandardMaterial({color: '#555e63', roughness: .9});
-  let spine = null, spineKey = null, loop = null;
+  const spineTextures = [], yellowMat = new T.MeshStandardMaterial({color: PALETTE.yellow, roughness: .6});
+  const beltMat = new T.MeshStandardMaterial({color: PALETTE.belt, roughness: .9});
+  let spine = null, spineKey = null, span = null;
   // One belt material per direction; each belt piece carries its length in its UVs, so all pieces merge.
   const beltMats = {};
   function beltMaterial(dir) {
@@ -350,7 +362,7 @@ export function addWarehouseRobots(scene, getState) {
     if (typeof document !== 'undefined') {
       const c = document.createElement('canvas'); c.width = 64; c.height = 16;
       const t = c.getContext('2d');
-      t.fillStyle = '#4b5459'; t.fillRect(0, 0, 64, 16); t.fillStyle = '#626c71'; t.fillRect(0, 0, 10, 16);
+      t.fillStyle = '#626a6f'; t.fillRect(0, 0, 64, 16); t.fillStyle = '#737c81'; t.fillRect(0, 0, 10, 16);
       map = new T.CanvasTexture(c); map.wrapS = map.wrapT = T.RepeatWrapping; spineTextures.push({tex: map, dir});
     }
     return beltMats[dir] = new T.MeshStandardMaterial({map, roughness: .9});
@@ -359,119 +371,121 @@ export function addWarehouseRobots(scene, getState) {
     const len = Math.hypot(x1 - x0, y1 - y0), m = box(spineGroup, (x0 + x1) / 2, (y0 + y1) / 2, z, len, height, depth, material);
     m.rotation.z = Math.atan2(y1 - y0, x1 - x0); return m;
   }
-  // A straight belt along x at z, following the bridge profile, with rails and legs.
-  function straightBelt(sp, from, to, z, dir, legs) {
-    const xs = spineBreaks(sp, from, to), y = x => BELT_TOP + spineLift(sp, x);
+  // A belt between two points of any slope, for the dispatch inclines.
+  function beam(parent, a, b, width, height, material) {
+    const d = new T.Vector3().subVectors(b, a), m = new T.Mesh(geo, material);
+    m.position.addVectors(a, b).multiplyScalar(.5); m.scale.set(width, height, d.length());
+    m.quaternion.setFromUnitVectors(new T.Vector3(0, 0, 1), d.normalize()); m.castShadow = m.receiveShadow = true;
+    parent.add(m); return m;
+  }
+  // A straight belt along x at z with rails and legs: on the floor following the bridges, or overhead at `height`.
+  function straightBelt(sp, from, to, z, legs, height = null) {
+    const xs = height === null ? spineBreaks(sp, from, to) : [from, to], y = x => height ?? BELT_TOP + spineLift(sp, x);
     for (let i = 1; i < xs.length; i++) {
       const a = xs[i - 1], b = xs[i];
-      const belt = piece(a, b, y(a) - .06, y(b) - .06, z, .12, BELT_HALF * 2, beltMaterial(dir));
+      const belt = piece(a, b, y(a) - .06, y(b) - .06, z, .12, BELT_HALF * 2, beltMaterial(1));
       belt.geometry = geo.clone(); const uv = belt.geometry.attributes.uv;
       for (let k = 0; k < uv.count; k++) uv.setX(k, uv.getX(k) * Math.hypot(b - a, y(b) - y(a)) / 1.2);
       for (const rail of [-1.25, 1.25]) piece(a, b, y(a) - .05, y(b) - .05, z + rail, .4, .3, frameMat);
     }
-    for (let x = from + 1; x < to; x += 4) {
+    // Overhead legs stand outside the floor belt; no legs in a robot passage.
+    const step = height === null ? 4 : 8, off = height === null ? 1.25 : 1.75;
+    for (let x = from + 1; x < to; x += step) {
       if ((sp.crossings || []).some(c => Math.abs(x - c) < BRIDGE_HALF + .5)) continue;
-      for (const side of [-1, 1]) legs.push({x, z: z + side * 1.25, h: y(x) - .25});
-    }
-  }
-  // A half circle joining the loop legs, drawn as short flat pieces.
-  function loopEnd(cx, mid, R, east) {
-    const n = 14, k = (R + 1.25) / R;
-    for (let i = 0; i < n; i++) {
-      const p = t => ({x: cx + (east ? 1 : -1) * R * Math.sin(t), z: mid - R * Math.cos(t)});
-      const a = p(Math.PI * i / n), b = p(Math.PI * (i + 1) / n), len = Math.hypot(b.x - a.x, b.z - a.z), angle = -Math.atan2(b.z - a.z, b.x - a.x);
-      box(spineGroup, (a.x + b.x) / 2, BELT_TOP - .06, (a.z + b.z) / 2, len + .05, .12, BELT_HALF * 2, beltMat).rotation.y = angle;
-      const ox = (a.x + b.x) / 2 - cx, oz = (a.z + b.z) / 2 - mid;
-      box(spineGroup, cx + ox * k, BELT_TOP - .05, mid + oz * k, len * k + .05, .4, .3, frameMat).rotation.y = angle;
+      for (const side of [-1, 1]) legs.push({x, z: z + side * off, h: y(x) - .25});
+      if (height !== null) box(spineGroup, x, height - .35, z, .25, .2, off * 2 + .25, frameMat);
     }
   }
   function drawSpine(sp) {
     spineGroup.traverse(o => { if (o.isMesh && o.geometry !== geo) o.geometry.dispose(); });
     spineGroup.clear();
-    loop = sp ? loopPath(sp) : null;
     if (!sp) return;
-    const {north: N, south: S} = sp.loop, legs = [];
-    straightBelt(sp, sp.x1, loop.xa, N, 1, legs);           // infeed from the receiving building
-    straightBelt(sp, loop.xa, loop.xb, N, 1, legs);         // loop, north leg: east
-    straightBelt(sp, loop.xa, loop.xb, S, -1, legs);        // loop, south leg: back west
-    loopEnd(loop.xb, loop.mid, loop.R, true); loopEnd(loop.xa, loop.mid, loop.R, false);
-    straightBelt(sp, outStart(sp), sp.x2, sp.out, 1, legs); // dispatch line: east into the dispatch building
-    box(spineGroup, outStart(sp) - .2, BELT_TOP - .1, sp.out, .4, .5, BELT_HALF * 2 + .6, frameMat);
+    span = lineSpan(sp, docksOf(getState()));
+    const legs = [];
+    straightBelt(sp, sp.x1, span.recvEnd, 0, legs);                 // receiving line, floor level
+    box(spineGroup, span.recvEnd + .2, BELT_TOP - .1, 0, .4, .5, BELT_HALF * 2 + .6, frameMat);
+    straightBelt(sp, span.dispStart, sp.x2, 0, legs, UPPER);        // dispatch line, overhead
+    box(spineGroup, span.dispStart - .2, UPPER - .1, 0, .4, .5, BELT_HALF * 2 + .6, frameMat);
     // Bridges: portal posts at each end and a yellow beam over the robot passage.
-    const top = Math.min(N, sp.out) - 1.6, bottom = Math.max(S, sp.out) + 1.6;
     for (const c of sp.crossings || []) {
-      box(spineGroup, c, BELT_TOP + BRIDGE_LIFT - .45, (top + bottom) / 2, BRIDGE_HALF * 2, .3, bottom - top, yellowMat);
+      box(spineGroup, c, BELT_TOP + BRIDGE_LIFT - .45, 0, BRIDGE_HALF * 2, .3, 3.2, yellowMat);
       for (const e of [-BRIDGE_HALF, BRIDGE_HALF]) {
-        box(spineGroup, c + e, BELT_TOP + BRIDGE_LIFT - .45, (top + bottom) / 2, .4, .4, bottom - top + .4, frameMat);
-        for (const z of [top, bottom]) legs.push({x: c + e, z, h: BELT_TOP + BRIDGE_LIFT - .45});
+        box(spineGroup, c + e, BELT_TOP + BRIDGE_LIFT - .45, 0, .4, .4, 3.6, frameMat);
+        for (const z of [-1.6, 1.6]) legs.push({x: c + e, z, h: UPPER - .25});
       }
     }
     const legMesh = new T.InstancedMesh(geo, frameMat, legs.length), o = new T.Object3D();
     legs.forEach((l, i) => { o.position.set(l.x, l.h / 2, l.z); o.scale.set(.25, l.h, .25); o.updateMatrix(); legMesh.setMatrixAt(i, o.matrix); });
     legMesh.castShadow = true; spineGroup.add(legMesh);
-    // The two buildings: boxes come out of receiving onto the loop and disappear into dispatch.
-    for (const [x, z, name] of [[sp.x1 - BUILDING.length / 2, loop.mid, 'Receiving'], [sp.x2 + BUILDING.length / 2, sp.out, 'Dispatch']]) {
-      building(x, z, name);
-      // A doorway with a light strip over it where the belt goes through the wall.
-      const face = name === 'Receiving' ? x + BUILDING.length / 2 + .05 : x - BUILDING.length / 2 - .05, door = name === 'Receiving' ? N : sp.out;
-      box(spineGroup, face, BELT_TOP + 2.6, door, .1, .35, 3.4, doorMats[name === 'Receiving' ? 'receiving' : 'dispatch']);
-      box(spineGroup, face, BELT_TOP + 1.1, door, .08, 2.4, 3, doorwayMat);
+    // The two buildings, each with a lit doorway where its line goes through the wall.
+    for (const [x, name, doorY] of [[sp.x1 - BUILDING.length / 2, 'Receiving', BELT_TOP], [sp.x2 + BUILDING.length / 2, 'Dispatch', UPPER]]) {
+      building(x, 0, name);
+      const face = name === 'Receiving' ? x + BUILDING.length / 2 + .05 : x - BUILDING.length / 2 - .05;
+      box(spineGroup, face, doorY + 2.6, 0, .1, .35, 3.4, doorMats[name === 'Receiving' ? 'receiving' : 'dispatch']);
+      box(spineGroup, face, doorY + 1.1, 0, .08, 2.4, 3, doorwayMat);
     }
     // Hundreds of belt pieces, rails, walls and panels end up as one mesh per material.
     mergeByMaterial(spineGroup);
   }
   const doorwayMat = new T.MeshStandardMaterial({color: '#2b3133', roughness: .9});
-  // Pop-up transfers: where a dock belt meets a main belt, a patch of cross rollers rises out of the main
-  // belt and pushes the box sideways onto the dock belt (receiving) or off it onto the main belt (dispatch).
+  // Where a dock meets its line: receiving docks get a pop-up transfer in the receiving line (a patch of cross
+  // rollers that rises and pushes the box sideways onto the dock belt); dispatch docks get an incline up to
+  // the dispatch line.
   const transferGroup = new T.Group(); group.add(transferGroup);
   const crossRoller = new T.CylinderGeometry(.07, .07, 2.1, 10).rotateX(Math.PI / 2);
   const bridgeRoller = new T.CylinderGeometry(.07, .07, 2.2, 10).rotateZ(Math.PI / 2);
   const rollerMat = new T.MeshStandardMaterial({color: '#b8c1c4', roughness: .35, metalness: .6});
   const plateMat = new T.MeshStandardMaterial({color: '#2a3033', roughness: .8});
+  const LAST_ROLLER = 7.75; // conveyor.glb: the last roller, station-local z
   function drawTransfers() {
     transferGroup.clear();
     if (!spine) return;
     for (const st of stations) {
-      const z = st.kind === 'inbound' ? spine.loop.north : spine.out, g = new T.Group();
-      g.position.set(st.g.position.x, 0, z); transferGroup.add(g);
-      box(g, 0, BELT_TOP + .01, 0, 2.8, .02, BELT_HALF * 2, plateMat);
-      for (const x of [-1.4, 1.4]) box(g, x, BELT_TOP + .02, 0, .1, .04, BELT_HALF * 2, yellowMat);
-      const lift = new T.Group(); g.add(lift);
-      for (let i = 0; i < 8; i++) {
-        const m = new T.Mesh(crossRoller, rollerMat); m.position.set(-1.2 + i * 2.4 / 7, BELT_TOP + .02, 0); m.castShadow = true;
-        lift.add(m);
+      const reach = dockReach(st.dock), world = (x, y, z) => st.g.localToWorld(new T.Vector3(x, y, z));
+      if (st.kind === 'inbound') {
+        const g = new T.Group(); g.position.set(st.g.position.x, spineLift(spine, st.g.position.x), 0); transferGroup.add(g);
+        box(g, 0, BELT_TOP + .01, 0, 2.8, .02, BELT_HALF * 2, plateMat);
+        for (const x of [-1.4, 1.4]) box(g, x, BELT_TOP + .02, 0, .1, .04, BELT_HALF * 2, yellowMat);
+        const lift = new T.Group(); g.add(lift);
+        for (let i = 0; i < 8; i++) { const m = new T.Mesh(crossRoller, rollerMat); m.position.set(-1.2 + i * 2.4 / 7, BELT_TOP + .02, 0); m.castShadow = true; lift.add(m); }
+        st.lift = lift; st.pop = 0; lift.userData.lift = true;
+        // A few rollers bridge the end of the dock belt (where the model's tunnel was) to the line.
+        for (let lz = LAST_ROLLER + .35; lz < reach; lz += .35) { const m = new T.Mesh(bridgeRoller, rollerMat); m.position.copy(world(0, BELT_TOP - .07, lz)); transferGroup.add(m); }
+        for (const x of [-1.2, 1.2]) beam(transferGroup, world(x, BELT_TOP - .15, LAST_ROLLER), world(x, BELT_TOP - .15, reach), .12, .25, frameMat);
+        continue;
       }
-      st.lift = lift; st.pop = 0; lift.userData.lift = true;
-      // A few rollers bridge the end of the dock belt (where the model's tunnel was) to the main belt edge.
-      const edge = Math.abs(z - st.g.position.z) - BELT_HALF, last = 7.75;
-      for (let lz = last + .35; lz < edge; lz += .35) {
-        const at = st.g.localToWorld(new T.Vector3(0, BELT_TOP - .07, lz)), m = new T.Mesh(bridgeRoller, rollerMat);
-        m.position.copy(at); transferGroup.add(m);
+      // Dispatch: a short flat run, then the incline up to the overhead line, with a guard rail each side.
+      st.lift = null;
+      const flatEnd = LAST_ROLLER + 1, top = world(0, UPPER - .06, reach), bottom = world(0, BELT_TOP - .06, flatEnd);
+      beam(transferGroup, world(0, BELT_TOP - .06, LAST_ROLLER), bottom, BELT_HALF * 2, .12, beltMat);
+      beam(transferGroup, bottom, top, BELT_HALF * 2, .12, beltMat);
+      for (const x of [-1.25, 1.25]) beam(transferGroup, world(x, BELT_TOP + .1, flatEnd), world(x, UPPER + .1, reach), .25, .35, frameMat);
+      for (let k = 1; k < 4; k++) {
+        const lz = flatEnd + (reach - flatEnd) * k / 4, h = BELT_TOP + (UPPER - BELT_TOP) * k / 4;
+        for (const x of [-1.25, 1.25]) beam(transferGroup, world(x, 0, lz), world(x, h - .2, lz), .2, .2, frameMat);
       }
-      for (const x of [-1.2, 1.2]) {
-        const a = st.g.localToWorld(new T.Vector3(x, BELT_TOP - .15, (last + edge) / 2));
-        box(transferGroup, a.x, a.y, a.z, .12, .25, edge - last, frameMat).rotation.y = st.g.rotation.y;
-      }
+      const g = new T.Group(); g.position.set(st.g.position.x, 0, 0); transferGroup.add(g);
+      for (const x of [-1.4, 1.4]) box(g, x, UPPER + .02, 0, .1, .04, BELT_HALF * 2, yellowMat);
     }
     // Static parts merged per material; each pop-up lift stays its own (merged) mesh so it can rise.
     mergeByMaterial(transferGroup, o => o.parent?.userData.lift);
     for (const st of stations) if (st.lift) mergeByMaterial(st.lift);
   }
-  // Moves a box in a straight slide (with a small hop as the rollers rise), then calls `done`.
-  function transfer(st, q, to, done) {
+  // Moves a box straight to `to` in `seconds` (with a small hop for a pop-up transfer), then calls `done`.
+  function transfer(st, q, to, done, seconds = TRANSFER_SECONDS, hop = true) {
     const from = q.mesh.getWorldPosition(new T.Vector3());
     if (q.mesh.parent !== spineItems) { q.mesh.parent.remove(q.mesh); spineItems.add(q.mesh); q.mesh.rotation.set(0, 0, 0); }
     q.mesh.position.copy(from);
-    q.move = {t: 0, from, to, done}; st.popping = TRANSFER_SECONDS; st.portalFlash = FLASH;
+    q.move = {t: 0, from, to, done, seconds, hop}; if (hop) st.popping = TRANSFER_SECONDS; st.portalFlash = FLASH;
   }
   function stepTransfer(st, q, dt) {
     const m = q.move;
-    m.t = Math.min(1, m.t + dt / TRANSFER_SECONDS);
-    const k = m.t * m.t * (3 - 2 * m.t);
-    q.mesh.position.lerpVectors(m.from, m.to, k); q.mesh.position.y += Math.sin(Math.PI * m.t) * .12;
+    m.t = Math.min(1, m.t + dt / m.seconds);
+    const k = m.hop ? m.t * m.t * (3 - 2 * m.t) : m.t;
+    q.mesh.position.lerpVectors(m.from, m.to, k); if (m.hop) q.mesh.position.y += Math.sin(Math.PI * m.t) * .12;
     if (m.t >= 1) { q.move = null; m.done(); }
   }
-  // ---------- buildings and lamps ----------
+  // ---------- buildings ----------
   const cladding = (() => {
     if (typeof document === 'undefined') return tunnelMat;
     const c = document.createElement('canvas'); c.width = 64; c.height = 64;
@@ -497,38 +511,26 @@ export function addWarehouseRobots(scene, getState) {
       m.rotation.x = -.18;
     }
   }
-  // A street-style lamp beside each dock, with a warm pool of light on the floor.
-  const lampGroup = new T.Group(); group.add(lampGroup);
-  const poolTex = (() => {
-    if (typeof document === 'undefined') return null;
-    const c = document.createElement('canvas'); c.width = c.height = 128;
-    const t = c.getContext('2d'), g = t.createRadialGradient?.(64, 64, 0, 64, 64, 64);
-    if (!g) return null;
-    g.addColorStop(0, 'rgba(255,214,150,.42)'); g.addColorStop(.55, 'rgba(255,214,150,.12)'); g.addColorStop(1, 'rgba(255,214,150,0)');
-    t.fillStyle = g; t.fillRect(0, 0, 128, 128);
-    return new T.CanvasTexture(c);
-  })();
-  const poolMat = new T.MeshBasicMaterial({map: poolTex, transparent: true, depthWrite: false, toneMapped: false});
-  const poleMat = new T.MeshStandardMaterial({color: '#c9ced3', roughness: .5, metalness: .4});
-  const lampMat = new T.MeshStandardMaterial({color: '#fff3dd', emissive: '#ffcf85', emissiveIntensity: 2.5});
-  const poolGeo = new T.PlaneGeometry(14, 14).rotateX(-Math.PI / 2);
-  function drawLamps() {
-    lampGroup.clear();
-    for (const st of stations) {
-      // Next to the belt, inside the dock's clearance where robots never drive.
-      const foot = st.g.localToWorld(new T.Vector3(3.1, 0, BELT_START + 2.5)), arm = st.g.localToWorld(new T.Vector3(2.6, 0, BELT_START + 2.5));
-      box(lampGroup, foot.x, 3, foot.z, .14, 6, .14, poleMat);
-      box(lampGroup, (foot.x + arm.x) / 2, 6, (foot.z + arm.z) / 2, Math.abs(foot.x - arm.x) + .3, .12, Math.abs(foot.z - arm.z) + .3, poleMat);
-      box(lampGroup, arm.x, 5.9, arm.z, .5, .08, .5, lampMat);
-      const pool = new T.Mesh(poolGeo, poolMat); pool.position.set(arm.x, .06, arm.z); pool.renderOrder = 2; pool.raycast = () => {};
-      lampGroup.add(pool);
-    }
-    for (const m of mergeByMaterial(lampGroup)) if (m.material === poolMat) { m.renderOrder = 2; m.castShadow = false; m.raycast = () => {}; }
-  }
-  // Where a box u metres along the receiving path is: negative u is the infeed from the building door.
-  const loopPoint = u => u < 0 ? {x: loop.xa + u, z: spine.loop.north, leg: 'infeed'} : loop.at(u);
   // A dock's belt has room for one more box at its far end.
   const spurFree = (st, q) => !st.queue.some(o => o !== q && (o.move || !o.onSpine && o.arrived && o.mesh.position.z > BELT_END - (q.local.d + .4)));
+  // Receiving line: boxes ride nose to tail towards their dock; at the dock they wait for room, then turn off.
+  function updateReceivingLine(dt) {
+    const line = [];
+    for (const st of stations) if (st.kind === 'inbound' && st.ready) for (const q of st.queue) if (q.onSpine && !q.move) line.push({st, q});
+    line.sort((a, b) => b.q.mesh.position.x - a.q.mesh.position.x);
+    let ahead = Infinity;
+    for (const {st, q} of line) {
+      const p = q.mesh.position, target = st.g.position.x, stop = Math.min(target, ahead - (q.local.w + .6));
+      if (p.x < stop) p.x = Math.min(stop, p.x + dt * SPINE_SPEED);
+      p.y = q.local.y + spineLift(spine, p.x); p.z = 0; ahead = p.x;
+      if (Math.abs(p.x - target) < .01 && spurFree(st, q)) {
+        transfer(st, q, st.g.localToWorld(new T.Vector3(0, q.local.y, BELT_END)), () => {
+          spineItems.remove(q.mesh); st.g.add(q.mesh); q.mesh.position.set(0, q.local.y, BELT_END); q.onSpine = false;
+        });
+        ahead = Infinity; // the turned-off box no longer holds up the ones behind it
+      }
+    }
+  }
 
   // ---------- docks ----------
   const freeSlot = st => Array.from({length: STATION_CAPACITY}, (_, i) => i).find(i => !st.queue.some(q => q.slot === i));
@@ -557,8 +559,8 @@ export function addWarehouseRobots(scene, getState) {
     const slot = freeSlot(st), local = localPose(slot, arrivalSize());
     // Rides in along the spine from the receiving building, or out of the dock's tunnel.
     if (spine) doorFlash.receiving = FLASH;
-    const mesh = spine ? carton(spineItems, spine.x1, local.y, spine.loop.north, local.w, local.h, local.d) : carton(st.g, local.x, local.y, BELT_END, local.w, local.h, local.d);
-    const q = {box: b, slot, local, mesh, age: 0, arrived: true, atFront: false, onSpine: !!spine, u: spine ? -(loop.xa - spine.x1) : 0, target: item.target || null, user: item.user || null, taken: false};
+    const mesh = spine ? carton(spineItems, spine.x1, local.y, 0, local.w, local.h, local.d) : carton(st.g, local.x, local.y, BELT_END, local.w, local.h, local.d);
+    const q = {box: b, slot, local, mesh, age: 0, arrived: true, atFront: false, onSpine: !!spine, target: item.target || null, user: item.user || null, taken: false};
     st.queue.push(q);
     held.set(b.id, {box: b, where: 'receiving', place: st.id});
     s.today.received++;
@@ -567,6 +569,7 @@ export function addWarehouseRobots(scene, getState) {
   }
   function updateDocks(dt) {
     while (backlog.length && arrive(backlog[0])) backlog.shift();
+    if (spine) updateReceivingLine(dt);
     for (const st of stations) {
       if (!st.ready) continue;
       // Receiving: boxes queue up nose to tail towards the robot end. Dispatch: boxes ride off into the tunnel.
@@ -591,7 +594,8 @@ export function addWarehouseRobots(scene, getState) {
         if (was < SCANNER_Z && p.z >= SCANNER_Z) st.scanFlash = FLASH;
         if (p.z >= BELT_END) {
           st.portalFlash = FLASH;
-          if (spine) { p.z = BELT_END; q.onSpine = true; transfer(st, q, new T.Vector3(st.g.position.x, q.local.y + spineLift(spine, st.g.position.x), spine.out), () => {}); }
+          // Up the incline onto the overhead dispatch line.
+          if (spine) { p.z = BELT_END; q.onSpine = true; const top = new T.Vector3(st.g.position.x, UPPER + q.local.h / 2, 0); transfer(st, q, top, () => {}, top.distanceTo(q.mesh.getWorldPosition(new T.Vector3())) / BELT_SPEED, false); }
           else ship(st, q);
         }
       }
@@ -607,29 +611,14 @@ export function addWarehouseRobots(scene, getState) {
     pruneOrders();
     if (spine) doorFlash.dispatch = FLASH;
   }
-  // Receiving: boxes go round the loop and turn onto their dock's belt as they pass it, if it has room;
-  // otherwise they go round again. Dispatch: boxes ride the dispatch line into the dispatch building.
+  // Boxes on a conveyor: mid-transfer, or riding the overhead dispatch line into the dispatch building.
+  // (The receiving line moves its boxes together, in updateReceivingLine.)
   function rideSpine(st, q, dt) {
     const p = q.mesh.position;
     if (q.move) return stepTransfer(st, q, dt);
-    if (st.kind === 'outbound') {
-      p.x += dt * SPINE_SPEED; p.z = spine.out; p.y = q.local.y + spineLift(spine, p.x);
-      if (p.x >= spine.x2) ship(st, q);
-      return;
-    }
-    const was = loopPoint(q.u);
-    q.u += dt * SPINE_SPEED;
-    if (q.u >= loop.length) q.u -= loop.length;
-    const at = loopPoint(q.u), x = st.g.position.x;
-    if (was.leg === 'north' && at.leg === 'north' && was.x < x && at.x >= x && spurFree(st, q)) {
-      // Stop over the transfer, then slide sideways onto the dock belt.
-      p.set(x, q.local.y + spineLift(spine, x), at.z);
-      transfer(st, q, st.g.localToWorld(new T.Vector3(0, q.local.y, BELT_END)), () => {
-        spineItems.remove(q.mesh); st.g.add(q.mesh); q.mesh.position.set(0, q.local.y, BELT_END); q.onSpine = false;
-      });
-      return;
-    }
-    p.set(at.x, q.local.y + spineLift(spine, at.x), at.z);
+    if (st.kind !== 'outbound') return;
+    p.x += dt * SPINE_SPEED; p.y = UPPER + q.local.h / 2; p.z = 0;
+    if (p.x >= spine.x2) ship(st, q);
   }
   function pruneOrders() {
     const done = book.orders.filter(o => o.shipped.length >= o.quantity);
@@ -685,7 +674,30 @@ export function addWarehouseRobots(scene, getState) {
     for (const p of spots) for (const [dx, dz, sx, sz] of [[-1.6, 0, .16, 3.8], [1.6, 0, .16, 3.8], [0, -1.9, 3.36, .16], [0, 1.9, 3.36, .16]]) bays.push({x: p.x + dx, z: p.z + dz, sx, sz});
     instanced(flat, laneMat, strips); instanced(arrowGeo, laneMat, arrows); instanced(flat, bayMat, bays);
   }
-  let routeKey = null;
+  let routeKey = null, networkJob = null, networkId = 0;
+  // The lane network is built in a worker in the browser (it takes a second or two on a large layout);
+  // without workers (tests) it is built a step per frame. Robots route without it until it is ready.
+  const worker = typeof Worker !== 'undefined' && typeof window !== 'undefined' ? new Worker(new URL('./network-worker.js', import.meta.url), {type: 'module'}) : null;
+  if (worker) worker.onmessage = e => { if (e.data.id === networkId) { router.setNetwork(e.data.network); networkReady(e.data.segments); } };
+  function buildNetwork(hubs, stops, racks, obstacles) {
+    networkId++;
+    if (worker) { networkJob = null; worker.postMessage({id: networkId, racks, obstacles, hubs, stops}); return; }
+    networkJob = router.networkSteps(hubs, stops);
+  }
+  function stepNetwork(budgetMs) {
+    const t0 = performance.now();
+    while (networkJob && performance.now() - t0 < budgetMs) {
+      const step = networkJob.next();
+      if (!step.done) { if (budgetMs === Infinity) return; continue; }
+      networkJob = null; networkReady(step.value);
+    }
+  }
+  // Parking is spread along the docks so idle robots wait close to where work appears.
+  function networkReady(segments) {
+    const spots = router.parking(ROBOTS, stations.map(st => st.port), stations.map(st => st.port));
+    robots.forEach((r, i) => { r.home = spots[i] || null; });
+    drawLanes(segments, spots);
+  }
   function checkLayout() {
     const s = getState(), docks = docksOf(s);
     const k = JSON.stringify(s.racks.map(r => [r.id, r.x, r.z, r.width, r.depth, r.height, r.shelves, r.places, r.rotation || 0]));
@@ -695,28 +707,27 @@ export function addWarehouseRobots(scene, getState) {
     if (rk === routeKey || suspended && routeKey !== null) return;
     const first = routeKey === null;
     routeKey = rk;
-    const sk = JSON.stringify(s.spine || null);
-    if (sk !== spineKey) { spineKey = sk; spine = s.spine || null; drawSpine(spine); }
     for (const st of stations) {
       const d = docks.find(d => d.id === st.id) || {x: 0, z: 0, rotation: 0};
       st.g.position.set(d.x, 0, d.z); st.g.rotation.y = -(d.rotation || 0) * Math.PI / 2; st.rotation = d.rotation || 0;
       st.g.updateMatrixWorld(true);
-      st.port = dockPort(d);
+      st.port = dockPort(d); st.dock = d;
     }
-    router = createRouter(s.racks, layoutObstacles(s));
-    const segments = router.buildNetwork(stations.map(st => st.port), s.racks.map(router.port));
+    // The lines' ends follow the docks, so the conveyors are redrawn when docks move.
+    const sk = JSON.stringify(s.spine || null) + JSON.stringify(docks);
+    if (sk !== spineKey) { spineKey = sk; spine = s.spine || null; drawSpine(spine); }
+    const obstacles = layoutObstacles(s);
+    router = createRouter(s.racks, obstacles);
+    buildNetwork(stations.map(st => st.port), s.racks.flatMap(router.ports), s.racks, obstacles);
     const near = {x: stations.reduce((n, st) => n + st.port.x, 0) / stations.length, z: stations.reduce((n, st) => n + st.port.z, 0) / stations.length};
-    // Parking is spread along the docks so idle robots wait close to where work appears.
-    const spots = router.parking(ROBOTS, stations.map(st => st.port), stations.map(st => st.port));
-    robots.forEach((r, i) => { r.home = spots[i] || null; });
-    drawLanes(segments, spots);
     drawTransfers();
-    drawLamps();
     anchor = near;
     if (first) {
+      // Until parking spots exist (they need the lane network) robots wait in the corridors beside the docks.
+      const lane = spine ? Math.max(...stations.map(st => Math.abs(st.port.z))) + 5 : 0;
       robots.forEach((r, i) => {
-        const p = r.home || router.point({x: near.x + (i - ROBOTS / 2) * 4, z: near.z - 8});
-        if (p) { r.g.position.set(p.x, 0, p.z); r.at = {x: p.x, z: p.z}; r.g.rotation.y = spine && p.z > spine.out ? 0 : Math.PI; }
+        const p = r.home || router.point(spine ? {x: spine.x1 + 20 + (i >> 1) * 8, z: i % 2 ? lane : -lane} : {x: near.x + (i - ROBOTS / 2) * 4, z: near.z - 8});
+        if (p) { r.g.position.set(p.x, 0, p.z); r.at = {x: p.x, z: p.z}; r.g.rotation.y = spine && p.z > 0 ? 0 : Math.PI; }
       });
       for (let i = 0; i < stations.length * 2; i++) backlog.push({product: pick(catalog)});
       note('Receiving and dispatch connected to the rack layout');
@@ -746,10 +757,28 @@ export function addWarehouseRobots(scene, getState) {
     if (t.output) t.drop = stationPose(t.outStation, t.output);
     route(r);
   }
+  // A rack is served from whichever face is closer to where the robot comes from.
+  const facesFrom = (rack, p) => router.ports(rack).sort((a, b) => Math.abs(a.x - p.x) + Math.abs(a.z - p.z) - Math.abs(b.x - p.x) - Math.abs(b.z - p.z));
+  // The stop points of a task, and the two legs between them; the other face is tried when one has no route.
+  function plan(r, t) {
+    const at = origin(r);
+    for (const from of t.source ? facesFrom(t.source, at) : [t.sourceStation.port]) {
+      const path = router.route(at, from);
+      if (!path) continue;
+      for (const to of t.target ? facesFrom(t.target, from) : [t.outStation.port]) {
+        const carry = router.route(from, to);
+        if (carry) return {from, to, path, carry};
+      }
+    }
+    return null;
+  }
   function route(r) {
-    const t = r.task;
-    const from = t.source ? router.port(t.source) : t.sourceStation.port, to = t.target ? router.port(t.target) : t.outStation.port;
-    t.carry = router.route(from, to);
+    const t = r.task, loaded = isLoaded(r);
+    // Once loaded only the drop end can change.
+    const legs = loaded ? (() => { const from = r.g.position, to = t.target ? facesFrom(t.target, from)[0] : t.outStation.port; return {from, to, carry: router.route(from, to)}; })() : plan(r, t);
+    if (!legs) { t.carry = null; r.routeBlocked = true; return; }
+    const {from, to} = legs;
+    t.carry = legs.carry || null;
     if (r.stage === 'To pickup' || r.stage === 'Transporting') {
       setPath(r, router.route(origin(r), r.stage === 'To pickup' ? from : to) || []);
       r.routeBlocked = !r.path.length;
@@ -768,9 +797,9 @@ export function addWarehouseRobots(scene, getState) {
 
   // ---------- task assignment ----------
   function start(r, t) {
-    const from = t.source ? router.port(t.source) : t.sourceStation.port, to = t.target ? router.port(t.target) : t.outStation.port;
-    const path = router.route(origin(r), from), carry = router.route(from, to);
-    if (!path || !carry) return false;
+    const legs = plan(r, t);
+    if (!legs) return false;
+    const {path, carry} = legs;
     if (t.source) reserved.add(t.box.id);
     if (t.queueItem) t.queueItem.taken = true;
     if (t.target) claim(t.target, t.slot, t.box.product);
@@ -828,13 +857,14 @@ export function addWarehouseRobots(scene, getState) {
       .sort((a, b) => (b.priority === 'Urgent') - (a.priority === 'Urgent'));
     for (const order of open) {
       // Older stock first, like a WMS rotating inventory, weighed against the drive: each day of age is
-      // worth AGE_METRES of travel. (Pure nearest-first kept every robot in the zone next to Dispatch,
-      // pure FIFO sent them across the whole building.)
+      // worth AGE_METRES of travel. Only a random handful of the product's boxes is compared, so one robot
+      // fetches from next door and another from the far end of the building.
       let best = null, score = Infinity;
-      const now = Date.now();
-      for (const b of boxesOf(order.product)) {
+      const now = Date.now(), all = boxesOf(order.product), list = order.boxId ? [index().byId.get(order.boxId)].filter(Boolean) : [...all];
+      const pool = list.length <= PICK_SAMPLE ? list : Array.from({length: PICK_SAMPLE}, () => list[Math.floor(Math.random() * list.length)]);
+      for (const b of pool) {
         if (reserved.has(b.id) || busy.has(b.id)) continue;
-        if (order.boxId ? b.id !== order.boxId : promised.has(b.id)) continue;
+        if (!order.boxId && promised.has(b.id)) continue;
         const p = poseOf(b.id); if (!p) continue;
         const days = b.receivedAt ? (now - Date.parse(b.receivedAt)) / 864e5 : 0;
         const value = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) - days * AGE_METRES;
@@ -1134,6 +1164,7 @@ export function addWarehouseRobots(scene, getState) {
     if (layoutClock >= .25) { layoutClock = 0; checkLayout(); }
     group.visible = !suspended;
     if (suspended) return;
+    if (networkJob) stepNetwork(6);
     balanceClock += dt;
     if (balanceClock >= 2) { balanceClock = 0; balance(); }
     generateDemand(dt);
@@ -1182,8 +1213,8 @@ export function addWarehouseRobots(scene, getState) {
     // Names drawn as HTML tags over the 3D view: docks and the two buildings.
     mapTags() {
       const out = stations.map(st => ({key: st.id, text: st.id, kind: 'dock', x: st.g.position.x, y: 5, z: st.g.position.z}));
-      if (spine && loop) out.push({key: 'Receiving building', text: 'Receiving', kind: 'building', x: spine.x1 - BUILDING.length / 2, y: BUILDING.height + 3, z: loop.mid},
-        {key: 'Dispatch building', text: 'Dispatch', kind: 'building', x: spine.x2 + BUILDING.length / 2, y: BUILDING.height + 3, z: spine.out});
+      if (spine) out.push({key: 'Receiving building', text: 'Receiving', kind: 'building', x: spine.x1 - BUILDING.length / 2, y: BUILDING.height + 3, z: 0},
+        {key: 'Dispatch building', text: 'Dispatch', kind: 'building', x: spine.x2 + BUILDING.length / 2, y: BUILDING.height + 3, z: 0});
       return out;
     },
     // What the 3D view must redraw since it last asked: null, or {all} / {racks: Set of rack ids}.

@@ -6,7 +6,7 @@ const cache=new Map();
 export function inaccessibleRacks(racks,docks=[],spine=null){
  if(!racks.length&&!docks.length)return new Set();const k=key(racks)+JSON.stringify(docks.map(d=>[d.id,d.x,d.z,d.rotation||0]))+JSON.stringify(spine);if(cache.has(k))return cache.get(k);
  const router=createRouter(racks,[...docks.map(dockRect),...spineRects(spine)]),from=docks.length?dockPort(docks[0]):{x:0,z:Math.max(...racks.map(r=>r.z+r.depth/2))+15},reachable=router.reachableFrom(from);
- const result=new Set([...racks.filter(r=>!reachable(router.port(r))).map(r=>r.id),...docks.filter(d=>!reachable(dockPort(d))).map(d=>d.id)]);if(cache.size>32)cache.delete(cache.keys().next().value);cache.set(k,result);return result;
+ const result=new Set([...racks.filter(r=>!router.ports(r).some(reachable)).map(r=>r.id),...docks.filter(d=>!reachable(dockPort(d))).map(d=>d.id)]);if(cache.size>32)cache.delete(cache.keys().next().value);cache.set(k,result);return result;
 }
 const key=rs=>JSON.stringify(rs.map(r=>[r.id,r.x,r.z,r.width,r.depth,r.rotation||0]));
 const dockKey=d=>JSON.stringify([d.x,d.z,d.rotation||0]);

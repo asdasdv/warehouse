@@ -5,19 +5,21 @@ import {docksOf, dockRect, dockPort, validateDocks, spineRects} from './docks.js
 import {createRouter, laneDir} from './robot-routing.js';
 import {validateLayoutAccess} from './layout-access.js';
 
-test('receiving docks sit on the loop, dispatch docks on the dispatch line', () => {
-  const s = seed(), docks = docksOf(s), {loop, out} = s.spine;
+test('both dock kinds sit on both sides, receiving at the floor line and dispatch further out for the incline', () => {
+  const s = seed(), docks = docksOf(s);
   assert.equal(docks.length, 12);
   assert.doesNotThrow(() => validateDocks(s));
-  for (const d of docks) {
-    const r = dockRect(d), port = dockPort(d);
-    if (d.kind === 'inbound') {
-      // North of the loop, its belt tail at the loop's north belt, the robot further north.
-      assert.ok(Math.abs(r.z + r.depth / 2 - (loop.north - 1.1)) < .5 && port.z < r.z, d.id);
-    } else {
-      assert.ok(Math.abs(r.z - r.depth / 2 - (out + 1.1)) < .5 && port.z > r.z, d.id);
-    }
+  for (const north of [true, false]) {
+    const side = docks.filter(d => (d.z < 0) === north);
+    assert.ok(side.some(d => d.kind === 'inbound') && side.some(d => d.kind === 'outbound'), 'each side has both kinds');
   }
+  for (const d of docks) {
+    const r = dockRect(d), port = dockPort(d), inner = Math.min(Math.abs(r.z - r.depth / 2), Math.abs(r.z + r.depth / 2));
+    assert.ok(inner < 1.5, `${d.id} reaches the conveyors`);
+    assert.ok(Math.abs(port.z) > Math.abs(d.z), `${d.id}: the robot stops on the outer side`);
+  }
+  const reach = kind => Math.abs(dockPort(docks.find(d => d.kind === kind)).z);
+  assert.ok(reach('outbound') > reach('inbound'), 'dispatch docks leave room for the incline');
 });
 
 test('the spine blocks robots except under its bridges', () => {

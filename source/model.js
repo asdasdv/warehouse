@@ -20,25 +20,49 @@ export const colors=['#82c0fa','#8cd88a','#f0c977','#f29b6c','#b587f9','#f17fb7'
 // A large fulfilment-centre layout: two conveyor systems run west→east through the middle — a receiving
 // loop (fed by the receiving building at the west end) and a dispatch line (into the dispatch building at
 // the east end) — and 24 zones line both sides, racks facing the conveyors.
-// Two sizes of the same layout. `large` is four times `small`: zones twice as wide and deep (four rack rows),
-// longer conveyors with more docks and bridges.
+// Docks alternate kinds along the conveyors, offset between the two sides, so every stretch of the
+// building has a receiving and a dispatch dock nearby on each side.
+const dockPlan=xs=>[...xs.map((x,i)=>({x,kind:i%2?'outbound':'inbound',north:true})),...xs.map((x,i)=>({x,kind:i%2?'inbound':'outbound',north:false}))];
 export const LAYOUTS={
- small:{zone:{w:56,d:30},cols:6,step:59,x0:-176,rows:[-95,-62,24,57],rackRows:2,perRow:7,
-  spine:{x1:-186,x2:186,crossings:[-120,-60,0,60,120],docks:[-150,-90,-30,30,90,150],loop:{north:-8,south:-3},out:2}},
- large:{zone:{w:112,d:60},cols:6,step:115,x0:-345,rows:[-155,-92,24,87],rackRows:4,perRow:14,
-  spine:{x1:-366,x2:366,crossings:[-300,-240,-180,-120,-60,0,60,120,180,240,300],docks:[-270,-210,-150,-90,-30,30,90,150,210,270],loop:{north:-8,south:-3},out:2}}};
+ // A plain grid: the test layout.
+ small:{zone:{w:56,d:30},cols:6,step:59,x0:-176,rows:[-103,-70,40,73],rackRows:2,perRow:7,
+  spine:{x1:-186,x2:186,crossings:[-120,-60,0,60,120],docks:dockPlan([-150,-90,-30,30,90,150])}},
+ // The demo: zones of different sizes and layouts in three bands on each side of the conveyors.
+ large:{varied:true,x0:-345,x1:345,corridor:40,seed:20261030,
+  spine:{x1:-366,x2:366,crossings:[-270,-210,-150,-90,-30,30,90,150,210,270],docks:dockPlan([-300,-240,-180,-120,-60,0,60,120,180,240,300])}}};
 export const SPINE=LAYOUTS.small.spine;
-export function seed(size='small'){const L=LAYOUTS[size],zones=[],racks=[],boxes=[],flow={};let n=0;
- L.rows.forEach((rowZ,ri)=>{const north=rowZ<0;for(let c=0;c<L.cols;c++){const i=ri*L.cols+c,id=String.fromCharCode(65+i),x=c*L.step+L.x0,z=rowZ,full=L.rackRows*L.perRow,nr=full-(i*5)%3*L.rackRows/2;
+const zoneId=i=>i<26?String.fromCharCode(65+i):String.fromCharCode(65+Math.floor(i/26)-1)+String.fromCharCode(65+i%26);
+function fillRacks(zoneRacks,zi,boxes,flow,fill,next){for(const [j,r] of zoneRacks.entries()){const qty=Math.min(rackCapacity(r),Math.round(rackCapacity(r)*fill*(1+.16*Math.sin(j*1.7+zi*2.3)))),cells=locations(r);
+ for(let k=0;k<qty;k++){const loc=cells[Math.floor(k/CELL_CAPACITY)],shelf=Number(loc.slice(1,loc.indexOf('-')));boxes.push({id:`BX-${String(10000+next())}`,product:products[(zi*5+j*3+shelf)%products.length],rack:r.id,location:loc});}
+ flow[r.id]={in:Math.round(qty*(.06+.05*Math.abs(Math.sin(j+zi)))),out:Math.round(qty*(.03+.04*Math.abs(Math.cos(j*2+zi))))};}}
+// Racks for one varied zone. Rows face the conveyors (with uneven lengths and the odd cross aisle);
+// "column" zones turn the racks to face the side aisles instead. Every rack keeps an 11 m aisle on both faces.
+function zoneRacks(zone,north,rnd){const t=rnd()<.3?templates.large:templates.standard,c=config(t),out=[],gap=1.5,aisle=11;
+ if(rnd()<.3){// columns: racks turned 90°, fronts to the west and backs to the east
+  const fw=c.depth,fd=c.width;for(let cx=zone.x+6+fw/2;cx+fw/2<=zone.x+zone.w-6;cx+=fw+aisle){const max=Math.floor((zone.d-12+gap)/(fd+gap)),n=Math.max(2,Math.round(max*(.55+.45*rnd())));
+   const z0=zone.z+6+(max-n)*(fd+gap)*(north?1:0);for(let k=0;k<n;k++)out.push({...c,width:fw,depth:fd,rotation:1,x:cx,z:z0+fd/2+k*(fd+gap)});}
+  return out;}
+ const rot=north?0:2;for(let oz=6;oz+c.depth+5<=zone.d;oz+=c.depth+aisle){const max=Math.floor((zone.w-12+gap)/(c.width+gap)),n=Math.max(3,Math.round(max*(.5+.5*rnd())));
+  // A long row sometimes gets a cross aisle; short rows start at a random point along the zone.
+  const split=n>9&&rnd()<.5?Math.floor(n*(.35+.3*rnd())):-1,span=n*(c.width+gap)+(split>0?8:0),x0=zone.x+6+rnd()*Math.max(0,zone.w-12-span);
+  for(let k=0;k<n;k++){const x=x0+c.width/2+k*(c.width+gap)+(split>0&&k>=split?8:0);out.push({...c,rotation:rot,x,z:zone.z+oz+c.depth/2});}}
+ return out;}
+export function seed(size='small'){const L=LAYOUTS[size],zones=[],racks=[],boxes=[],flow={};let n=0;const next=()=>++n;
+ if(!L.varied){L.rows.forEach((rowZ,ri)=>{const north=rowZ<0;for(let c=0;c<L.cols;c++){const i=ri*L.cols+c,id=zoneId(i),x=c*L.step+L.x0,z=rowZ,full=L.rackRows*L.perRow,nr=full-(i*5)%3*L.rackRows/2;
   zones.push({id,name:`Zone ${id}`,x,z,w:L.zone.w,d:L.zone.d,color:colors[i%colors.length]});
   // North racks face south (+z), south racks face north, so every rack front looks towards the conveyors.
-  const fill=.5+.06*((i*7)%5),count=Math.round(nr*rackCapacity(config(templates.standard))*fill);
-  const weights=Array.from({length:nr},(_,j)=>1+.16*Math.sin(j*1.7+i*2.3)),sum=weights.reduce((a,b)=>a+b,0);let left=count;
-  for(let j=0;j<nr;j++){const rid=`${id}-${String(j+1).padStart(2,'0')}`,r={id:rid,zone:id,x:x+5+(j%L.perRow)*7.5,z:z+(north?7:8)+Math.floor(j/L.perRow)*15,...config(templates.standard),rotation:north?0:2};racks.push(r);
-   const qty=Math.min(rackCapacity(r),j===nr-1?left:Math.round(count*weights[j]/sum));left-=qty;const cells=locations(r);
-   for(let k=0;k<qty;k++){const loc=cells[Math.floor(k/CELL_CAPACITY)],shelf=Number(loc.slice(1,loc.indexOf('-')));boxes.push({id:`BX-${String(10000+ ++n)}`,product:products[(i*5+j*3+shelf)%products.length],rack:rid,location:loc});}
-   flow[rid]={in:Math.round(qty*(.06+.05*Math.abs(Math.sin(j+i)))),out:Math.round(qty*(.03+.04*Math.abs(Math.cos(j*2+i))))};}}});
- const k=size==='large'?4:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1068*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};backstory(demo);return demo;}
+  const zr=[];for(let j=0;j<nr;j++){const r={id:`${id}-${String(j+1).padStart(2,'0')}`,zone:id,x:x+5+(j%L.perRow)*7.5,z:z+(north?7:8)+Math.floor(j/L.perRow)*15,...config(templates.standard),rotation:north?0:2};racks.push(r);zr.push(r);}
+  fillRacks(zr,i,boxes,flow,.5+.06*((i*7)%5),next);}});}
+ else{// Deterministic random: the same warehouse on every reload.
+  let st=L.seed;const rnd=()=>{st=st+0x6D2B79F5|0;let t=Math.imul(st^st>>>15,1|st);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};
+  let zi=0;for(const north of [true,false]){let from=L.corridor;for(let band=0;band<3;band++){let deepest=0;
+   for(let x=L.x0;x<L.x1-60;){let w=Math.round(70+rnd()*80);if(L.x1-(x+w+10)<70)w=L.x1-x;const d=Math.round(48+rnd()*36),id=zoneId(zi);
+    const zone={id,name:`Zone ${id}`,x,z:north?-(from+d):from,w,d,color:colors[zi%colors.length]};zones.push(zone);
+    const zr=zoneRacks(zone,north,rnd).map((r,j)=>({id:`${id}-${String(j+1).padStart(2,'0')}`,zone:id,...r}));racks.push(...zr);
+    fillRacks(zr,zi,boxes,flow,.45+.35*rnd(),next);deepest=Math.max(deepest,d);x+=w+10;zi++;}
+   from+=deepest+10;}}}
+ const k=size==='large'?4:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1068*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};
+ backstory(demo);return demo;}
 // Give the demo a past: every box has a receipt date and document, and today already has a few hours of activity.
 // A fixed random seed keeps the story the same on every reload.
 function backstory(s,now=Date.now()){let r=1234567;const rnd=()=>{r=r+0x6D2B79F5|0;let t=Math.imul(r^r>>>15,1|r);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;},pick=a=>a[Math.floor(rnd()*a.length)];

@@ -1,5 +1,5 @@
 // Receiving and dispatch docks: a short belt served by robots at the near end. With conveyors
-// (`state.spine`) the far end joins the receiving loop or the dispatch line; without them it ends in a tunnel.
+// (`state.spine`) the far end joins the receiving line or climbs to the dispatch line; without them it ends in a tunnel.
 // A dock lives in `state.docks` as {id, kind, x, z, rotation}; (x, z) is the dock origin and
 // `rotation` turns it in 90° steps like a rack. Station-local +z runs along the belt, away from the robot.
 export const BELT_TOP = 1.5;                 // level with the robot deck
@@ -12,18 +12,21 @@ const SNAP = 2;                              // docks sit on the robot grid so t
 
 export const DOCK_IDS = [['Receiving 1', 'inbound'], ['Receiving 2', 'inbound'], ['Dispatch 1', 'outbound'], ['Dispatch 2', 'outbound']];
 
-// ---------- conveyors: receiving loop and dispatch line ----------
-// `state.spine` = {x1, x2, crossings, loop: {north, south}, out}. Two separate systems run west → east
-// through the middle of the building:
-// - the receiving loop: boxes leave the receiving building (west of x1) onto the loop's north leg and
-//   circulate until their receiving dock has room; receiving docks sit on the north side of the loop;
-// - the dispatch line (z = out): dispatch docks on its south side push boxes onto it, and it carries them
-//   into the dispatch building (east of x2).
-// At each crossing every belt climbs onto a bridge so robots can drive underneath.
+// ---------- conveyors: receiving line below, dispatch line above ----------
+// `state.spine` = {x1, x2, crossings, docks: [{x, kind, north}]}. Two conveyors share the middle of the
+// building along z = 0, one above the other, like a two-level distribution centre:
+// - the receiving line (floor level, BELT_TOP) runs east from the receiving building (west of x1) to just past
+//   the last receiving dock; boxes turn off it onto their dock's belt;
+// - the dispatch line (overhead, UPPER) runs east from the first dispatch dock into the dispatch building
+//   (east of x2); dispatch docks lift boxes up to it on an incline.
+// Docks of both kinds sit on both sides. At each crossing the receiving line climbs onto a bridge so robots can
+// drive under both lines.
 export const BELT_HALF = 1.1;      // half width of one belt
+export const UPPER = 7.5;          // dispatch line belt height
 export const BRIDGE_LIFT = 3.6, BRIDGE_HALF = 5, RAMP = 8;
-export const BUILDING = {length: 14, width: 12, height: 9};
-const OUT_START = 10;              // the dispatch line starts this far east of x1
+export const BUILDING = {length: 14, width: 12, height: 11};
+export const INCLINE = 10;         // horizontal run of a dispatch dock's incline up to the dispatch line
+const LINE_CLEAR = BELT_HALF + .2; // a dock's belt ends this far from the line axis
 export function spineLift(spine, x) {
   let lift = 0;
   for (const c of spine.crossings || []) {
@@ -38,47 +41,37 @@ export function spineBreaks(spine, a = spine.x1, b = spine.x2) {
   for (const c of spine.crossings || []) xs.push(c - BRIDGE_HALF - RAMP, c - BRIDGE_HALF, c + BRIDGE_HALF, c + BRIDGE_HALF + RAMP);
   return [...new Set(xs.filter(x => x >= a && x <= b))].sort((p, q) => p - q);
 }
-// The receiving loop as a racetrack: straight legs from xa to xb joined by half circles.
-// `at(u)` gives the point u metres along it, starting at the west end of the north leg and running east.
-export function loopPath(spine) {
-  const {north: N, south: S} = spine.loop, R = Math.abs(S - N) / 2, mid = (N + S) / 2;
-  const xa = spine.x1 + R, xb = spine.x2 - R, L = xb - xa, length = 2 * L + 2 * Math.PI * R;
-  function at(u) {
-    u = ((u % length) + length) % length;
-    if (u < L) return {x: xa + u, z: N, leg: 'north'};
-    if ((u -= L) < Math.PI * R) { const t = u / R; return {x: xb + R * Math.sin(t), z: mid - R * Math.cos(t), leg: 'east'}; }
-    if ((u -= Math.PI * R) < L) return {x: xb - u, z: S, leg: 'south'};
-    const t = (u - L) / R; return {x: xa - R * Math.sin(t), z: mid + R * Math.cos(t), leg: 'west'};
-  }
-  return {xa, xb, R, mid, length, at};
+// Where each line starts and ends, from the docks that use it.
+export function lineSpan(spine, docks) {
+  const xs = kind => docks.filter(d => d.kind === kind).map(d => d.x);
+  const recv = xs('inbound'), disp = xs('outbound');
+  return {recvEnd: recv.length ? Math.max(...recv) + 8 : spine.x1 + 20, dispStart: disp.length ? Math.min(...disp) - 8 : spine.x2 - 20};
 }
-export const outStart = spine => spine.x1 + OUT_START;
-// What robots cannot drive through: the low parts of the belts and the two buildings.
+// What robots cannot drive through: the conveyors (except under the bridges) and the two buildings.
 export function spineRects(spine) {
   if (!spine) return [];
-  const top = Math.min(spine.loop.north, spine.out) - BELT_HALF - .5, bottom = Math.max(spine.loop.south, spine.out) + BELT_HALF + .5;
-  const open = (spine.crossings || []).map(c => [c - BRIDGE_HALF, c + BRIDGE_HALF]).sort((a, b) => a[0] - b[0]), out = [];
+  const half = BELT_HALF + .6, open = (spine.crossings || []).map(c => [c - BRIDGE_HALF, c + BRIDGE_HALF]).sort((a, b) => a[0] - b[0]), out = [];
   let from = spine.x1;
   for (const [a, b] of [...open, [spine.x2, spine.x2]]) {
-    if (a > from) out.push({id: 'Conveyor', x: (from + a) / 2, z: (top + bottom) / 2, width: a - from, depth: bottom - top});
+    if (a > from) out.push({id: 'Conveyor', x: (from + a) / 2, z: 0, width: a - from, depth: half * 2});
     from = Math.max(from, b);
   }
-  const mid = (spine.loop.north + spine.loop.south) / 2;
-  out.push({id: 'Receiving building', x: spine.x1 - BUILDING.length / 2, z: mid, width: BUILDING.length, depth: BUILDING.width});
-  out.push({id: 'Dispatch building', x: spine.x2 + BUILDING.length / 2, z: spine.out, width: BUILDING.length, depth: BUILDING.width});
+  out.push({id: 'Receiving building', x: spine.x1 - BUILDING.length / 2, z: 0, width: BUILDING.length, depth: BUILDING.width});
+  out.push({id: 'Dispatch building', x: spine.x2 + BUILDING.length / 2, z: 0, width: BUILDING.length, depth: BUILDING.width});
   return out;
 }
-// Receiving docks sit north of the loop and face north; dispatch docks sit south of the dispatch line and face south.
-// The dock's belt tail meets the edge of its conveyor.
-export function onSpine(spine, x, kind) {
-  const z = kind === 'inbound' ? spine.loop.north - BELT_HALF - TAIL : spine.out + BELT_HALF + TAIL;
-  return {x: Math.round(x / SNAP) * SNAP, z: Math.round(z / SNAP) * SNAP, rotation: kind === 'inbound' ? 0 : 2};
+// A dock beside the conveyors: north docks face north (rotation 0), south docks face south (rotation 2).
+// Receiving docks end at the receiving line; dispatch docks sit further out to leave room for the incline.
+export function onSpine(spine, x, kind, north) {
+  const reach = TAIL + (kind === 'outbound' ? INCLINE : 0), z = Math.round((LINE_CLEAR + reach) / SNAP) * SNAP;
+  return {x: Math.round(x / SNAP) * SNAP, z: north ? -z : z, rotation: north ? 0 : 2, line: true};
 }
-export const dockNorth = (spine, d) => d.kind === 'inbound';
+export const dockNorth = (spine, d) => d.z < 0;
+// How far the dock's belt (and incline) reaches from its origin, along station-local z.
+export const dockReach = d => d.line ? Math.abs(d.z) - LINE_CLEAR : TAIL;
 function spineDocks(spine) {
-  const xs = spine.docks || [-150, -90, -30, 30, 90, 150];
-  return [...xs.map((x, i) => ({id: `Receiving ${i + 1}`, kind: 'inbound', ...onSpine(spine, x, 'inbound')})),
-    ...xs.map((x, i) => ({id: `Dispatch ${i + 1}`, kind: 'outbound', ...onSpine(spine, x, 'outbound')}))];
+  const counts = {inbound: 0, outbound: 0};
+  return (spine.docks || []).map(({x, kind, north}) => ({id: `${kind === 'inbound' ? 'Receiving' : 'Dispatch'} ${++counts[kind]}`, kind, ...onSpine(spine, x, kind, north)}));
 }
 
 // Same turn as three.js rotation.y = -rotation·π/2.
@@ -90,7 +83,7 @@ export function toWorld(d, lx, lz) {
 export const dockPort = d => toWorld(d, 0, PORT_Z);
 // Axis-aligned footprint of the belt and tunnel (racks use the same {x, z, width, depth} shape).
 export function dockRect(d) {
-  const a = toWorld(d, -HALF_WIDTH, BELT_START), b = toWorld(d, HALF_WIDTH, TAIL);
+  const a = toWorld(d, -HALF_WIDTH, BELT_START), b = toWorld(d, HALF_WIDTH, dockReach(d));
   return {x: (a.x + b.x) / 2, z: (a.z + b.z) / 2, width: Math.abs(a.x - b.x), depth: Math.abs(a.z - b.z)};
 }
 

@@ -287,9 +287,9 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     }
     if (sel?.type === 'dock') {
       const d = docksOf(s).find(d => d.id === sel.id);
-      return head(d.id, d.kind === 'inbound' ? 'Receiving dock' : 'Dispatch dock', s.spine ? '' : `<button class="ed-ib" data-cmd="rotate" title="Rotate (R)">${ed('rotate')}</button>`)
+      return head(d.id, d.kind === 'inbound' ? 'Receiving dock' : 'Dispatch dock', `<button class="ed-ib" data-cmd="rotate" title="${s.spine ? 'Other side (R)' : 'Rotate (R)'}">${ed('rotate')}</button>`)
         + section('Position', s.spine
-          ? input('X', 'dx', r1(d.x), 'm') + prop('Conveyor', d.kind === 'inbound' ? 'Receiving loop' : 'Dispatch line')
+          ? input('X', 'dx', r1(d.x), 'm') + `<label class="ed-prop"><span>Side</span><span class="ed-in"><select data-in="dside">${['North', 'South'].map(v => `<option ${(v === 'North') === d.z < 0 ? 'selected' : ''}>${v}</option>`).join('')}</select></span></label>` + prop('Conveyor', d.kind === 'inbound' ? 'Receiving line' : 'Dispatch line, overhead')
           : input('X', 'dx', r1(d.x), 'm') + input('Y', 'dz', r1(d.z), 'm') + `<label class="ed-prop"><span>Rotation</span><span class="ed-in"><select data-in="drot">${[0, 90, 180, 270].map(a => `<option ${((d.rotation || 0) * 90) === a ? 'selected' : ''}>${a}</option>`).join('')}</select><em>°</em></span></label>`)
         + section('Robots', prop('Stop point', 'Dashed circle on the plan')) + banner();
     }
@@ -337,6 +337,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       const d = docksOf(s).find(d => d.id === sel.id);
       if (name === 'dx' || name === 'dz') return apply(() => Object.assign(d, dockAt2(d, {x: name === 'dx' ? n : d.x, z: name === 'dz' ? n : d.z})));
       if (name === 'drot') return apply(() => { d.rotation = Math.round(n / 90) % 4; });
+      if (name === 'dside' && s.spine) return apply(() => Object.assign(d, onSpine(s.spine, d.x, d.kind, value === 'North')));
     }
     if (sel?.type === 'racks' && sel.ids.size === 1) {
       const r = s.racks.find(r => sel.ids.has(r.id));
@@ -391,7 +392,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (cmd === 'cancel') return cancel();
     if (cmd === 'recheck') { report = accessReport(); return render(); }
     if (cmd === 'access') { report = null; return setTool('robot'); }
-    if (cmd === 'rotate' && sel?.type === 'dock') { if (s.spine) return; return apply(() => { const d = docksOf(s).find(d => d.id === sel.id); d.rotation = ((d.rotation || 0) + 1) % 4; }); }
+    if (cmd === 'rotate' && sel?.type === 'dock') return apply(() => { const d = docksOf(s).find(d => d.id === sel.id); if (s.spine) Object.assign(d, onSpine(s.spine, d.x, d.kind, d.z > 0)); else d.rotation = ((d.rotation || 0) + 1) % 4; });
     if (cmd === 'rotate' && selectedRacks().length) return apply(() => applyLayoutEdit(s, {type: 'rotate', ids: selectedRacks()}));
     if (cmd === 'duplicate' && selectedRacks().length) {
       const racks = s.racks.filter(r => sel.ids.has(r.id)), w = Math.max(...racks.map(r => r.x + r.width / 2)) - Math.min(...racks.map(r => r.x - r.width / 2)), d = Math.max(...racks.map(r => r.z + r.depth / 2)) - Math.min(...racks.map(r => r.z - r.depth / 2));
@@ -443,8 +444,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const x = racks.reduce((n, r) => n + r.x, 0) / racks.length, z = racks.reduce((n, r) => n + r.z, 0) / racks.length;
     vb.x = x - vb.w / 2; vb.z = z - vb.h / 2;
   }
-  // With conveyors a dock slides along its own one: receiving docks along the loop, dispatch docks along the line.
-  function dockAt2(d, p) { const sp = getState().spine; return sp ? onSpine(sp, p.x, d.kind) : {...snapDock(p), rotation: d.rotation || 0}; }
+  // With conveyors a dock slides along them, on the side the pointer is on.
+  function dockAt2(d, p) { const sp = getState().spine; return sp ? onSpine(sp, p.x, d.kind, p.z < 0) : {...snapDock(p), rotation: d.rotation || 0}; }
   function centerOnDock(id) {
     const d = docksOf(getState()).find(d => d.id === id);
     if (d && view === '2D' && vb) { const b = dockRect(d); vb.x = b.x - vb.w / 2; vb.z = b.z - vb.h / 2; }

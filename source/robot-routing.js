@@ -58,12 +58,16 @@ export function createRouter(racks, obstacles = []) {
   const OPP = [1, 0, 3, 2];
   // Work arrays are allocated once per router and reused: fresh multi-megabyte arrays on every
   // route made the garbage collector pause the whole page on large layouts.
-  const S = N * 5, dist = new Int32Array(S), prev = new Int32Array(S), buckets = Array.from({length: BUCKETS}, () => []);
-  function search(a, goal, avoid, reverse = false) {
-    dist.fill(0x7fffffff); prev.fill(-1); for (const b of buckets) b.length = 0;
+  // A state counts as visited only if stamped with the current search number, so nothing is cleared between searches.
+  const S = N * 5, dist = new Int32Array(S), prev = new Int32Array(S), stamp = new Int32Array(S), buckets = Array.from({length: BUCKETS}, () => []);
+  let gen = 0;
+  const INF = 0x7fffffff, costOf = s => stamp[s] === gen ? dist[s] : INF;
+  // `limit` caps the states expanded: a route that cannot be found quickly (a detour boxed in by robots) is given up.
+  function search(a, goal, avoid, reverse = false, limit = Infinity) {
+    gen++; for (const b of buckets) b.length = 0;
     const gx = goal >= 0 ? goal % w : 0, gz = goal >= 0 ? (goal / w) | 0 : 0;
     const h = goal >= 0 ? i => FORWARD * (Math.abs(i % w - gx) + Math.abs(((i / w) | 0) - gz)) : () => 0;
-    const start = a * 5 + 4; dist[start] = 0; buckets[h(a) % BUCKETS].push(start);
+    const start = a * 5 + 4; dist[start] = 0; prev[start] = -1; stamp[start] = gen; buckets[h(a) % BUCKETS].push(start);
     let pending = 1;
     for (let c = h(a); pending; c++) {
       const bucket = buckets[c % BUCKETS];
@@ -71,22 +75,23 @@ export function createRouter(racks, obstacles = []) {
         const s = bucket.pop(); pending--;
         const i = (s / 5) | 0, from = s % 5;
         if (dist[s] + h(i) !== c) continue;
+        if (--limit < 0) return {s: -1, prev, cost: costOf};
         if (i === goal) return {s, prev};
         for (let d = 0; d < 4; d++) {
           // Forward: i → n heading d. Reverse: the original edge n → i, heading d.
           const n = neighbour(i, reverse ? OPP[d] : d);
           if (n < 0 || blocked[n] || avoid?.[n] && n !== goal) continue;
           const next = n * 5 + d, cost = dist[s] + (reverse ? edgeCost(n, d) : edgeCost(i, d)) + (from < 4 && from !== d ? TURN : 0);
-          if (cost < dist[next]) { dist[next] = cost; prev[next] = s; buckets[(cost + h(n)) % BUCKETS].push(next); pending++; }
+          if (cost < costOf(next)) { dist[next] = cost; prev[next] = s; stamp[next] = gen; buckets[(cost + h(n)) % BUCKETS].push(next); pending++; }
         }
       }
     }
-    return {s: -1, prev, dist};
+    return {s: -1, prev, cost: costOf};
   }
   const unwind = (s, prev) => { const path = []; for (; s >= 0; s = prev[s]) path.push(point((s / 5) | 0)); return path.reverse(); };
   // `avoid` lists points (other robots) whose surroundings the route must not cross.
   const avoidMask = new Uint8Array(N);
-  function route(from, to, avoid = null) {
+  function route(from, to, avoid = null, limit = avoid ? 40000 : 400000) {
     const a = nearest(from), b = nearest(to);
     if (a < 0 || b < 0) return null;
     if (a === b) return [point(a)];
@@ -100,7 +105,7 @@ export function createRouter(racks, obstacles = []) {
       }
       mask[a] = 0;
     }
-    const {s, prev} = search(a, b, mask);
+    const {s, prev} = search(a, b, mask, false, limit);
     return s < 0 ? null : unwind(s, prev);
   }
 
@@ -108,25 +113,33 @@ export function createRouter(racks, obstacles = []) {
   // Robots prefer it; it is also what the floor markings show.
   // Hubs are laid one at a time and later routes prefer lanes already laid, so traffic
   // bundles onto a few main lanes instead of covering the floor.
-  function buildNetwork(hubs, stops) {
+  // A generator: one hub search per step, so a caller can spread the work over several frames.
+  // It returns the lane segments when done; `buildNetwork` runs it in one go.
+  function* networkSteps(hubs, stops) {
     const hubIds = [...new Set(hubs.map(nearest).filter(i => i >= 0))];
     const ids = [...new Set([...hubIds, ...stops.map(nearest).filter(i => i >= 0)])];
     network = new Set(); onNetwork.fill(0);
     for (const a of hubIds) for (const reverse of [false, true]) {
-      const {prev, dist} = search(a, -1, null, reverse);
+      const {prev, cost} = search(a, -1, null, reverse);
       for (const b of ids) {
         if (b === a) continue;
         let best = -1;
-        for (let d = 0; d < 5; d++) if (dist[b * 5 + d] < (best < 0 ? Infinity : dist[best])) best = b * 5 + d;
+        for (let d = 0; d < 5; d++) if (cost(b * 5 + d) < (best < 0 ? INF : cost(best))) best = b * 5 + d;
+        if (best >= 0 && cost(best) === INF) best = -1;
         // Forward chains run target → source (add prev → s); reverse chains already run in travel order (add s → prev).
         for (let s = best; s >= 0 && prev[s] >= 0; s = prev[s]) {
           const u = (prev[s] / 5) | 0, v = (s / 5) | 0;
           if (reverse) addEdge(v, u, s % 5); else addEdge(u, v, s % 5);
         }
       }
+      yield;
     }
     return segments();
   }
+  // The network as plain arrays (to send between threads) and back.
+  const networkData = () => ({pairs: Float64Array.from(network || []), dirs: Uint8Array.from(onNetwork)});
+  function setNetwork(data) { network = new Set(data.pairs); onNetwork.set(data.dirs); }
+  function buildNetwork(hubs, stops) { const it = networkSteps(hubs, stops); for (;;) { const r = it.next(); if (r.done) return r.value; } }
   // Network edges merged into straight runs: {x1, z1, x2, z2, dir} with dir +1/-1 along the run or 0 for two-way.
   function segments() {
     const runs = [], edges = new Map();
@@ -165,9 +178,11 @@ export function createRouter(racks, obstacles = []) {
     for (let i = 0; i < N; i++) if (onNet[i]) netPoints.push(point(i));
     const cell = new Map(), key = (x, z) => Math.floor(x / 8) + ',' + Math.floor(z / 8);
     for (const q of netPoints) { const k = key(q.x, q.z); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(q); }
+    // Only cells within 40 m of a dock are considered: a full scan of a large floor is slow.
     for (let i = 0; i < N; i++) {
       if (blocked[i] || onNet[i]) continue;
       const p = point(i);
+      if (!nears.some(q => Math.abs(q.x - p.x) < 40 && Math.abs(q.z - p.z) < 40)) continue;
       if (keepAway.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 8)) continue;
       let gap = Infinity;
       for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
@@ -195,6 +210,9 @@ export function createRouter(racks, obstacles = []) {
       return true;
     };
   }
+  // A rack is open on both faces: robots can serve it from the front or from the back.
+  const back = r => { const t = (r.rotation || 0) % 4; return t === 1 ? {x: r.x + r.width / 2 + 3, z: r.z} : t === 2 ? {x: r.x, z: r.z + r.depth / 2 + 3} : t === 3 ? {x: r.x - r.width / 2 - 3, z: r.z} : {x: r.x, z: r.z - r.depth / 2 - 3}; };
+  const ports = r => [port(r), back(r)];
   const port = r => { const t = (r.rotation || 0) % 4; return t === 1 ? {x: r.x - r.width / 2 - 3, z: r.z} : t === 2 ? {x: r.x, z: r.z - r.depth / 2 - 3} : t === 3 ? {x: r.x + r.width / 2 + 3, z: r.z} : {x: r.x, z: r.z + r.depth / 2 + 3}; };
-  return {route, reachableFrom, port, buildNetwork, parking, point: p => { const i = nearest(p); return i < 0 ? null : point(i); }, blocked};
+  return {route, reachableFrom, port, ports, buildNetwork, networkSteps, networkData, setNetwork, parking, point: p => { const i = nearest(p); return i < 0 ? null : point(i); }, blocked};
 }
