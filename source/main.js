@@ -256,7 +256,16 @@ const stepper = (value, max, of = false) => `<div class="lc-stepper"><button typ
 function bindStepper(form, onChange) {
   const input = form.querySelector('[name=qty]');
   const clamp = () => { input.value = Math.max(1, Math.min(Number(input.max) || 1, Math.round(Number(input.value) || 1))); onChange(Number(input.value)); };
-  form.querySelectorAll('[data-step]').forEach(b => b.onclick = () => { input.value = Number(input.value) + Number(b.dataset.step); clamp(); });
+  const step = b => { input.value = Number(input.value) + Number(b.dataset.step); clamp(); };
+  // Press: one step. Hold: after 0.4 s it keeps stepping, faster the longer it is held.
+  form.querySelectorAll('[data-step]').forEach(b => {
+    let timer = null;
+    const stop = () => { clearTimeout(timer); timer = null; };
+    b.onpointerdown = e => { if (e.button) return; e.preventDefault(); step(b); let delay = 400, n = 0;
+      const again = () => { timer = setTimeout(() => { step(b); n++; delay = Math.max(40, 120 - n * 6); again(); }, delay); }; again(); };
+    b.onpointerup = b.onpointerleave = b.onpointercancel = stop;
+    b.onclick = e => { if (e.detail === 0) step(b); }; // keyboard (Enter/Space) still steps once
+  });
   input.onchange = clamp;
 }
 // Product field with suggestions. list() returns product names; onCreate is optional ("Create new").

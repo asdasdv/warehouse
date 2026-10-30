@@ -523,3 +523,8 @@ dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px}
 /* A toast without an action centres its text; with an action button the text stays left of it. */
 #toast .toast:not(:has(button)){justify-content:center;padding:12px 16px}
 #toast .toast:not(:has(button)) .t{align-items:center;text-align:center}
+/* Single-line fields in dialogs share one height (40px): search/text/select fields, the stepper and the empty
+   Location row. Two-line place options stay taller. */
+.lc-dialog .lc-input{height:40px}
+.lc-dialog .lc-stepper{height:40px}
+.lc-dialog .lc-option.lc-placeholder{height:40px;padding:0 12px}
