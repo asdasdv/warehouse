@@ -530,3 +530,8 @@ dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px}
 .lc-dialog .lc-input{height:40px}
 .lc-dialog .lc-stepper{height:40px}
 .lc-dialog .lc-option.lc-placeholder{height:40px;padding:0 12px}
+.lc-suggest-empty{padding:8px;font-size:14px;line-height:20px;color:var(--content-secondary)}
+/* Inventory and History: the pager row sticks to the bottom of the page, so pages switch without scrolling down.
+   The page keeps no bottom padding (a sticky row stops at the padding edge); the row holds it instead. */
+#historyPage,#inventoryPage.lc-inv{padding-bottom:0}
+#historyPage .ph-history-foot,#inventoryPage .ph-history-foot{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:16px 0;background:var(--surface-primary);box-shadow:0 -1px 0 var(--content-quaternary)}

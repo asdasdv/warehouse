@@ -280,6 +280,8 @@ function productField(form, {value, list, onPick, onCreate, count}) {
     if (count && (!counted || performance.now() - counted.at > 1000)) counted = {at: performance.now(), map: count()};
     const n = counted?.map;
     box.innerHTML = hits.map(p => `<button type="button" tabindex="-1" role="option" data-p="${esc(p)}"><span>${esc(p)}<small>SKU · ${esc(itemOf(p)?.sku || '—')}</small></span>${n ? `<em>${plural(n.get(p) || 0, 'box', 'boxes')}</em>` : ''}</button>`).join('') + (onCreate ? `<button type="button" class="create" id="createNew">Create new</button>` : '');
+    // Nothing matches what was typed: the list stays open and says so, instead of vanishing.
+    if (q && !hits.length) box.insertAdjacentHTML('afterbegin', `<p class="lc-suggest-empty">No products match “${esc(input.value.trim())}”</p>`);
     box.hidden = !box.innerHTML;
     // The list floats above the dialog (fixed), full field width, down to the bottom of the window; long lists scroll inside.
     const r = input.closest('.lc-input').getBoundingClientRect();
