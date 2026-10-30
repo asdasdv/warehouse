@@ -12,7 +12,7 @@ import {validateLayoutAccess} from './layout-access.js';
 import {applyLayoutEdit} from './layout-edit.js';
 import {contains} from './zone-shape.js';
 import {seed, catalog, itemOf, addProduct, addZone, addRack, log} from './model.js';
-import {templates, config, locations} from './storage.js';
+import {templates, config, locations, CELL_CAPACITY} from './storage.js';
 import {createScene} from './scene.js';
 import {placeChooser, cellRoom, boxIndex, setLiveRoom} from './choose-place.js';
 import {toggleSort, bindSort} from './table-sort.js';
@@ -303,44 +303,68 @@ const productInput = placeholder => `<div class="lc-input">${icon('search')}<inp
 
 // Where to put new boxes: the recommended cell, the next one on that rack, and the emptiest rack in that zone.
 function receiveOptions(product, qty) {
-  const cells = [], idx = boxIndex(state);
+  const cells = [], idx = boxIndex(state), rackRoom = new Map();
   for (const r of state.racks) {
     const occ = idx.get(r.id) || new Map();
     for (const loc of locations(r)) {
       const room = cellRoom(state, r.id, loc, product, null, idx);
       if (!room) continue;
+      rackRoom.set(r.id, (rackRoom.get(r.id) || 0) + room);
       const same = !!occ.get(loc)?.length, [s, p] = loc.slice(1).split('-P').map(Number);
       const next = !same && [p - 1, p + 1].some(n => occ.get(`S${s}-P${n}`)?.[0]?.product === product);
       cells.push({rack: r.id, loc, room, score: (same ? 0 : next ? 1 : 2) + (room < qty ? 3 : 0)});
     }
   }
   cells.sort((a, b) => a.score - b.score || b.room - a.room || a.rack.localeCompare(b.rack));
+  const zoneName = rid => state.zones.find(z => z.id === state.racks.find(r => r.id === rid)?.zone)?.name || 'this zone';
+  // More boxes than a cell holds: suggest racks with room for all of them. The cell shown is where the robots
+  // start; the rest go to the next free cells of the same rack.
+  if (qty > CELL_CAPACITY) {
+    const start = rid => cells.find(c => c.rack === rid);
+    const racks = [...rackRoom].filter(([rid]) => start(rid)).sort((a, b) => (b[1] >= qty) - (a[1] >= qty) || start(a[0]).score - start(b[0]).score || b[1] - a[1]);
+    if (!racks.length) return [];
+    const fits = room => room >= qty ? `all ${qty} boxes fit on this rack` : `${room} of ${qty} boxes fit on this rack`;
+    const [first] = racks, zone = state.racks.find(r => r.id === first[0]).zone;
+    const out = [{...start(first[0]), rackWide: true, room: first[1], note: `Recommended · ${fits(first[1])}`}];
+    const other = racks.find(([rid, room]) => rid !== first[0] && room >= qty && state.racks.find(r => r.id === rid).zone === zone);
+    if (other) out.push({...start(other[0]), rackWide: true, room: other[1], note: `Also in ${zoneName(other[0])} · ${fits(other[1])}`});
+    const roomiest = racks.filter(([rid]) => !out.some(o => o.rack === rid)).sort((a, b) => b[1] - a[1])[0];
+    if (roomiest) out.push({...start(roomiest[0]), rackWide: true, room: roomiest[1], note: `Most free room · ${zoneName(roomiest[0])}`});
+    return out;
+  }
   const first = cells[0];
   if (!first) return [];
   const notes = ['Recommended · same product is in this cell', 'Recommended · same product is in the next cell', `Recommended · enough space for ${plural(qty, 'box', 'boxes')}`];
-  const out = [{...first, note: notes[first.score] || 'Recommended · the best free cell'}];
+  const out = [{...first, note: notes[first.score] || 'Recommended'}];
   const second = cells.find(c => c.rack === first.rack && c !== first);
   if (second) out.push({...second, note: 'Next free cell on the same rack'});
   const zone = state.racks.find(r => r.id === first.rack).zone, used = new Map();
   for (const b of state.boxes) used.set(b.rack, (used.get(b.rack) || 0) + 1);
   const roomy = state.racks.filter(r => r.zone === zone && r.id !== first.rack).sort((a, b) => (used.get(a.id) || 0) - (used.get(b.id) || 0))
     .map(r => cells.find(c => c.rack === r.id)).find(Boolean);
-  if (roomy) out.push({...roomy, note: `Rack with the most free room in ${state.zones.find(z => z.id === zone)?.name || 'this zone'}`});
+  if (roomy) out.push({...roomy, note: `Rack with the most free room in ${zoneName(roomy.rack)}`});
   return out;
 }
-const placeOption = (c, chosen) => `<button type="button" class="lc-option${chosen ? ' chosen' : ''}" data-rack="${esc(c.rack)}" data-loc="${esc(c.loc)}"><i style="background:${zoneColor(c.rack)}"></i><span>${esc(c.rack)} · ${esc(c.loc)}<small>${esc(c.note)}</small></span><em>${c.room} free</em></button>`;
-function placeList(container, options, getChoice, setChoice) {
+const placeOption = (c, chosen) => `<button type="button" class="lc-option${chosen ? ' chosen' : ''}" data-rack="${esc(c.rack)}" data-loc="${esc(c.loc)}"><i style="background:${zoneColor(c.rack)}"></i><span>${c.rackWide ? `${esc(c.rack)} · from ${esc(c.loc)}` : `${esc(c.rack)} · ${esc(c.loc)}`}<small>${esc(c.note)}</small></span><em>${c.room} free</em></button>`;
+function placeList(container, options, getChoice, setChoice, qty = 1) {
   const c = getChoice();
-  if (c && !options.some(o => o.rack === c.rack && o.loc === c.loc)) options = [{...c, room: cellRoom(state, c.rack, c.loc, c.product), note: 'Chosen place'}, ...options.slice(0, 2)];
+  if (c && !options.some(o => o.rack === c.rack && o.loc === c.loc)) {
+    // A chosen cell for more boxes than it holds: the robots start there and fill the rack's next free cells.
+    const r = state.racks.find(r => r.id === c.rack), many = qty > CELL_CAPACITY && r;
+    const room = many ? locations(r).reduce((n, loc) => n + cellRoom(state, r.id, loc, c.product), 0) : cellRoom(state, c.rack, c.loc, c.product);
+    const note = many ? (room >= qty ? `Chosen place · all ${qty} boxes fit on this rack` : `Chosen place · ${room} of ${qty} boxes fit on this rack`) : 'Chosen place';
+    options = [{...c, room, rackWide: !!many, note}, ...options.slice(0, 2)];
+  }
   container.innerHTML = options.map(o => placeOption(o, c && o.rack === c.rack && o.loc === c.loc)).join('') || '<p class="lc-empty">No free cell for this component.</p>';
   container.querySelectorAll('[data-rack]').forEach(b => b.onclick = () => setChoice({rack: b.dataset.rack, loc: b.dataset.loc}));
 }
 
 function receivePhoenix(preset = {}) {
   if (!state.racks.length) return toast('Add a rack before receiving boxes.');
-  let product = preset.product || '', qty = preset.qty || 2, choice = preset.choice || null, isNew = !!preset.isNew;
+  // `picked`: the place came from the user (a row, the chooser or the panel), so it stays when the amount changes.
+  let product = preset.product || '', qty = preset.qty || 2, choice = preset.choice || null, picked = !!preset.choice, isNew = !!preset.isNew;
   const parts = !preset.choice && selected?.type === 'location' ? selected.id.split('|') : null;
-  if (parts) choice = {rack: parts[0], loc: parts[1]};
+  if (parts) { choice = {rack: parts[0], loc: parts[1]}; picked = true; }
   const submitLabel = () => `${isNew ? 'Create & receive' : 'Receive'} ${plural(qty, 'box', 'boxes')}`;
   const form = dialogFrame({
     title: isNew ? 'New product' : 'Receive', back: isNew ? 'Receive' : null,
@@ -363,12 +387,12 @@ function receivePhoenix(preset = {}) {
     // Before a product is picked the field is still there, empty, like an unfilled input.
     form.querySelector('#chooseOther').disabled = !p;
     if (!p) form.querySelector('#places').innerHTML = '<div class="lc-option lc-placeholder"><i></i><span>Choose a product first</span></div>';
-    else placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; render(); });
+    else placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; picked = true; render(); }, qty);
     form.querySelector('#submitBtn').textContent = submitLabel();
   };
   if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
     onCreate: name => receivePhoenix({isNew: true, name, qty})});
-  bindStepper(form, n => { qty = n; render(); });
+  bindStepper(form, n => { qty = n; if (!picked) choice = null; render(); });
   form.querySelector('#chooseOther').onclick = () => {
     const keep = {product, qty, isNew, name: form.querySelector('#newName')?.value, sku: form.querySelector('#newSku')?.value};
     if (!isNew && !product) return fieldError(form, '#productInput', 'Choose a product first.');
