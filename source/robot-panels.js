@@ -26,9 +26,10 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
  const battery=v=>{const p=Math.round(v),k=p>=50?'ok':p>=25?'mid':'low';return `<span class="lc-batt ${k}" title="Battery"><i><i style="width:${p}%"></i></i>${p}%</span>`;};
  function fleetHTML(){
   // Only robots that are on the floor; standby robots are parked off the map until demand grows.
-  const robots=sim.robots.filter(r=>r.active),busy=robots.filter(r=>r.task).length;
-  const status=r=>r.task||r.charging||r.paused?r.status:'Idle';
-  return `<div class="lc-title"><h2>Fleet</h2><button id="closeRobots" class="icon" aria-label="Close">${icon('close')}</button></div><div class="lc-group"><div class="lc-list-head"><span>Robots · ${robots.length}</span><span>${busy} on tasks · ${robots.length-busy} idle</span></div><div class="lc-rows">${robots.map(r=>{const short=x=>String(x||'').replace(/^Receiving \d+$/,'Dock').split(' / ')[0],t=r.task,task=t?`${esc(r.mission)} · ${esc(short(r.from))} → ${esc(short(r.to))}`:'No task';
+  // All robots: the ones on the floor first, then the reserve charging in the depots (Standby).
+  const robots=[...sim.robots.filter(r=>r.active),...sim.robots.filter(r=>!r.active)],busy=robots.filter(r=>r.task).length,reserve=robots.filter(r=>!r.active).length;
+  const status=r=>!r.active?'Standby':r.task||r.charging||r.paused?r.status:'Idle';
+  return `<div class="lc-title"><h2>Fleet</h2><button id="closeRobots" class="icon" aria-label="Close">${icon('close')}</button></div><div class="lc-group"><div class="lc-list-head"><span>Robots · ${robots.length}</span><span>${busy} on tasks · ${robots.length-busy-reserve} idle${reserve?` · ${reserve} standby`:''}</span></div><div class="lc-rows">${robots.map(r=>{const short=x=>String(x||'').replace(/^Receiving \d+$/,'Dock').split(' / ')[0],t=r.task,task=t?`${esc(r.mission)} · ${esc(short(r.from))} → ${esc(short(r.to))}`:'No task';
    // Figma "Robot row / C · Stage": three fixed lines, the bar shows to pickup → loading → carrying.
    const step=!t?-1:r.stage==='To pickup'?0:r.stage==='Loading'?1:2;
    return `<button class="lc-robot${r.id===id?' chosen':''}" data-rid="${r.id}"><div class="l1"><b>${r.id}</b><span>${task}</span></div><div class="lc-robot-steps">${[0,1,2].map(k=>`<i class="${k<=step?'on':''}"></i>`).join('')}</div><div class="l3"><span>${esc(status(r))}</span>${battery(r.battery)}</div></button>`;}).join('')}</div></div>`;
