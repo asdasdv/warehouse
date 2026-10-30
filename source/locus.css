@@ -164,7 +164,9 @@ dialog .icon{width:28px;height:28px;border-radius:8px}
 .lc-stepper input{border:0;background:transparent;text-align:center;font-size:14px;outline:0;width:100%}
 .lc-stepper input::-webkit-inner-spin-button{display:none}
 .lc-suggest{position:fixed;z-index:60;overflow:auto;overscroll-behavior:contain;padding:4px;border-radius:12px;background:var(--surface-primary);box-shadow:var(--pop);display:flex;flex-direction:column;gap:2px}
-.lc-suggest button{flex:none;display:flex;flex-direction:column;align-items:flex-start;background:none;text-align:left;padding:8px}
+.lc-suggest button{flex:none;display:flex;align-items:center;gap:12px;background:none;text-align:left;padding:8px}
+.lc-suggest button>span{flex:1;min-width:0;display:flex;flex-direction:column}
+.lc-suggest button>em{font-style:normal;font-size:14px;color:var(--content-secondary);white-space:nowrap}
 .lc-suggest button:hover,.lc-suggest button.on{background:var(--surface-secondary)}
 .lc-suggest small{font-size:11px}
 .lc-suggest .create{color:var(--accent-primary);flex-direction:row;font-size:12px}

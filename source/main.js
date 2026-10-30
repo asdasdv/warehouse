@@ -269,13 +269,18 @@ function bindStepper(form, onChange) {
   input.onchange = clamp;
 }
 // Product field with suggestions. list() returns product names; onCreate is optional ("Create new").
-function productField(form, {value, list, onPick, onCreate}) {
+const stockByProduct = () => { const m = new Map(); for (const b of state.boxes) m.set(b.product, (m.get(b.product) || 0) + 1); return m; };
+function productField(form, {value, list, onPick, onCreate, count}) {
   const input = form.querySelector('#productInput'), box = form.querySelector('#productSuggest');
   const show = () => {
     const q = input.value.trim().toLowerCase();
     const hits = list().filter(p => !q || p.toLowerCase().includes(q) || itemOf(p)?.sku.toLowerCase().includes(q));
     active = -1;
-    box.innerHTML = hits.map(p => `<button type="button" tabindex="-1" role="option" data-p="${esc(p)}">${esc(p)}<small>SKU · ${esc(itemOf(p)?.sku || '—')}</small></button>`).join('') + (onCreate ? `<button type="button" class="create" id="createNew">Create new</button>` : '');
+    // Each suggestion shows how many boxes there are (count(p)), on the right.
+    // Counted once a second at most: typing re-filters the list on every key.
+    if (count && (!counted || performance.now() - counted.at > 1000)) counted = {at: performance.now(), map: count()};
+    const n = counted?.map;
+    box.innerHTML = hits.map(p => `<button type="button" tabindex="-1" role="option" data-p="${esc(p)}"><span>${esc(p)}<small>SKU · ${esc(itemOf(p)?.sku || '—')}</small></span>${n ? `<em>${plural(n.get(p) || 0, 'box', 'boxes')}</em>` : ''}</button>`).join('') + (onCreate ? `<button type="button" class="create" id="createNew">Create new</button>` : '');
     box.hidden = !box.innerHTML;
     // The list floats above the dialog (fixed), full field width, down to the bottom of the window; long lists scroll inside.
     const r = input.closest('.lc-input').getBoundingClientRect();
@@ -283,7 +288,7 @@ function productField(form, {value, list, onPick, onCreate}) {
     box.querySelectorAll('[data-p]').forEach(b => b.onmousedown = e => { e.preventDefault(); choose(b.dataset.p); });
     box.querySelector('#createNew')?.addEventListener('mousedown', e => { e.preventDefault(); onCreate(input.value.trim()); });
   };
-  let active = -1;
+  let active = -1, counted = null;
   const choose = p => { input.value = p; box.hidden = true; onPick(p); };
   // Arrows walk the list, Enter picks, Escape closes the list (not the dialog).
   input.onkeydown = e => {
@@ -399,7 +404,7 @@ function receivePhoenix(preset = {}) {
     else placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; picked = true; render(); }, qty);
     form.querySelector('#submitBtn').textContent = submitLabel();
   };
-  if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
+  if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), count: stockByProduct, onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
     onCreate: name => receivePhoenix({isNew: true, name, qty})});
   bindStepper(form, n => { qty = n; if (!picked) choice = null; render(); });
   form.querySelector('#chooseOther').onclick = () => {
@@ -430,7 +435,7 @@ function shipDialog(preset = {}) {
     input.style.width = `${String(input.value).length + .6}ch`;
     form.querySelector('#submitBtn').textContent = `Ship ${plural(qty, 'box', 'boxes')}`;
   };
-  productField(form, {value: product, list: () => sim.products().sort(), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; render(); } }});
+  productField(form, {value: product, list: () => sim.products().sort(), count: () => new Map(sim.products().map(p => [p, sim.inStock(p)])), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; render(); } }});
   bindStepper(form, n => { qty = n; render(); });
   form.querySelector('#station').onchange = e => { station = e.target.value; };
   render();
