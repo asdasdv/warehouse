@@ -14,8 +14,9 @@ const KEYS=['Zone','Rack','Shelf','Product','SKU','Received date'];
 export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation}){
  const el=document.createElement('section');el.id='inventoryPage';el.className='lc-inv';el.hidden=true;document.querySelector('main').append(el);
  let active=false,query='',page=0,popover=null,popQuery='',hovering=false;const others=[];const filters=new Map(),size=50;
- const zoneOfRack=(st,rid)=>st.zones.find(z=>z.id===st.racks.find(r=>r.id===rid)?.zone);
- function value(st,b,key){if(key==='Zone')return b.kind==='stored'?zoneOfRack(st,b.rack)?.id:null;if(key==='Rack')return b.kind==='stored'?b.rack:null;if(key==='Shelf')return b.kind==='stored'?b.location.split('-')[0]:null;if(key==='Product')return b.product;if(key==='SKU')return itemOf(b.product)?.sku||null;return age(b);}
+ // Rack → zone, rebuilt once per render: looking it up box by box over 1 200 racks made Inventory slow to open.
+ let rackZone=new Map();const zoneOfRack=(st,rid)=>rackZone.get(rid);
+ function value(st,b,key){const stored=b.kind===undefined||b.kind==='stored';if(key==='Zone')return stored?zoneOfRack(st,b.rack)?.id:null;if(key==='Rack')return stored?b.rack:null;if(key==='Shelf')return stored?b.location.split('-')[0]:null;if(key==='Product')return b.product;if(key==='SKU')return itemOf(b.product)?.sku||null;return age(b);}
  const matches=(st,b,skip)=>[...filters].every(([k,set])=>k===skip||!set.size||set.has(value(st,b,k)));
  const label=(st,key,v)=>key==='Zone'?(st.zones.find(z=>z.id===v)?.name||v):v;
  function token(st,key,set){const vals=[...set],z=key==='Zone'&&vals.length===1?st.zones.find(x=>x.id===vals[0]):null;return `<span class="lc-token"><button data-open="${key}">${key}</button><span>is</span><button data-open="${key}">${z?`<i style="background:${z.color}"></i>${esc(z.id)}`:vals.length===1?esc(vals[0]):`${vals.length} values`}</button><button class="x" data-remove="${key}" aria-label="Remove filter">${icon('close')}</button></span>`;}
@@ -27,20 +28,21 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   return `<div class="lc-pop wide" id="invPop"><div class="lc-pop-search">${icon('search')}<input id="popSearch" placeholder="${esc(popover)}" value="${esc(popQuery)}"></div><div class="lc-pop-list">${vals.map(([v,n])=>{const z=popover==='Zone'?st.zones.find(x=>x.id===v):null;return `<button data-toggle="${esc(v)}" class="${set.has(v)?'on':''}"><span class="lc-check">${set.has(v)?'✓':''}</span>${z?`<i style="background:${z.color}"></i>`:''}<span class="v">${esc(label(st,popover,v))}</span><small>${fmt(n)}</small></button>`;}).join('')||'<p class="lc-empty">No values.</p>'}</div></div>`;
  }
  function render(){
-  if(!active)return;const st=getState(),{live}=inventorySnapshot(st,sim),boxes=st.boxes.map(b=>({...b,place:`${b.rack} · ${b.location}`,kind:'stored'}));
+  if(!active)return;const st=getState(),live=sim.dashboard(st),boxes=st.boxes;
+  {const zones=new Map(st.zones.map(z=>[z.id,z]));rackZone=new Map(st.racks.map(r=>[r.id,zones.get(r.zone)]));}
   const located=[...filters.keys()].some(k=>['Zone','Rack','Shelf'].includes(k)&&filters.get(k).size);
-  const hit=boxes.filter(b=>matches(st,b)&&(!query||`${b.product} ${itemOf(b.product)?.sku||''} ${b.id} ${b.place}`.toLowerCase().includes(query)));
+  const anyFilter=[...filters.values()].some(v=>v.size),hit=!anyFilter&&!query?boxes:boxes.filter(b=>(!anyFilter||matches(st,b))&&(!query||`${b.product} ${itemOf(b.product)?.sku||''} ${b.id} ${b.rack} · ${b.location}`.toLowerCase().includes(query)));
   const groups=new Map();for(const b of hit){if(!groups.has(b.product))groups.set(b.product,[]);groups.get(b.product).push(b);}
   const rows=[...groups].sort((a,b)=>b[1].length-a[1].length||a[0].localeCompare(b[0])),pages=Math.max(1,Math.ceil(rows.length/size));page=Math.min(page,pages-1);
   // Daily numbers follow the filters: location filters use per-rack flow, others the history.
-  const today=new Date().toDateString(),racks=new Set(hit.filter(b=>b.kind==='stored').map(b=>b.rack)),products=new Set(hit.map(b=>b.product));
+  const today=new Date().toDateString(),racks=new Set(hit.map(b=>b.rack)),products=new Set(hit.map(b=>b.product));
   const flowIn=[...racks].reduce((n,r)=>n+(st.flow?.[r]?.in||0),0),flowOut=[...racks].reduce((n,r)=>n+(st.flow?.[r]?.out||0),0);
   const histCount=type=>st.history.filter(e=>e.type===type&&new Date(e.time).toDateString()===today&&products.has(e.product)).length;
   const filtered=[...filters.values()].some(v=>v.size),y=st.yesterday||{},pct=(a,b)=>!b?'':(a>=b?'+':'−')+Math.abs(Math.round((a-b)/b*100))+'%';
   const metrics=filtered?[['Boxes stored',hit.length,''],['Received today',located?flowIn:histCount('Received'),''],['Shipped today',located?flowOut:histCount('Shipped'),'']]
    :[['Boxes on site',live.onSite??boxes.length,''],['Received today',live.today.received,pct(live.today.received,y.received)],['Shipped today',live.today.shipped,pct(live.today.shipped,y.shipped)]];
   const pill=b=>{const z=zoneOfRack(st,b.rack),[s]=b.location.split('-'),text=filters.get('Rack')?.size?b.location:`${b.rack} · ${s}`;return {key:text,zone:z,html:`<button class="lc-loc" data-rack="${esc(b.rack)}" style="background:${z?.color||'var(--accent-primary)'}">${esc(text)}</button>`};};
-  const locCell=bs=>{const seen=new Map();for(const b of bs)if(b.kind==='stored'){const p=pill(b);if(!seen.has(p.key))seen.set(p.key,p);}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" tabindex="0" role="button" aria-haspopup="dialog" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};
+  const byRack=filters.get('Rack')?.size,locCell=bs=>{const seen=new Map();for(const b of bs){const key=byRack?b.location:`${b.rack} · ${b.location.split('-')[0]}`;if(!seen.has(key))seen.set(key,pill(b));}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" tabindex="0" role="button" aria-haspopup="dialog" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};
   others.length=0;
   const st0=page*size;
   el.innerHTML=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
