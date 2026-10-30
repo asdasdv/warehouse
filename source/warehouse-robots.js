@@ -352,7 +352,7 @@ export function addWarehouseRobots(scene, getState) {
   const pickupMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#ffd900', wireframe: true, depthTest: false}));
   const dropMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#6c9ee8', wireframe: true, depthTest: false}));
   pickupMarker.renderOrder = dropMarker.renderOrder = 15;
-  const routeLine = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({color: '#baa51a', transparent: true, opacity: .6}));
+  const routeLine = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({color: '#4ca8f8', transparent: true, opacity: .85}));
   group.add(pickupMarker, dropMarker, routeLine);
 
   // ---------- conveyors: receiving line below, dispatch line above ----------

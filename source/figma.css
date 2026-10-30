@@ -189,7 +189,7 @@ details.ph-addresses summary::-webkit-details-marker{display:none}
 .fg-scn{display:flex;flex-direction:column;gap:4px;align-items:flex-start;width:100%;text-align:left;padding:12px;border-radius:var(--r12);background:var(--control);height:auto}
 .fg-scn b{font-weight:500;font-size:14px;line-height:20px}
 .fg-scn span{font-size:12px;line-height:16px;color:var(--t2)}
-.ph-live-tabs{position:absolute;z-index:12;top:76px;left:calc((100% - var(--panel-w))/2);transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:var(--control);border-radius:var(--r12)}
+.ph-live-tabs{position:absolute;z-index:12;top:76px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:var(--control);border-radius:var(--r12)}
 .ph-live-tabs button{height:28px;padding:0 12px;border-radius:var(--r8);background:transparent;font-size:12px;line-height:16px;color:var(--t2)}
 .ph-live-tabs button.active{background:var(--page);color:var(--t1)}
 .building .ph-live-tabs{display:none}
@@ -288,11 +288,11 @@ dialog .icon{width:36px;height:36px}
 .fg-racks{display:flex;flex-direction:column;gap:8px}
 .modal-list{max-height:55vh;overflow:auto}
 .modal-list article{border-bottom:1px solid var(--border);padding:12px 0}
-#toast{position:absolute;left:calc((100% - var(--panel-w))/2);bottom:24px;transform:translate(-50%,8px);background:#000;color:#fff;padding:12px 16px;border-radius:var(--r12);font-size:14px;opacity:0;pointer-events:none;transition:.2s;max-width:60%;z-index:50}
+#toast{position:absolute;left:50%;bottom:24px;transform:translate(-50%,8px);background:#000;color:#fff;padding:12px 16px;border-radius:var(--r12);font-size:14px;opacity:0;pointer-events:none;transition:.2s;max-width:60%;z-index:50}
 #toast.visible{opacity:1;transform:translate(-50%,0)}
 
 /* ---------- legend ---------- */
-#occupancyLegend{position:absolute;left:calc((100% - var(--panel-w))/2);bottom:24px;transform:translateX(-50%);padding:8px 16px;border-radius:var(--r16);background:rgba(255,255,255,.8);backdrop-filter:blur(12px);box-shadow:var(--pop);font-size:12px;line-height:16px;color:var(--t2);white-space:nowrap;z-index:5}
+#occupancyLegend{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);padding:8px 16px;border-radius:var(--r16);background:rgba(255,255,255,.8);backdrop-filter:blur(12px);box-shadow:var(--pop);font-size:12px;line-height:16px;color:var(--t2);white-space:nowrap;z-index:5}
 
 /* ---------- builder ---------- */
 #buildInfo{position:absolute;left:16px;top:16px;width:260px;padding:16px;display:flex;flex-direction:column;gap:12px;z-index:8;background:rgba(255,255,255,.9);max-height:calc(100% - 100px);overflow:auto}

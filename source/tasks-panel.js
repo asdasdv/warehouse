@@ -4,14 +4,16 @@ const STEPS = {Receive: ['Coming', 'Loading', 'Storing'], Move: ['Coming', 'Load
 const TITLE = {Receive: 'Put away to', Move: 'Move to', Ship: 'Ship to'};
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 
-export function installTasksPanel(sim, toast, {onHistory}) {
+export function installTasksPanel(sim, toast, {onHistory, onRobot}) {
   const el = document.createElement('section');
   el.id = 'tasksPanel'; el.hidden = true;
   document.querySelector('main').append(el);
   let last = '';
+  // The robot's name in the line is a link: it selects the robot and the camera follows it.
+  const robotLink = t => t.robot ? esc(t.text).replace(esc(t.robot), `<button class="lc-robot-link" data-follow="${esc(t.robot)}">${esc(t.robot)}</button>`) : esc(t.text);
   function card(t) {
     const steps = STEPS[t.kind], status = t.step < 0 ? 'Waiting' : t.step === 0 ? 'Robot is coming' : steps[t.step];
-    return `<div class="lc-task"><div class="lc-task-line"><span>${TITLE[t.kind]} ${esc(t.to)}</span><small>${status}</small></div><p>${esc(t.text)}</p>`
+    return `<div class="lc-task"><div class="lc-task-line"><span>${TITLE[t.kind]} ${esc(t.to)}</span><small>${status}</small></div><p>${robotLink(t)}</p>`
       + `<div class="lc-steps">${steps.map((_, i) => `<i class="${i <= t.step ? 'on' : ''}"></i>`).join('')}</div>`
       + `<div class="lc-step-names">${steps.map((s, i) => `<span class="${i === t.step ? 'on' : ''}">${s}</span>`).join('')}</div>`
       + (t.cancellable ? `<button class="lc-cancel" data-cancel="${esc(t.id)}">Cancel task</button>` : '') + '</div>';
@@ -21,6 +23,7 @@ export function installTasksPanel(sim, toast, {onHistory}) {
     const html = tasks.length ? `<p>Tasks · ${tasks.length}</p>${tasks.map(card).join('')}` : '';
     if (html !== last) {
       last = html; el.innerHTML = html; el.hidden = !tasks.length;
+      el.querySelectorAll('[data-follow]').forEach(b => b.onclick = () => onRobot?.(b.dataset.follow));
       el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => {
         try { sim.cancelTask(b.dataset.cancel); toast('Task cancelled'); } catch (e) { toast(e.message); }
         render();

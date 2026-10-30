@@ -14,7 +14,7 @@ import {contains} from './zone-shape.js';
 import {seed, catalog, itemOf, addProduct, addZone, addRack, updateRack, log} from './model.js';
 import {templates, config, locations, validateConfig, occupancy} from './storage.js';
 import {createScene} from './scene.js';
-import {placeChooser, cellRoom} from './choose-place.js';
+import {placeChooser, cellRoom, boxIndex} from './choose-place.js';
 
 // Concept demo: everything lives in memory and the robot simulation always runs.
 // A reload starts the demo warehouse again.
@@ -201,11 +201,11 @@ const productInput = placeholder => `<div class="lc-input">${icon('search')}<inp
 
 // Where to put new boxes: the recommended cell, the next one on that rack, and the emptiest rack in that zone.
 function receiveOptions(product, qty) {
-  const cells = [];
+  const cells = [], idx = boxIndex(state);
   for (const r of state.racks) {
-    const occ = occupancy(state, r.id);
+    const occ = idx.get(r.id) || new Map();
     for (const loc of locations(r)) {
-      const room = cellRoom(state, r.id, loc, product);
+      const room = cellRoom(state, r.id, loc, product, null, idx);
       if (!room) continue;
       const same = !!occ.get(loc)?.length, [s, p] = loc.slice(1).split('-P').map(Number);
       const next = !same && [p - 1, p + 1].some(n => occ.get(`S${s}-P${n}`)?.[0]?.product === product);
@@ -310,24 +310,20 @@ function movePhoenix(preset = {}) {
   if (!box) return toast('Choose a box first.');
   if (!sim.boxInfo(box.id)?.actionable) return toast('This box is busy with robot work.');
   const from = state.racks.find(r => r.id === box.rack), exclude = {rack: box.rack, loc: box.location};
-  const options = [];
+  const options = [], idx = boxIndex(state);
   for (const r of state.racks) for (const loc of locations(r)) {
-    const room = cellRoom(state, r.id, loc, box.product, exclude);
+    const room = cellRoom(state, r.id, loc, box.product, exclude, idx);
     if (room) options.push({rack: r.id, loc, room, dist: Math.hypot(r.x - from.x, r.z - from.z) + (r.id === box.rack ? 0 : 1)});
   }
   options.sort((a, b) => a.dist - b.dist);
-  let choice = preset.choice || (options[0] && {rack: options[0].rack, loc: options[0].loc});
   const best = options.slice(0, 1).map(o => ({...o, note: 'Recommended · closest free cell'}));
   const form = dialogFrame({title: 'Move box',
-    body: `<div class="lc-field"><span>From</span><div class="lc-card"><i style="width:16px;height:16px;border-radius:4px;background:${zoneColor(box.rack)}"></i><div>${esc(box.product)}<small>${esc(box.id)} · ${esc(box.rack)} · ${esc(box.location)}</small></div><em>${itemOf(box.product)?.pcs || 1} pcs</em></div></div><div class="lc-field"><span>To</span><div class="lc-options" id="places"></div></div><button type="button" class="lc-outline" id="chooseOther">Choose another place</button><button class="primary" type="submit">Confirm move</button>`,
-    onSubmit: () => {
-      if (!choice) throw Error('Choose where to move the box.');
-      sim.requestMove([box.id], choice.rack, choice.loc);
-      $('#dialog').close();
-    }});
-  const render = () => placeList(form.querySelector('#places'), best, () => choice && {...choice, product: box.product}, c => { choice = c; render(); });
-  form.querySelector('#chooseOther').onclick = () => placeChooser({dialog: $('#dialog'), state, product: box.product, exclude, backLabel: 'Move box',
-    onPick: c => movePhoenix({box: box.id, choice: c}), onBack: () => movePhoenix({box: box.id, choice})});
+    body: `<div class="lc-field"><span>From</span><div class="lc-card"><i style="width:16px;height:16px;border-radius:4px;background:${zoneColor(box.rack)}"></i><div>${esc(box.product)}<small>${esc(box.id)} · ${esc(box.rack)} · ${esc(box.location)}</small></div><em>${itemOf(box.product)?.pcs || 1} pcs</em></div></div><div class="lc-field"><span>To</span><div class="lc-options" id="places"></div></div><button type="button" class="lc-outline" id="chooseOther">Choose another place</button>`, onSubmit: () => {}});
+  // Picking a place is the order itself: the robot is sent and the dialog closes, with no confirm step.
+  const go = c => { sim.requestMove([box.id], c.rack, c.loc); $('#dialog').close(); };
+  const render = () => placeList(form.querySelector('#places'), best, () => null, go);
+  form.querySelector('#chooseOther').onclick = () => placeChooser({dialog: $('#dialog'), state, product: box.product, exclude, backLabel: 'Move box', instant: true,
+    onPick: go, onBack: () => movePhoenix({box: box.id})});
   render();
 }
 
@@ -447,7 +443,7 @@ const inventoryPage = installInventoryPage({getState: () => state, sim, onShip: 
 const builderTools = installBuilderTools(scene.builderContext, () => state,
   a => commit(() => { applyLayoutEdit(state, a); log(state, 'Layout updated', a.type); }),
   points => commit(() => { for (const p of points) addRack(state, state.zones.find(z => contains(z, p))?.id, p.x, p.z, rackDraft); }));
-installTasksPanel(sim, toast, {onHistory: () => showHistory('Shipped')});
+installTasksPanel(sim, toast, {onHistory: () => showHistory('Shipped'), onRobot: id => pick({type: 'robot', id})});
 const layoutEditor = installLayoutEditor({getState: () => state, scene, builderTools, rackDraft: () => rackDraft, toast,
   onChange: refresh, onSelect: s => { selected = s?.type === 'zone' || s?.type === 'rack' ? s : null; },
   onExit: () => { toggleEdit(false); pick(null); }});
