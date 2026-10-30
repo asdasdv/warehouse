@@ -416,7 +416,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 /* Map tags: zone and dock names over the 3D view — white plate with the panel blur, crisp text. */
 .map-tags{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
 .map-tag{position:absolute;left:0;top:0;display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;white-space:nowrap;
-  background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);color:var(--content-primary);font:500 13px/16px Inter,Arial,sans-serif;will-change:transform}
+  background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);color:var(--content-primary);font:500 13px/16px Inter,Arial,sans-serif}
+/* No will-change on tags: it stops Chrome from blurring the 3D view behind them and they render solid white. */
 .map-tag i{width:10px;height:10px;border-radius:3px;flex:none}
 .map-tag.tag-dock,.map-tag.tag-building{padding:8px 16px;font:600 16px/20px Inter,Arial,sans-serif}
 .map-tag.tag-building{font-size:18px;line-height:22px}
