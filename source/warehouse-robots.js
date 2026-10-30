@@ -4,14 +4,14 @@ import {products as catalog} from './model.js';
 import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
-import {BELT_TOP, BELT_START, BELT_END, DOCK_IDS, docksOf, dockPort, dockRect} from './docks.js';
+import {BELT_TOP, BELT_START, BELT_END, SPINE_HALF, SPINE_BELT, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, docksOf, dockPort, dockNorth, layoutObstacles, spineLift, spineBreaks} from './docks.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
 // Nothing is saved — a reload starts the demo again.
 
-const ROBOTS = 8;
-const MIN_ACTIVE = 4;
+const ROBOTS = 40;
+const MIN_ACTIVE = 16;
 const STATION_CAPACITY = 6;
 const MAX_PER_ADDRESS = CELL_CAPACITY;
 const HANDOFF_SECONDS = 1.5; // the robot stands still this long after a box swaps on or off it
@@ -23,6 +23,10 @@ const PARK_AFTER = 2;        // seconds without work before a robot heads to its
 const CONVEYOR_SCALE = BELT_TOP / .65; // conveyor.glb belt top is 0.65 m
 const ROBOT_SCALE = BELT_TOP / .665; // robot.glb deck height 0.665 m
 const BELT_SPEED = 2.5;
+const SPINE_SPEED = 10;
+const AGE_METRES = 60;       // outbound picking: one day older is worth this many metres of extra driving      // the spine is a fast sorter belt: 370 m in under 40 s
+// Demand is tuned for the 24-zone spine warehouse (~40 robots); arrivals and orders come every few seconds.
+const ARRIVAL_EVERY = {low: 1.8, normal: 2.6, high: 4.5}, ORDER_EVERY = 2.2, PENDING = {low: 15, normal: 30, high: 50};
 const HISTORY_LIMIT = 300;
 const KEEP_COMPLETED_ORDERS = 20;
 
@@ -114,7 +118,9 @@ export function addWarehouseRobots(scene, getState) {
     return (here?.count || 0) + (coming?.count || 0) < MAX_PER_ADDRESS;
   }
   // Same component first (fewest boxes), otherwise an empty address. Starts at a random rack to spread work.
-  function place(box, want = null, strict = false) {
+  // `from` (a receiving dock) keeps put-away on its side of the spine, so robots rarely cross it.
+  const sideOf = z => spine ? (z < spine.z ? -1 : 1) : 0;
+  function place(box, want = null, strict = false, from = null) {
     const s = getState();
     if (want?.rack) {
       const r = s.racks.find(r => r.id === want.rack);
@@ -126,9 +132,10 @@ export function addWarehouseRobots(scene, getState) {
       if (strict) return null;
     }
     let best = null, score = Infinity;
-    const start = Math.floor(Math.random() * Math.max(1, s.racks.length));
-    for (let i = 0; i < s.racks.length && score > 1; i++) {
-      const r = s.racks[(start + i) % s.racks.length];
+    const side = from ? sideOf(from.port.z) : 0, racks = side && s.racks.some(r => sideOf(r.z) === side) ? s.racks.filter(r => sideOf(r.z) === side) : s.racks;
+    const start = Math.floor(Math.random() * Math.max(1, racks.length));
+    for (let i = 0; i < racks.length && score > 1; i++) {
+      const r = racks[(start + i) % racks.length];
       for (const loc of locations(r)) {
         if (!fits(r, loc, box.product)) continue;
         const {here, coming} = load(r, loc), n = (here?.count || 0) + (coming?.count || 0);
@@ -185,7 +192,7 @@ export function addWarehouseRobots(scene, getState) {
   }
 
   for (let i = 0; i < ROBOTS; i++) {
-    const g = new T.Group(), id = `AMR-0${i + 1}`;
+    const g = new T.Group(), id = `AMR-${String(i + 1).padStart(2, '0')}`;
     const body = new T.Group();
     group.add(g); g.add(body);
     box(body, 0, .7, 0, 2.6, 1.1, 3.4, yellow); box(body, 0, 1.35, 0, 2.3, .22, 2.8, black);
@@ -195,7 +202,7 @@ export function addWarehouseRobots(scene, getState) {
     label(g, id, 0, 4, 0);
     const hit = box(g, 0, 1.7, 0, 3.1, 3.5, 3.8, new T.MeshBasicMaterial({visible: false}));
     hit.userData = {type: 'robot', id}; hits.push(hit);
-    robots.push({id, g, body, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 92 - i * 5, paused: false, chargeNext: false,
+    robots.push({id, g, body, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 92 - (i * 7) % 55, paused: false, chargeNext: false,
       charging: false, cycles: 0, task: null, path: [], index: 0, retry: i * .3, product: '', boxId: '', mission: '',
       at: null, ahead: [], speed: 0, wait: 0, idle: 0, home: null});
   }
@@ -210,7 +217,7 @@ export function addWarehouseRobots(scene, getState) {
   }
   const frameMat = new T.MeshStandardMaterial({color: '#6f7e86', roughness: .6, metalness: .3});
   const tunnelMat = new T.MeshStandardMaterial({color: '#b9c2c4', roughness: .8});
-  for (const [id, kind] of DOCK_IDS) {
+  for (const {id, kind} of docksOf(getState())) {
     const g = new T.Group(), body = new T.Group();
     group.add(g); g.add(body);
     const length = BELT_END - BELT_START + 1, mid = (BELT_END + BELT_START) / 2;
@@ -220,10 +227,12 @@ export function addWarehouseRobots(scene, getState) {
       box(body, x, BELT_TOP - .05, mid, .3, .4, length, frameMat);
       for (let z = BELT_START; z <= BELT_END; z += 3) box(body, x, (BELT_TOP - .25) / 2, z, .25, BELT_TOP - .25, .25, frameMat);
     }
-    // The tunnel hides boxes as they leave (dispatch) or before they appear (receiving).
-    box(body, -1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat); box(body, 1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat);
-    box(body, 0, 3.8, BELT_END - .5, 3.8, .4, 3, tunnelMat); box(body, 0, 2, BELT_END + 1, 3.8, 4, .2, tunnelMat);
-    label(g, id, 0, 4.9, BELT_END - 2).scale.set(9, 1.5, 1);
+    // Without a spine a tunnel hides boxes as they leave (dispatch) or before they appear (receiving).
+    if (!getState().spine) {
+      box(body, -1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat); box(body, 1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat);
+      box(body, 0, 3.8, BELT_END - .5, 3.8, .4, 3, tunnelMat); box(body, 0, 2, BELT_END + 1, 3.8, 4, .2, tunnelMat);
+    }
+    label(g, id, 0, 4.9, BELT_START + 2).scale.set(9, 1.5, 1);
     stations.push({g, body, id, kind, ready: true, queue: [], port: {x: 0, z: 0}, tex});
   }
   // Blender models replace the simple shapes once they load (see public/assets/models/README.md).
@@ -254,9 +263,64 @@ export function addWarehouseRobots(scene, getState) {
   const routeLine = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({color: '#baa51a', transparent: true, opacity: .6}));
   group.add(pickupMarker, dropMarker, routeLine);
 
+  // ---------- conveyor spine ----------
+  // Two belts west → east with bridges where robots cross underneath; boxes ride it between the
+  // receiving building, the docks and the dispatch building.
+  const spineGroup = new T.Group(), spineItems = new T.Group(); group.add(spineGroup, spineItems);
+  const spineTextures = [], yellowMat = new T.MeshStandardMaterial({color: '#f1cf22', roughness: .6});
+  let spine = null, spineKey = null;
+  const beltZ = st => spine.z + (st.north ? -SPINE_BELT : SPINE_BELT);
+  function spineTexture(length) {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 16;
+    const t = c.getContext('2d');
+    t.fillStyle = '#3a4244'; t.fillRect(0, 0, 64, 16); t.fillStyle = '#596366'; t.fillRect(0, 0, 10, 16);
+    const tex = new T.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = T.RepeatWrapping; tex.repeat.set(length / 1.2, 1); spineTextures.push(tex);
+    return tex;
+  }
+  function piece(x0, x1, y0, y1, z, height, depth, material) {
+    const len = Math.hypot(x1 - x0, y1 - y0), m = box(spineGroup, (x0 + x1) / 2, (y0 + y1) / 2, z, len, height, depth, material);
+    m.rotation.z = Math.atan2(y1 - y0, x1 - x0); return m;
+  }
+  function drawSpine(sp) {
+    spineGroup.traverse(o => { if (o.isMesh && o.material?.map) o.material.map.dispose(); });
+    spineGroup.clear(); spineTextures.length = 0;
+    if (!sp) return;
+    const xs = spineBreaks(sp), y = x => BELT_TOP + spineLift(sp, x);
+    for (const side of [-1, 1]) {
+      const z = sp.z + side * SPINE_BELT;
+      for (let i = 1; i < xs.length; i++) {
+        const a = xs[i - 1], b = xs[i];
+        piece(a, b, y(a) - .06, y(b) - .06, z, .12, 2.2, new T.MeshStandardMaterial({map: spineTexture(b - a), roughness: .9}));
+        for (const rail of [-1.25, 1.25]) piece(a, b, y(a) - .05, y(b) - .05, z + rail, .4, .3, frameMat);
+      }
+    }
+    // Legs every 4 m; the bridge span stays open for robots, with a yellow beam over the passage.
+    const legs = [];
+    for (let x = sp.x1 + 1; x < sp.x2; x += 4) {
+      if ((sp.crossings || []).some(c => Math.abs(x - c) < BRIDGE_HALF - .2)) continue;
+      for (const side of [-1, 1]) legs.push({x, z: sp.z + side * (SPINE_HALF - .4), h: y(x) - .25});
+    }
+    for (const c of sp.crossings || []) for (const e of [-BRIDGE_HALF, BRIDGE_HALF]) for (const side of [-1, 1]) legs.push({x: c + e, z: sp.z + side * (SPINE_HALF - .4), h: y(c) - .25});
+    const legMesh = new T.InstancedMesh(geo, frameMat, legs.length), o = new T.Object3D();
+    legs.forEach((l, i) => { o.position.set(l.x, l.h / 2, l.z); o.scale.set(.3, l.h, .3); o.updateMatrix(); legMesh.setMatrixAt(i, o.matrix); });
+    legMesh.castShadow = true; spineGroup.add(legMesh);
+    for (const c of sp.crossings || []) {
+      box(spineGroup, c, BELT_TOP + BRIDGE_LIFT - .45, sp.z, BRIDGE_HALF * 2, .3, SPINE_HALF * 2, yellowMat);
+      for (const e of [-BRIDGE_HALF, BRIDGE_HALF]) box(spineGroup, c + e, BELT_TOP + BRIDGE_LIFT - .45, sp.z, .4, .4, SPINE_HALF * 2 + .4, frameMat);
+    }
+    // End buildings: boxes appear out of receiving and disappear into dispatch.
+    for (const [x, name] of [[sp.x1 - BUILDING.length / 2, 'Receiving'], [sp.x2 + BUILDING.length / 2, 'Dispatch']]) {
+      box(spineGroup, x, BUILDING.height / 2, sp.z, BUILDING.length, BUILDING.height, BUILDING.width, tunnelMat);
+      box(spineGroup, x, BUILDING.height + .2, sp.z, BUILDING.length + .4, .4, BUILDING.width + .4, frameMat);
+      label(spineGroup, name, x, BUILDING.height + 2, sp.z).scale.set(12, 2.2, 1);
+    }
+  }
+
   // ---------- docks ----------
   const freeSlot = st => Array.from({length: STATION_CAPACITY}, (_, i) => i).find(i => !st.queue.some(q => q.slot === i));
   function stationPose(st, q) {
+    if (q.onSpine) { const p = q.mesh.position; return {...q.local, box: q.box, x: p.x, y: p.y, z: p.z}; }
     const local = q.local, p = st.g.localToWorld(new T.Vector3(local.x, local.y, q.mesh ? q.mesh.position.z : local.z));
     const turned = (st.rotation || 0) % 2;
     return {...local, box: q.box, x: p.x, z: p.z, w: turned ? local.d : local.w, d: turned ? local.w : local.d};
@@ -278,8 +342,9 @@ export function addWarehouseRobots(scene, getState) {
     const s = getState();
     const b = {id: `BX-${++s.serial}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
     const slot = freeSlot(st), local = localPose(slot, arrivalSize());
-    const mesh = carton(st.g, local.x, local.y, BELT_END, local.w, local.h, local.d); // rides in from the tunnel
-    const q = {box: b, slot, local, mesh, age: 0, arrived: true, atFront: false, target: item.target || null, user: item.user || null, taken: false};
+    // Rides in along the spine from the receiving building, or out of the dock's tunnel.
+    const mesh = spine ? carton(spineItems, spine.x1, local.y, beltZ(st), local.w, local.h, local.d) : carton(st.g, local.x, local.y, BELT_END, local.w, local.h, local.d);
+    const q = {box: b, slot, local, mesh, age: 0, arrived: true, atFront: false, onSpine: !!spine, target: item.target || null, user: item.user || null, taken: false};
     st.queue.push(q);
     held.set(b.id, {box: b, where: 'receiving', place: st.id});
     s.today.received++;
@@ -296,6 +361,7 @@ export function addWarehouseRobots(scene, getState) {
         if (!q.arrived) continue;
         q.age += dt;
         const p = q.mesh.position;
+        if (q.onSpine) { rideSpine(st, q, dt); continue; }
         if (st.kind === 'inbound') {
           // Keep a gap behind the box ahead; a box that would overlap waits out of sight behind the tunnel.
           const stop = ahead;
@@ -308,14 +374,27 @@ export function addWarehouseRobots(scene, getState) {
         }
         p.z += dt * BELT_SPEED; moving = true;
         if (p.z >= BELT_END) {
-          st.g.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(q.box.id);
-          shipped++; getState().today.shipped++; book.ship(q.box.id);
-          history('Shipped', q.box, st.id, 'Customer');
-          pruneOrders();
+          if (spine) { st.g.remove(q.mesh); spineItems.add(q.mesh); q.mesh.position.set(st.g.position.x, q.local.y, beltZ(st)); q.mesh.rotation.set(0, 0, 0); q.onSpine = true; }
+          else ship(st, q);
         }
       }
       if (moving) st.tex.offset.y += (st.kind === 'inbound' ? -1 : 1) * dt * BELT_SPEED / 1.2;
     }
+    for (const tex of spineTextures) tex.offset.x -= dt * SPINE_SPEED / 1.2;
+  }
+  function ship(st, q) {
+    q.mesh.parent?.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(q.box.id);
+    shipped++; getState().today.shipped++; book.ship(q.box.id);
+    history('Shipped', q.box, st.id, 'Customer');
+    pruneOrders();
+  }
+  // Inbound boxes leave the spine at their dock and turn onto its belt; outbound ones ride to dispatch.
+  function rideSpine(st, q, dt) {
+    const p = q.mesh.position;
+    p.x += dt * SPINE_SPEED; p.z = beltZ(st); p.y = q.local.y + spineLift(spine, p.x);
+    if (st.kind === 'inbound' && p.x >= st.g.position.x) {
+      spineItems.remove(q.mesh); st.g.add(q.mesh); q.mesh.position.set(0, q.local.y, BELT_END); q.onSpine = false;
+    } else if (st.kind === 'outbound' && p.x >= spine.x2) ship(st, q);
   }
   function pruneOrders() {
     const done = book.orders.filter(o => o.shipped.length >= o.quantity);
@@ -328,15 +407,15 @@ export function addWarehouseRobots(scene, getState) {
     const stock = getState().boxes.length + held.size;
     const low = stock < targetStock * .98, high = stock > targetStock * 1.02;
     arrivalClock += dt;
-    if (arrivalClock >= (low ? 7 : high ? 16 : 10)) {
+    if (arrivalClock >= ARRIVAL_EVERY[low ? 'low' : high ? 'high' : 'normal']) {
       arrivalClock = 0;
-      if (backlog.length < STATION_CAPACITY) backlog.push({product: pick(catalog)});
+      if (backlog.length < STATION_CAPACITY * stations.filter(s => s.kind === 'inbound').length) backlog.push({product: pick(catalog)});
     }
     orderClock += dt;
-    if (orderClock >= 8) {
+    if (orderClock >= ORDER_EVERY) {
       orderClock = 0;
       const stockList = stockedProducts();
-      if (stockList.length && book.pending < (high ? 10 : low ? 3 : 6)) {
+      if (stockList.length && book.pending < PENDING[high ? 'high' : low ? 'low' : 'normal']) {
         const o = book.create(pick(stockList), 1 + Math.floor(Math.random() * 5), Math.random() < .15 ? 'Urgent' : 'Normal');
         note(`${o.id} · ${o.quantity} × ${o.product}${o.priority === 'Urgent' ? ' · urgent' : ''}`);
       }
@@ -376,30 +455,32 @@ export function addWarehouseRobots(scene, getState) {
     const k = JSON.stringify(s.racks.map(r => [r.id, r.x, r.z, r.width, r.depth, r.height, r.shelves, r.places, r.rotation || 0]));
     if (k !== rackKey) { rackKey = k; posesDirty = true; cargoDirty = true; revision++; }
     // Routes are rebuilt once the layout editor closes, not on every edit while it is open.
-    const rk = k + JSON.stringify(docks);
+    const rk = k + JSON.stringify(docks) + JSON.stringify(s.spine || null);
     if (rk === routeKey || suspended && routeKey !== null) return;
     const first = routeKey === null;
     routeKey = rk;
+    const sk = JSON.stringify(s.spine || null);
+    if (sk !== spineKey) { spineKey = sk; spine = s.spine || null; drawSpine(spine); }
     for (const st of stations) {
       const d = docks.find(d => d.id === st.id) || {x: 0, z: 0, rotation: 0};
       st.g.position.set(d.x, 0, d.z); st.g.rotation.y = -(d.rotation || 0) * Math.PI / 2; st.rotation = d.rotation || 0;
       st.g.updateMatrixWorld(true);
-      st.port = dockPort(d);
+      st.port = dockPort(d); st.north = spine ? dockNorth(spine, d) : true;
     }
-    router = createRouter(s.racks, docks.map(dockRect));
-    const stops = [...stations.map(st => st.port), ...s.racks.map(router.port)];
-    const segments = router.buildNetwork(stops);
+    router = createRouter(s.racks, layoutObstacles(s));
+    const segments = router.buildNetwork(stations.map(st => st.port), s.racks.map(router.port));
     const near = {x: stations.reduce((n, st) => n + st.port.x, 0) / stations.length, z: stations.reduce((n, st) => n + st.port.z, 0) / stations.length};
-    const spots = router.parking(ROBOTS, near, stations.map(st => st.port));
+    // Parking is spread along the docks so idle robots wait close to where work appears.
+    const spots = router.parking(ROBOTS, stations.map(st => st.port), stations.map(st => st.port));
     robots.forEach((r, i) => { r.home = spots[i] || null; });
     drawLanes(segments, spots);
     anchor = near;
     if (first) {
       robots.forEach((r, i) => {
         const p = r.home || router.point({x: near.x + (i - ROBOTS / 2) * 4, z: near.z - 8});
-        if (p) { r.g.position.set(p.x, 0, p.z); r.at = {x: p.x, z: p.z}; r.g.rotation.y = Math.PI; }
+        if (p) { r.g.position.set(p.x, 0, p.z); r.at = {x: p.x, z: p.z}; r.g.rotation.y = spine && p.z > spine.z ? 0 : Math.PI; }
       });
-      for (let i = 0; i < 4; i++) backlog.push({product: pick(catalog)});
+      for (let i = 0; i < stations.length * 2; i++) backlog.push({product: pick(catalog)});
       note('Receiving and dispatch connected to the rack layout');
     } else {
       for (const r of robots) { if (r.task) replan(r); else if (r.path.length) { r.path = []; r.index = 0; } }
@@ -477,9 +558,10 @@ export function addWarehouseRobots(scene, getState) {
   }
   function inboundJob(r) {
     // Only the box waiting at the robot end of a belt can be picked up.
-    for (const st of stations.filter(s => s.kind === 'inbound' && s.ready)) for (const q of st.queue.slice(0, 1)) {
+    const near = st => Math.abs(st.port.x - r.g.position.x) + Math.abs(st.port.z - r.g.position.z);
+    for (const st of stations.filter(s => s.kind === 'inbound' && s.ready).sort((a, b) => near(a) - near(b))) for (const q of st.queue.slice(0, 1)) {
       if (!q.atFront || q.taken) continue;
-      const pickup = stationPose(st, q), dest = place(q.box, q.target);
+      const pickup = stationPose(st, q), dest = place(q.box, q.target, false, st);
       if (dest && start(r, {box: q.box, sourceStation: st, queueItem: q, target: dest.rack, slot: dest.loc, pickup,
         drop: shelfDrop(dest.rack, dest.loc, q.box, pickup)})) return true;
     }
@@ -507,18 +589,26 @@ export function addWarehouseRobots(scene, getState) {
     const open = book.orders.filter(o => o.allocated.length < o.quantity)
       .sort((a, b) => (b.priority === 'Urgent') - (a.priority === 'Urgent'));
     for (const order of open) {
-      let best = null, distance = Infinity;
+      // Older stock first, like a WMS rotating inventory, weighed against the drive: each day of age is
+      // worth AGE_METRES of travel. (Pure nearest-first kept every robot in the zone next to Dispatch,
+      // pure FIFO sent them across the whole building.)
+      let best = null, score = Infinity;
+      const now = Date.now();
       for (const b of s.boxes) {
         if (reserved.has(b.id) || busy.has(b.id) || b.product !== order.product) continue;
         if (order.boxId ? b.id !== order.boxId : promised.has(b.id)) continue;
         const p = poseOf(b.id); if (!p) continue;
-        const d = Math.hypot(p.x - r.g.position.x, p.z - r.g.position.z);
-        if (d < distance) { distance = d; best = b; }
+        const days = b.receivedAt ? (now - Date.parse(b.receivedAt)) / 864e5 : 0;
+        const value = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) - days * AGE_METRES;
+        if (value < score) { score = value; best = b; }
       }
       if (!best) continue;
       const source = s.racks.find(x => x.id === best.rack);
-      const wanted = stations.find(x => x.id === order.station && x.ready && x.queue.length < STATION_CAPACITY);
-      if (start(r, {box: best, source, outStation: wanted || st, order, pickup: {...poseOf(best.id)}})) return true;
+      // The user's chosen dispatch dock, else the nearest open one on the box's side of the spine.
+      const pose = poseOf(best.id), open = stations.filter(x => x.kind === 'outbound' && x.ready && x.queue.length < STATION_CAPACITY);
+      const cost = x => Math.abs(x.port.x - pose.x) + Math.abs(x.port.z - pose.z) + (sideOf(x.port.z) !== sideOf(pose.z) ? 1000 : 0) + x.queue.length * 8;
+      const wanted = open.find(x => x.id === order.station) || open.sort((a, b) => cost(a) - cost(b))[0] || st;
+      if (start(r, {box: best, source, outStation: wanted, order, pickup: {...pose}})) return true;
     }
     return false;
   }
@@ -748,6 +838,7 @@ export function addWarehouseRobots(scene, getState) {
     get delivered() { return delivered; },
     select(id) { selected = id; },
     setBuilding(v) { suspended = v; },
+    setLanesVisible(v) { laneGroup.visible = v; },
     consumeVisualChange() { const v = cargoDirty; cargoDirty = false; return v; },
     displayLayout() { checkLayout(); refreshPoses(); return poses; },
     products: stockedProducts,

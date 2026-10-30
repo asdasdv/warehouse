@@ -4,7 +4,7 @@ import {applyLayoutEdit, rowPositions} from './layout-edit.js';
 import {validateLayoutAccess, inaccessibleRacks} from './layout-access.js';
 import {addZone, addRack, colors, log} from './model.js';
 import {config, locations} from './storage.js';
-import {docksOf, dockRect, dockPort, snapDock, validateDocks} from './docks.js';
+import {docksOf, dockRect, dockPort, snapDock, validateDocks, onSpine, dockNorth, spineRects} from './docks.js';
 
 // Warehouse layout editor (Figma "Editor" screens 1–13): a flat 2D plan plus the 3D scene,
 // a tool rail, the object list, an inspector and a draft that is saved or discarded as a whole.
@@ -49,7 +49,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   // Every edit goes through here: it is validated, can be undone, and fails without changing anything.
   function apply(fn) {
     const before = snapshot(), top = getState().history[0];
-    try { fn(); const was = JSON.parse(before), s = getState(); validateDocks(s); validateLayoutAccess(was.racks, s.racks, was.docks, docksOf(s)); }
+    try { fn(); const was = JSON.parse(before), s = getState(); validateDocks(s); validateLayoutAccess(was.racks, s.racks, was.docks, docksOf(s), s.spine); }
     catch (e) { restore(before); dropLayoutLog(top); error = e.message; render(); return false; }
     undo.push(before); undo = undo.slice(-50); redo = []; error = ''; report = null;
     onChange(); render(); return true;
@@ -115,7 +115,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       const mid = facesZ ? (a.z < b.z ? a.z + a.depth / 2 : b.z + b.depth / 2) + gap / 2 : (a.x < b.x ? a.x + a.width / 2 : b.x + b.width / 2) + gap / 2;
       aisles.push({a: a.id, b: b.id, gap, ok: gap >= ROBOT_AISLE, line: facesZ ? [{x: ox[0], z: mid}, {x: ox[1], z: mid}] : [{x: mid, z: oz[0]}, {x: mid, z: oz[1]}]});
     }
-    const docks = docksOf(s), blocked = [...inaccessibleRacks(racks, docks)];
+    const docks = docksOf(s), blocked = [...inaccessibleRacks(racks, docks, s.spine)];
     const problems = [...aisles.filter(a => !a.ok).map(a => ({text: `Aisle between ${a.a} and ${a.b} is ${r1(a.gap)} m wide`, ids: [a.a, a.b]})),
       ...blocked.map(id => docks.some(d => d.id === id) ? {text: `${id} has no robot route to the other docks`, ids: [], dock: id} : {text: `Rack ${id} has no robot route to Dispatch`, ids: [id]})];
     return {aisles, blocked: new Set(blocked), problems, min: aisles.length ? Math.min(...aisles.map(a => a.gap)) : null};
@@ -156,6 +156,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
         for (const [hx, hz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) el('rect', {x: r.x + hx * r.width / 2 - 2.5 * k, y: r.z + hz * r.depth / 2 - 2.5 * k, width: 5 * k, height: 5 * k, fill: '#fff', stroke: 'var(--accent-primary)', 'stroke-width': k}, svg);
       void z;
     }
+    // The conveyor spine and its buildings (bridges leave gaps where robots cross).
+    for (const r of spineRects(s.spine)) el('rect', {x: r.x - r.width / 2, y: r.z - r.depth / 2, width: r.width, height: r.depth, rx: .8 * k, fill: '#cfd5d7', stroke: 'rgba(0,0,0,.3)', 'stroke-width': .75 * k}, svg);
     // Docks: the belt footprint, its name and the point where the robot stops.
     for (const d of docksOf(s)) {
       const moving = drag?.kind === 'dock' && drag.id === d.id, at = moving ? {...d, ...drag.to} : d, b = dockRect(at), port = dockPort(at);
@@ -165,7 +167,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
         fill: bad ? 'var(--status-danger-tertiary)' : on ? 'var(--accent-secondary)' : d.kind === 'inbound' ? '#e4efdd' : '#f4edd2',
         stroke: bad ? 'var(--status-danger)' : on ? 'var(--accent-primary)' : 'rgba(0,0,0,.35)', 'stroke-width': (on || bad ? 1.5 : .75) * k}, g);
       el('circle', {cx: port.x, cy: port.z, r: 1.3, fill: 'none', stroke: on ? 'var(--accent-primary)' : 'rgba(0,0,0,.35)', 'stroke-width': k, 'stroke-dasharray': `${2 * k} ${2 * k}`, 'data-dock': d.id}, g);
-      const t = el('text', {x: b.x, y: b.z - b.depth / 2 - 4 * k, 'font-size': 9 * k, fill: '#000', 'text-anchor': 'middle'}, g); t.textContent = d.id;
+      // The name goes on the robot side, away from the spine.
+      const t = el('text', {x: b.x, y: port.z > b.z ? b.z + b.depth / 2 + 11 * k : b.z - b.depth / 2 - 4 * k, 'font-size': 9 * k, fill: '#000', 'text-anchor': 'middle'}, g); t.textContent = d.id;
     }
     if (showAccess) for (const a of report.aisles) {
       el('line', {x1: a.line[0].x, y1: a.line[0].z, x2: a.line[1].x, y2: a.line[1].z, stroke: a.ok ? 'var(--status-success-secondary)' : 'var(--status-danger)', 'stroke-width': 3 * k, 'stroke-linecap': 'round'}, svg);
@@ -285,7 +288,9 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (sel?.type === 'dock') {
       const d = docksOf(s).find(d => d.id === sel.id);
       return head(d.id, d.kind === 'inbound' ? 'Receiving dock' : 'Dispatch dock', `<button class="ed-ib" data-cmd="rotate" title="Rotate (R)">${ed('rotate')}</button>`)
-        + section('Position', input('X', 'dx', r1(d.x), 'm') + input('Y', 'dz', r1(d.z), 'm') + `<label class="ed-prop"><span>Rotation</span><span class="ed-in"><select data-in="drot">${[0, 90, 180, 270].map(a => `<option ${((d.rotation || 0) * 90) === a ? 'selected' : ''}>${a}</option>`).join('')}</select><em>°</em></span></label>`)
+        + section('Position', s.spine
+          ? input('X', 'dx', r1(d.x), 'm') + `<label class="ed-prop"><span>Side</span><span class="ed-in"><select data-in="dside">${['North', 'South'].map(v => `<option ${(v === 'North') === dockNorth(s.spine, d) ? 'selected' : ''}>${v}</option>`).join('')}</select></span></label>`
+          : input('X', 'dx', r1(d.x), 'm') + input('Y', 'dz', r1(d.z), 'm') + `<label class="ed-prop"><span>Rotation</span><span class="ed-in"><select data-in="drot">${[0, 90, 180, 270].map(a => `<option ${((d.rotation || 0) * 90) === a ? 'selected' : ''}>${a}</option>`).join('')}</select><em>°</em></span></label>`)
         + section('Robots', prop('Stop point', 'Dashed circle on the plan')) + banner();
     }
     if (sel?.type === 'zone') {
@@ -330,8 +335,10 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     }
     if (sel?.type === 'dock') {
       const d = docksOf(s).find(d => d.id === sel.id);
-      if (name === 'dx' || name === 'dz') return apply(() => Object.assign(d, snapDock({x: name === 'dx' ? n : d.x, z: name === 'dz' ? n : d.z})));
+      const sp = s.spine;
+      if (name === 'dx' || name === 'dz') return apply(() => Object.assign(d, dockAt2(d, {x: name === 'dx' ? n : d.x, z: name === 'dz' ? n : d.z})));
       if (name === 'drot') return apply(() => { d.rotation = Math.round(n / 90) % 4; });
+      if (name === 'dside' && sp) return apply(() => Object.assign(d, onSpine(sp, d.x, value === 'North')));
     }
     if (sel?.type === 'racks' && sel.ids.size === 1) {
       const r = s.racks.find(r => sel.ids.has(r.id));
@@ -386,14 +393,14 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (cmd === 'cancel') return cancel();
     if (cmd === 'recheck') { report = accessReport(); return render(); }
     if (cmd === 'access') { report = null; return setTool('robot'); }
-    if (cmd === 'rotate' && sel?.type === 'dock') return apply(() => { const d = docksOf(s).find(d => d.id === sel.id); d.rotation = ((d.rotation || 0) + 1) % 4; });
+    if (cmd === 'rotate' && sel?.type === 'dock') return apply(() => { const d = docksOf(s).find(d => d.id === sel.id); if (s.spine) Object.assign(d, onSpine(s.spine, d.x, !dockNorth(s.spine, d))); else d.rotation = ((d.rotation || 0) + 1) % 4; });
     if (cmd === 'rotate' && selectedRacks().length) return apply(() => applyLayoutEdit(s, {type: 'rotate', ids: selectedRacks()}));
     if (cmd === 'duplicate' && selectedRacks().length) {
       const racks = s.racks.filter(r => sel.ids.has(r.id)), w = Math.max(...racks.map(r => r.x + r.width / 2)) - Math.min(...racks.map(r => r.x - r.width / 2)), d = Math.max(...racks.map(r => r.z + r.depth / 2)) - Math.min(...racks.map(r => r.z - r.depth / 2));
       const before = new Set(s.racks.map(r => r.id));
       for (const [dx, dz] of [[w + 1.5, 0], [0, d + 4], [-(w + 1.5), 0], [0, -(d + 4)]]) {
         const next = {...s, racks: s.racks.map(r => ({...r}))};
-        try { applyLayoutEdit(next, {type: 'copy', ids: selectedRacks(), dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s)); } catch { continue; }
+        try { applyLayoutEdit(next, {type: 'copy', ids: selectedRacks(), dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s), docksOf(s), s.spine); } catch { continue; }
         apply(() => applyLayoutEdit(s, {type: 'copy', ids: selectedRacks(), dx, dz}));
         sel = {type: 'racks', ids: new Set(getState().racks.filter(r => !before.has(r.id)).map(r => r.id))};
         return render();
@@ -438,6 +445,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const x = racks.reduce((n, r) => n + r.x, 0) / racks.length, z = racks.reduce((n, r) => n + r.z, 0) / racks.length;
     vb.x = x - vb.w / 2; vb.z = z - vb.h / 2;
   }
+  // With a conveyor spine a dock slides along it and docks on the side the pointer is on.
+  function dockAt2(d, p) { const sp = getState().spine; return sp ? onSpine(sp, p.x, p.z < sp.z) : {...snapDock(p), rotation: d.rotation || 0}; }
   function centerOnDock(id) {
     const d = docksOf(getState()).find(d => d.id === id);
     if (d && view === '2D' && vb) { const b = dockRect(d); vb.x = b.x - vb.w / 2; vb.z = b.z - vb.h / 2; }
@@ -521,9 +530,9 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (drag.kind === 'point') { const dx = Math.round(p.x - drag.p.x), dz = Math.round(p.z - drag.p.z); drag.next = drag.ps.map((q, i) => i === drag.i ? {x: q.x + dx, z: q.z + dz} : q); return drawPlan(); }
     if (drag.kind === 'dock') {
       const d = docksOf(getState()).find(d => d.id === drag.id);
-      drag.to = snapDock({x: d.x + p.x - drag.p.x, z: d.z + p.z - drag.p.z});
+      drag.to = dockAt2(d, getState().spine ? p : {x: d.x + p.x - drag.p.x, z: d.z + p.z - drag.p.z});
       const s = getState(), next = {...s, docks: docksOf(s).map(o => o.id === d.id ? {...o, ...drag.to} : o)};
-      try { validateDocks(next); validateLayoutAccess(s.racks, s.racks, docksOf(s), next.docks); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      try { validateDocks(next); validateLayoutAccess(s.racks, s.racks, docksOf(s), next.docks, s.spine); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
       return drawPlan();
     }
     if (drag.kind === 'move') {
@@ -531,7 +540,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       if (snap && !e.altKey) { const a = drag.anchor, q = snapRack({racks: getState().racks.filter(r => !sel.ids.has(r.id))}, {x: a.x + dx, z: a.z + dz}, a); dx = q.x - a.x; dz = q.z - a.z; }
       drag.dx = dx; drag.dz = dz;
       const s = getState(), next = {...s, racks: s.racks.map(r => ({...r}))};
-      try { applyLayoutEdit(next, {type: 'move', ids: [...sel.ids], dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s)); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
+      try { applyLayoutEdit(next, {type: 'move', ids: [...sel.ids], dx, dz}); validateDocks(next); validateLayoutAccess(s.racks, next.racks, docksOf(s), docksOf(s), s.spine); drag.valid = true; drag.why = ''; } catch (err) { drag.valid = false; drag.why = err.message; }
       $('#edContext').hidden = true; return drawPlan();
     }
   });
@@ -553,7 +562,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     }
     if (d.kind === 'dock') {
       const dock = docksOf(s).find(x => x.id === d.id);
-      if (d.to.x === dock.x && d.to.z === dock.z) return render();
+      if (d.to.x === dock.x && d.to.z === dock.z && d.to.rotation === (dock.rotation || 0)) return render();
       if (!d.valid) { error = d.why; return render(); }
       apply(() => Object.assign(dock, d.to)); return;
     }

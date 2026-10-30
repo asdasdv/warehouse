@@ -58,7 +58,7 @@ test('Receive, Move and Ship from the UI become robot work', () => {
   const order = sim.shipBox(shipped.id);
   sim.receive(products[4], 3, null);
   const before = state.serial;
-  run(sim, 240);
+  run(sim, 420); // corner to corner of the 24-zone warehouse is a ~3.5 min drive
   // Random demand may ship the box later, so check that the move itself happened.
   assert.ok(state.history.some(e => e.box === box.id && e.type === 'Moved' && e.to.startsWith(target.id)));
   assert.ok(order.shipped.includes(shipped.id));

@@ -17,14 +17,21 @@ export function addProduct(name,sku,pcs=1){name=name.trim();sku=sku.trim().toUpp
 // Zone colours from the Figma palette (zone/a … zone/h).
 export const colors=['#82c0fa','#8cd88a','#f0c977','#f29b6c','#b587f9','#f17fb7','#86cade','#9294f0'];
 // Demo warehouse from the Figma screens: 8 zones, 57 racks of 7 shelves × 4 cells, 2 boxes per cell.
-export function seed(){const counts=[251,255,290,246,232,306,247,208],rackCounts=[8,7,7,8,6,7,7,7],zones=[],racks=[],boxes=[],flow={};let n=0;
- counts.forEach((count,i)=>{const id=String.fromCharCode(65+i),x=(i%4)*59-118,z=Math.floor(i/4)*33-33,nr=rackCounts[i];zones.push({id,name:`Zone ${id}`,x,z,w:56,d:30,color:colors[i]});
+// A large fulfilment-centre layout: a conveyor spine runs west→east through the middle (receiving at the
+// west end, dispatch at the east end) and 24 zones line both sides of it, racks facing the spine.
+export const SPINE={x1:-186,x2:186,z:0,crossings:[-120,0,120]};
+export function seed(){const zones=[],racks=[],boxes=[],flow={};let n=0;
+ const rows=[{z:-87,north:true},{z:-54,north:true},{z:24,north:false},{z:57,north:false}];
+ rows.forEach((row,ri)=>{for(let c=0;c<6;c++){const i=ri*6+c,id=String.fromCharCode(65+i),x=c*59-176,z=row.z,nr=14-(i*5)%3;
+  zones.push({id,name:`Zone ${id}`,x,z,w:56,d:30,color:colors[i%colors.length]});
+  // North racks face south (+z), south racks face north, so every rack front looks towards the spine.
+  const fill=.5+.06*((i*7)%5),count=Math.round(nr*rackCapacity(config(templates.standard))*fill);
   const weights=Array.from({length:nr},(_,j)=>1+.16*Math.sin(j*1.7+i*2.3)),sum=weights.reduce((a,b)=>a+b,0);let left=count;
-  for(let j=0;j<nr;j++){const rid=`${id}-${String(j+1).padStart(2,'0')}`,r={id:rid,zone:id,x:x+5+(j%7)*7.5,z:z+7+Math.floor(j/7)*15,...config(templates.standard)};racks.push(r);
+  for(let j=0;j<nr;j++){const rid=`${id}-${String(j+1).padStart(2,'0')}`,r={id:rid,zone:id,x:x+5+(j%7)*7.5,z:z+(row.north?7:8)+Math.floor(j/7)*15,...config(templates.standard),rotation:row.north?0:2};racks.push(r);
    const qty=Math.min(rackCapacity(r),j===nr-1?left:Math.round(count*weights[j]/sum));left-=qty;const cells=locations(r);
    for(let k=0;k<qty;k++){const loc=cells[Math.floor(k/CELL_CAPACITY)],shelf=Number(loc.slice(1,loc.indexOf('-')));boxes.push({id:`BX-${String(10000+ ++n)}`,product:products[(i*5+j*3+shelf)%products.length],rack:rid,location:loc});}
-   flow[rid]={in:Math.round(qty*(.06+.05*Math.abs(Math.sin(j+i)))),out:Math.round(qty*(.03+.04*Math.abs(Math.cos(j*2+i))))};}});
- const demo={version:2,zones,racks,boxes,serial:10000+n,flow,today:{received:184,putAway:178,moved:20,shipped:126},yesterday:{received:164,putAway:165,moved:18,shipped:130},history:[]};backstory(demo);return demo;}
+   flow[rid]={in:Math.round(qty*(.06+.05*Math.abs(Math.sin(j+i)))),out:Math.round(qty*(.03+.04*Math.abs(Math.cos(j*2+i))))};}}});
+ const demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:{...SPINE},today:{received:1104,putAway:1068,moved:120,shipped:756},yesterday:{received:984,putAway:990,moved:108,shipped:780},history:[]};backstory(demo);return demo;}
 // Give the demo a past: every box has a receipt date and document, and today already has a few hours of activity.
 // A fixed random seed keeps the story the same on every reload.
 function backstory(s,now=Date.now()){let r=1234567;const rnd=()=>{r=r+0x6D2B79F5|0;let t=Math.imul(r^r>>>15,1|r);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;},pick=a=>a[Math.floor(rnd()*a.length)];
@@ -32,8 +39,8 @@ function backstory(s,now=Date.now()){let r=1234567;const rnd=()=>{r=r+0x6D2B79F5
  for(const b of s.boxes){const ago=1+Math.floor(rnd()*13),t=new Date(now-ago*86400e3);t.setHours(7+Math.floor(rnd()*10),Math.floor(rnd()*60),0,0);b.receivedAt=t.toISOString();b.doc=`inv. ${1000+ago*17+Math.floor(rnd()*17)}`;}
  const events=[],at=t=>new Date(Math.min(t,now-60e3)).toISOString(),add=(type,box,from,to,t)=>events.push({type,box:box.id,product:box.product,from,to,detail:`${box.id} · ${box.product} · ${from} → ${to}`,time:at(t)});
  let shipped=new Set();for(let i=0;i<110;i++){const t=start+rnd()*(now-start),roll=rnd(),box=pick(s.boxes);if(shipped.has(box.id))continue;
-  if(roll<.5){const st=`Receiving ${1+Math.floor(rnd()*2)}`;box.receivedAt=at(t);box.doc=`inv. ${2000+Math.floor(rnd()*60)}`;add('Received',box,'Supplier',st,t);add('Put away',box,st,`${box.rack} / ${box.location}`,t+(4+rnd()*14)*60e3);}
-  else if(roll<.85){shipped.add(box.id);add('Shipped',box,`Dispatch ${1+Math.floor(rnd()*2)}`,'Customer',t);}
+  if(roll<.5){const st=`Receiving ${1+Math.floor(rnd()*6)}`;box.receivedAt=at(t);box.doc=`inv. ${2000+Math.floor(rnd()*60)}`;add('Received',box,'Supplier',st,t);add('Put away',box,st,`${box.rack} / ${box.location}`,t+(4+rnd()*14)*60e3);}
+  else if(roll<.85){shipped.add(box.id);add('Shipped',box,`Dispatch ${1+Math.floor(rnd()*6)}`,'Customer',t);}
   else if(roll<.96){const from=`S${1+Math.floor(rnd()*7)}-P${1+Math.floor(rnd()*4)}`;if(from!==box.location)add('Moved',box,`${box.rack} / ${from}`,`${box.rack} / ${box.location}`,t);}
   else events.push({type:'System',detail:pick(['AMR-06 joined the fleet','AMR-07 returned to standby','Receiving 2 back online','AMR-03 finished charging']),time:at(t)});}
  // Shipped boxes have left the shelves.

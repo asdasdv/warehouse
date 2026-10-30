@@ -1,4 +1,5 @@
-// Receiving and dispatch docks: a belt with a tunnel at the far end, served by robots at the near end.
+// Receiving and dispatch docks: a short belt served by robots at the near end. On a warehouse with a
+// conveyor spine (`state.spine`) the far end joins the spine; without one it ends in a tunnel.
 // A dock lives in `state.docks` as {id, kind, x, z, rotation}; (x, z) is the dock origin and
 // `rotation` turns it in 90° steps like a rack. Station-local +z runs along the belt, away from the robot.
 export const BELT_TOP = 1.5;                 // level with the robot deck
@@ -10,6 +11,57 @@ const HALF_WIDTH = 2.1, TAIL = BELT_END + 1.3;
 const SNAP = 2;                              // docks sit on the robot grid so the robot stops square to the belt
 
 export const DOCK_IDS = [['Receiving 1', 'inbound'], ['Receiving 2', 'inbound'], ['Dispatch 1', 'outbound'], ['Dispatch 2', 'outbound']];
+
+// ---------- conveyor spine ----------
+// {x1, x2, z, crossings}: two parallel belts running west (x1, receiving building) → east (x2, dispatch building).
+// At each crossing the spine climbs onto a bridge so robots can drive underneath.
+export const SPINE_HALF = 3;       // half width of the spine footprint
+export const SPINE_BELT = 1.3;     // belt centre offset from the spine axis (north belt at -, south at +)
+export const BRIDGE_LIFT = 3.6, BRIDGE_HALF = 5, RAMP = 8;
+export const BUILDING = {length: 14, width: 12, height: 9};
+const DOCK_OFFSET = 12;            // dock origin from the spine axis: the belt tail meets the spine edge
+export function spineLift(spine, x) {
+  let lift = 0;
+  for (const c of spine.crossings || []) {
+    const d = Math.abs(x - c);
+    lift = Math.max(lift, d <= BRIDGE_HALF ? BRIDGE_LIFT : d < BRIDGE_HALF + RAMP ? BRIDGE_LIFT * (1 - (d - BRIDGE_HALF) / RAMP) : 0);
+  }
+  return lift;
+}
+// Profile break points along the spine, for drawing the belts as straight pieces.
+export function spineBreaks(spine) {
+  const xs = [spine.x1, spine.x2];
+  for (const c of spine.crossings || []) xs.push(c - BRIDGE_HALF - RAMP, c - BRIDGE_HALF, c + BRIDGE_HALF, c + BRIDGE_HALF + RAMP);
+  return [...new Set(xs.filter(x => x >= spine.x1 && x <= spine.x2))].sort((a, b) => a - b);
+}
+// What robots cannot drive through: the low parts of the spine and the two end buildings.
+export function spineRects(spine) {
+  if (!spine) return [];
+  const open = (spine.crossings || []).map(c => [c - BRIDGE_HALF, c + BRIDGE_HALF]).sort((a, b) => a[0] - b[0]), out = [];
+  let from = spine.x1;
+  for (const [a, b] of [...open, [spine.x2, spine.x2]]) {
+    if (a > from) out.push({id: 'Conveyor', x: (from + a) / 2, z: spine.z, width: a - from, depth: SPINE_HALF * 2});
+    from = Math.max(from, b);
+  }
+  out.push({id: 'Receiving building', x: spine.x1 - BUILDING.length / 2, z: spine.z, width: BUILDING.length, depth: BUILDING.width});
+  out.push({id: 'Dispatch building', x: spine.x2 + BUILDING.length / 2, z: spine.z, width: BUILDING.length, depth: BUILDING.width});
+  return out;
+}
+// Docks sit beside the spine: north docks face north (rotation 0), south docks face south (rotation 2).
+export function onSpine(spine, x, north) {
+  return {x: Math.round(x / SNAP) * SNAP, z: spine.z + (north ? -DOCK_OFFSET : DOCK_OFFSET), rotation: north ? 0 : 2};
+}
+export const dockNorth = (spine, d) => d.z < spine.z;
+function spineDocks(spine) {
+  const xs = [-150, -90, -30, 30, 90, 150], docks = [];
+  let inbound = 0, outbound = 0;
+  for (const north of [true, false]) xs.forEach((x, i) => {
+    const kind = (i + (north ? 0 : 1)) % 2 ? 'outbound' : 'inbound';
+    const id = kind === 'inbound' ? `Receiving ${++inbound}` : `Dispatch ${++outbound}`;
+    docks.push({id, kind, ...onSpine(spine, x, north)});
+  });
+  return docks;
+}
 
 // Same turn as three.js rotation.y = -rotation·π/2.
 export function toWorld(d, lx, lz) {
@@ -27,6 +79,7 @@ export function dockRect(d) {
 const snap = v => Math.round(v / SNAP) * SNAP;
 // Below the zones, clear of the racks: receiving on the left, dispatch on the right.
 export function defaultDocks(s) {
+  if (s.spine) return spineDocks(s.spine);
   const racks = s.racks || [], zones = s.zones || [];
   const bottom = Math.max(0, ...racks.map(r => r.z + r.depth / 2), ...zones.map(z => z.z + z.d));
   const xs = racks.map(r => r.x), center = xs.length ? (Math.min(...xs) + Math.max(...xs)) / 2 : 0;
@@ -38,6 +91,9 @@ export function docksOf(s) {
   return s.docks;
 }
 export function snapDock(p) { return {x: snap(p.x), z: snap(p.z)}; }
+
+// Everything robots must drive around: docks plus the spine and its buildings.
+export const layoutObstacles = s => [...docksOf(s).map(dockRect), ...spineRects(s.spine)];
 
 const overlaps = (a, b, gap) => Math.abs(a.x - b.x) < (a.width + b.width) / 2 + gap && Math.abs(a.z - b.z) < (a.depth + b.depth) / 2 + gap;
 // Docks keep a robot's width clear of racks and of each other, and their port must be open floor.

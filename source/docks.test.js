@@ -1,15 +1,29 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {seed} from './model.js';
-import {docksOf, dockRect, dockPort, validateDocks} from './docks.js';
+import {docksOf, dockRect, dockPort, validateDocks, spineRects} from './docks.js';
 import {createRouter, laneDir} from './robot-routing.js';
 import {validateLayoutAccess} from './layout-access.js';
 
-test('default docks sit below the zones, clear of racks and each other', () => {
-  const s = seed(), docks = docksOf(s), bottom = Math.max(...s.zones.map(z => z.z + z.d));
-  assert.equal(docks.length, 4);
+test('default docks line both sides of the spine, clear of racks and each other', () => {
+  const s = seed(), docks = docksOf(s);
+  assert.equal(docks.length, 12);
+  assert.equal(docks.filter(d => d.kind === 'inbound').length, 6);
   assert.doesNotThrow(() => validateDocks(s));
-  for (const d of docks) assert.ok(dockRect(d).z - dockRect(d).depth / 2 > bottom && dockPort(d).z > bottom, `${d.id} is below the zones`);
+  for (const north of [true, false]) {
+    const side = docks.filter(d => (d.z < s.spine.z) === north);
+    assert.ok(side.some(d => d.kind === 'inbound') && side.some(d => d.kind === 'outbound'), 'each side has both dock kinds');
+  }
+  // The belt tail meets the spine; robots stop on the far side, in the corridor before the zones.
+  for (const d of docks) { const r = dockRect(d); assert.ok(Math.abs(Math.abs(r.z - s.spine.z) - r.depth / 2 - 3.2) < .1 && Math.abs(dockPort(d).z - s.spine.z) === 20, d.id); }
+});
+
+test('the spine blocks robots except under its bridges', () => {
+  const s = seed(), router = createRouter([], spineRects(s.spine));
+  const path = router.route({x: -60, z: -20}, {x: -60, z: 20});
+  assert.ok(path?.length);
+  const crossing = path.find((p, i) => i && Math.sign(path[i - 1].z) !== Math.sign(p.z));
+  assert.ok(s.spine.crossings.some(c => Math.abs(crossing.x - c) < 5), `crossed at x=${crossing.x}`);
 });
 
 test('a dock cannot be dropped onto a rack or another dock', () => {
