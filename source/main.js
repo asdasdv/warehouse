@@ -269,14 +269,13 @@ function bindStepper(form, onChange) {
   input.onchange = clamp;
 }
 // Product field with suggestions. list() returns product names; onCreate is optional ("Create new").
-const stockByProduct = () => { const m = new Map(); for (const b of state.boxes) m.set(b.product, (m.get(b.product) || 0) + 1); return m; };
 function productField(form, {value, list, onPick, onCreate, count}) {
   const input = form.querySelector('#productInput'), box = form.querySelector('#productSuggest');
   const show = () => {
     const q = input.value.trim().toLowerCase();
     const hits = list().filter(p => !q || p.toLowerCase().includes(q) || itemOf(p)?.sku.toLowerCase().includes(q));
     active = -1;
-    // Each suggestion shows how many boxes there are (count(p)), on the right.
+    // Ship shows how many boxes can go (count), on the right; Receive doesn't need it.
     // Counted once a second at most: typing re-filters the list on every key.
     if (count && (!counted || performance.now() - counted.at > 1000)) counted = {at: performance.now(), map: count()};
     const n = counted?.map;
@@ -404,7 +403,7 @@ function receivePhoenix(preset = {}) {
     else placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; picked = true; render(); }, qty);
     form.querySelector('#submitBtn').textContent = submitLabel();
   };
-  if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), count: stockByProduct, onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
+  if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
     onCreate: name => receivePhoenix({isNew: true, name, qty})});
   bindStepper(form, n => { qty = n; if (!picked) choice = null; render(); });
   form.querySelector('#chooseOther').onclick = () => {
