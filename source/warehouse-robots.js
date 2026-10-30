@@ -332,6 +332,9 @@ export function addWarehouseRobots(scene, getState) {
         m.add(inst); st.rollers = inst; st.rollerAngle = 0;
       }
       mergeByMaterial(m, o => o.material === st.scanMat || o.material === st.portalMat);
+      // Small parts (rollers, lights, trims) are hidden when the dock is far away; see updateDetail.
+      st.fine = [];
+      m.traverse(o => { if (!o.isMesh || !o.visible) return; o.geometry.computeBoundingSphere(); if (o === st.rollers || o.geometry.boundingSphere.radius * CONVEYOR_SCALE < DOCK_FINE) st.fine.push(o); });
     }
   });
   loadModel('box').then(model => {
@@ -340,6 +343,8 @@ export function addWarehouseRobots(scene, getState) {
     for (const r of robots) { r.cargo.clear(); r.cargo.add(cartonContent()); }
   });
   const ROBOT_NEAR = 150;
+  // Beyond DOCK_NEAR a dock drops its parts smaller than DOCK_FINE (bounding radius, metres).
+  const DOCK_NEAR = 220, DOCK_FINE = 1.5;
   const proxyBody = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: PALETTE.dark, roughness: .6}), ROBOTS);
   const proxyLoad = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: '#c9a274', roughness: .9}), ROBOTS);
   const proxyObj = new T.Object3D();
@@ -1283,6 +1288,7 @@ export function addWarehouseRobots(scene, getState) {
         if (r.cargo.visible) { proxyObj.position.y = 1.5 + r.cargo.scale.y / 2; proxyObj.scale.copy(r.cargo.scale); proxyObj.updateMatrix(); proxyLoad.setMatrixAt(loads++, proxyObj.matrix); }
       }
       proxyBody.count = bodies; proxyLoad.count = loads;
+      for (const st of stations) { const far = camera.distanceTo(st.g.position) > DOCK_NEAR; for (const o of st.fine || []) o.visible = !far; }
       proxyBody.instanceMatrix.needsUpdate = proxyLoad.instanceMatrix.needsUpdate = true;
     },
     // Names drawn as HTML tags over the 3D view: docks and the two buildings.
