@@ -103,6 +103,29 @@ export function docksOf(s) {
 }
 export function snapDock(p) { return {x: snap(p.x), z: snap(p.z)}; }
 
+// ---------- charging depots ----------
+// Two depots at the sides of the building (west, north of the conveyors; east, south of them), away from the
+// busy middle. Each is rows of charging bays along short aisles; robots charge there and the reserve waits there.
+export const DEPOT = {aisles: 4, bays: 8, step: 4, aisleGap: 12};
+export function chargingDepots(s) {
+  const zones = s.zones || [];
+  if (!zones.length) return [];
+  const minX = Math.min(...zones.map(z => z.x)), maxX = Math.max(...zones.map(z => z.x + z.w));
+  const w = DEPOT.bays * DEPOT.step, d = DEPOT.aisles * DEPOT.aisleGap, edge = s.spine ? Math.max(s.spine.x2 - maxX, minX - s.spine.x1) + BUILDING.length + 6 : 12;
+  const at = (x0, z0, id) => {
+    const bays = [], aisles = [];
+    for (let k = 0; k < DEPOT.aisles; k++) {
+      const z = z0 + DEPOT.aisleGap / 2 + k * DEPOT.aisleGap;
+      aisles.push({x1: x0, x2: x0 + w, z});
+      for (const side of [-1, 1]) for (let i = 0; i < DEPOT.bays; i++) bays.push({x: x0 + DEPOT.step / 2 + i * DEPOT.step, z: z + side * 4, face: side});
+    }
+    return {id, x: x0, z: z0, w, d, bays, aisles};
+  };
+  return [at(Math.floor((minX - edge - w) / 2) * 2, -24 - d, 'Charging west'), at(Math.ceil((maxX + edge) / 2) * 2, 24, 'Charging east')];
+}
+// Points along the depot aisles, for the lane network.
+export const depotStops = depots => depots.flatMap(d => d.aisles.flatMap(a => [a.x1 - 6, (a.x1 + a.x2) / 2, a.x2 + 6].map(x => ({x, z: a.z}))));
+
 // Everything robots must drive around: docks plus the spine and its buildings.
 export const layoutObstacles = s => [...docksOf(s).map(dockRect), ...spineRects(s.spine)];
 

@@ -5,7 +5,7 @@ import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
 import {mergeByMaterial} from './merge-meshes.js';
-import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
+import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, chargingDepots, depotStops, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
@@ -13,6 +13,8 @@ import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUI
 
 // Fleet size and demand are set for 312 racks and grow with the warehouse (see `scale` below).
 const BASE_RACKS = 312, BASE_ROBOTS = 40, BASE_ACTIVE = 16, ROBOTS_PER_DOCK = 5;
+// Battery, in % per second: a working robot runs from full to LOW in ~12 minutes and charges back in ~1.5.
+const DRAIN_WORK = .1, DRAIN_IDLE = .02, CHARGE_RATE = .8, LOW = 25, FULL = 95;
 const RESLOT_SHARE = .25;    // at most this share of the fleet does internal moves (reslotting) when there is no other work
 const STATION_CAPACITY = 6;
 const MAX_PER_ADDRESS = CELL_CAPACITY;
@@ -236,7 +238,7 @@ export function addWarehouseRobots(scene, getState) {
     label(g, id, 0, 4, 0);
     const hit = box(g, 0, 1.7, 0, 3.1, 3.5, 3.8, new T.MeshBasicMaterial({visible: false}));
     hit.userData = {type: 'robot', id}; hits.push(hit);
-    robots.push({id, g, body, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 92 - (i * 7) % 55, paused: false, chargeNext: false,
+    robots.push({id, g, body, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 30 + (i * 37) % 71, paused: false, chargeNext: false,
       charging: false, cycles: 0, task: null, path: [], index: 0, retry: i * .3, product: '', boxId: '', mission: '',
       at: null, ahead: [], speed: 0, wait: 0, idle: 0, home: null});
   }
@@ -487,6 +489,31 @@ export function addWarehouseRobots(scene, getState) {
     q.mesh.position.lerpVectors(m.from, m.to, k); if (m.hop) q.mesh.position.y += Math.sin(Math.PI * m.t) * .12;
     if (m.t >= 1) { q.move = null; m.done(); }
   }
+  // ---------- charging depots ----------
+  // A floor patch per depot and a charging post at the back of every bay (all posts in one instanced mesh).
+  let depots = [];
+  const depotGroup = new T.Group(); group.add(depotGroup);
+  const depotFloorMat = new T.MeshStandardMaterial({color: '#dde2e8', roughness: .95});
+  const postMat = new T.MeshStandardMaterial({color: PALETTE.white, roughness: .6});
+  const postLightMat = new T.MeshStandardMaterial({color: '#7fe3a8', emissive: '#2fe37a', emissiveIntensity: 1.6});
+  function drawDepots() {
+    depotGroup.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+    depotGroup.clear();
+    const bays = depots.flatMap(d => d.bays);
+    for (const d of depots) {
+      const floor = new T.Mesh(new T.PlaneGeometry(d.w + 4, d.d).rotateX(-Math.PI / 2), depotFloorMat);
+      floor.position.set(d.x + d.w / 2, .02, d.z + d.d / 2); floor.receiveShadow = true; floor.raycast = () => {}; depotGroup.add(floor);
+    }
+    if (!bays.length) return;
+    const posts = new T.InstancedMesh(geo, postMat, bays.length), lights = new T.InstancedMesh(geo, postLightMat, bays.length), o = new T.Object3D();
+    bays.forEach((b, i) => {
+      o.position.set(b.x, .7, b.z + b.face * 2.1); o.scale.set(1.1, 1.4, .35); o.updateMatrix(); posts.setMatrixAt(i, o.matrix);
+      o.position.set(b.x, 1.15, b.z + b.face * 1.92); o.scale.set(.6, .12, .02); o.updateMatrix(); lights.setMatrixAt(i, o.matrix);
+    });
+    posts.castShadow = true; posts.receiveShadow = true;
+    for (const m of [posts, lights]) { m.raycast = () => {}; depotGroup.add(m); }
+  }
+
   // ---------- buildings ----------
   const cladding = (() => {
     if (typeof document === 'undefined') return tunnelMat;
@@ -683,9 +710,9 @@ export function addWarehouseRobots(scene, getState) {
   // without workers (tests) it is built a step per frame. Robots route without it until it is ready.
   const worker = typeof Worker !== 'undefined' && typeof window !== 'undefined' ? new Worker(new URL('./network-worker.js', import.meta.url), {type: 'module'}) : null;
   if (worker) worker.onmessage = e => { if (e.data.id === networkId) { router.setNetwork(e.data.network); networkReady(e.data.segments); } };
-  function buildNetwork(hubs, stops, racks, obstacles) {
+  function buildNetwork(hubs, stops, racks, obstacles, area) {
     networkId++; networkPending = true;
-    if (worker) { networkJob = null; worker.postMessage({id: networkId, racks, obstacles, hubs, stops}); return; }
+    if (worker) { networkJob = null; worker.postMessage({id: networkId, racks, obstacles, area, hubs, stops}); return; }
     networkJob = router.networkSteps(hubs, stops);
   }
   function stepNetwork(budgetMs) {
@@ -702,10 +729,12 @@ export function addWarehouseRobots(scene, getState) {
     // Parking (and charging) bays are spread over the building: beside the docks and beside every zone.
     const zoneSpots = getState().zones.map(z => ({x: z.x + z.w / 2, z: z.z + z.d / 2}));
     const spots = router.parking(ROBOTS, [...stations.map(st => st.port), ...zoneSpots], stations.map(st => st.port));
-    robots.forEach((r, i) => { r.home = spots[i] || null; });
-    // The short way into each parking bay becomes part of the network: drawn, and kept to.
-    for (const spot of spots) router.connect(spot);
-    drawLanes(router.segments(), spots);
+    // Every robot also gets its own charging bay in one of the depots.
+    const bays = depots.flatMap(d => d.bays);
+    robots.forEach((r, i) => { r.home = spots[i] || null; r.charger = bays[i % Math.max(1, bays.length)] || null; });
+    // The short way into each bay becomes part of the network: drawn, and kept to.
+    for (const spot of [...spots, ...bays]) router.connect(spot);
+    drawLanes(router.segments(), [...spots, ...bays]);
     networkPending = false;
   }
   function checkLayout() {
@@ -727,8 +756,11 @@ export function addWarehouseRobots(scene, getState) {
     const sk = JSON.stringify(s.spine || null) + JSON.stringify(docks);
     if (sk !== spineKey) { spineKey = sk; spine = s.spine || null; drawSpine(spine); }
     const obstacles = layoutObstacles(s);
-    router = createRouter(s.racks, obstacles);
-    buildNetwork(stations.map(st => st.port), s.racks.flatMap(router.ports), s.racks, obstacles);
+    depots = chargingDepots(s);
+    const area = depots.flatMap(d => [{x: d.x - 10, z: d.z - 10}, {x: d.x + d.w + 10, z: d.z + d.d + 10}]);
+    router = createRouter(s.racks, obstacles, area);
+    buildNetwork(stations.map(st => st.port), [...s.racks.flatMap(router.ports), ...depotStops(depots)], s.racks, obstacles, area);
+    drawDepots();
     const near = {x: stations.reduce((n, st) => n + st.port.x, 0) / stations.length, z: stations.reduce((n, st) => n + st.port.z, 0) / stations.length};
     drawTransfers();
     anchor = near;
@@ -926,7 +958,7 @@ export function addWarehouseRobots(scene, getState) {
     const wanted = Math.min(ROBOTS, MIN_ACTIVE + Math.floor(demand / 4));
     robots.forEach((r, i) => {
       if (i < wanted && !r.active) { r.active = true; r.status = 'Idle'; r.retry = 0; note(`${r.id} joined the fleet`); }
-      if (i >= wanted && r.active && !r.task && !r.charging && parked(r)) { r.active = false; r.status = 'Standby'; r.cargo.visible = false; note(`${r.id} returned to standby`); }
+      if (i >= wanted && r.active && !r.task && !r.charging) { r.active = false; r.status = 'Standby'; r.cargo.visible = false; note(`${r.id} returned to standby`); }
     });
   }
 
@@ -955,13 +987,13 @@ export function addWarehouseRobots(scene, getState) {
     for (const r of robots) {
       if (!r.active) {
         r.pitch = 0; r.body.rotation.x = 0; r.pad.visible = false;
-        if (r.leds) for (const k of ['main', 'left', 'right']) light(r.leds[k], LIGHT.ready, .25);
+        if (r.leds) for (const k of ['main', 'left', 'right']) light(r.leds[k], atCharger(r) && r.battery < 100 ? LIGHT.blue : LIGHT.ready, .3);
         continue;
       }
       // Lean back when speeding up, dip the nose when braking.
       r.pitch += (Math.max(-.05, Math.min(.05, -r.accel * .012)) - r.pitch) * Math.min(1, dt * 8);
       r.body.rotation.x = r.pitch;
-      const charging = r.charging && !r.task && parked(r);
+      const charging = r.charging && !r.task && atCharger(r);
       r.pad.visible = charging;
       if (charging) r.pad.material.opacity = .18 + .17 * Math.sin(clock * 2.5);
       if (!r.leds) continue;
@@ -1140,36 +1172,37 @@ export function addWarehouseRobots(scene, getState) {
     note(`${t.box.id} delivered · ${r.to}`);
     r.cycles++; delivered++; r.task = null; r.cargo.visible = false;
     r.retry = HANDOFF_SECONDS; // stand at the drop point for a moment before the next job
-    if (r.chargeNext || r.battery < 25) { r.charging = true; r.chargeNext = false; }
+    if (r.chargeNext || r.battery < LOW) { r.charging = true; r.chargeNext = false; }
   }
   const parked = r => !r.home || same(r.at, r.home) && !r.ahead.length;
+  const atCharger = r => !r.charger || same(r.at, r.charger) && !r.ahead.length;
+  function driveTo(r, spot, dt) {
+    if (!r.path.length || !same(r.path.at(-1), spot)) setPath(r, router.route(origin(r), spot) || []);
+    if (move(r, dt)) { r.path = []; r.index = 0; }
+  }
+  // Low battery: drive to the robot's charging bay and charge to FULL, then go back to work.
+  function charge(r, dt) {
+    if (!atCharger(r)) { driveTo(r, r.charger, dt); r.status = 'Going to charge'; return; }
+    r.speed = 0; r.status = 'Charging'; r.battery = Math.min(100, r.battery + dt * CHARGE_RATE);
+    if (r.battery >= FULL) r.charging = false;
+  }
   // No job: look for work every second; after a short wait drive to the parking spot (chargers are there),
   // so an idle robot never stands on a lane.
   function idle(r, dt) {
-    if (r.charging && parked(r)) {
-      r.status = 'Charging'; r.battery = Math.min(100, r.battery + dt * 3);
-      if (r.battery === 100) r.charging = false;
-      return;
-    }
-    if (!r.charging) {
-      r.retry -= dt;
-      if (r.retry <= 0) { r.retry = 1; if (r.battery < 25) r.charging = true; else assign(r); }
-      if (r.task) return;
-    }
+    if (r.charging) return charge(r, dt);
+    r.battery = Math.max(5, r.battery - dt * DRAIN_IDLE);
+    r.retry -= dt;
+    if (r.retry <= 0) { r.retry = 1; if (r.battery < LOW) { r.charging = true; return; } assign(r); }
+    if (r.task) return;
     r.idle += dt;
-    if (parked(r) || r.idle < PARK_AFTER && !r.charging) { r.speed = 0; return; }
-    if (!r.path.length || !same(r.path.at(-1), r.home)) setPath(r, router.route(origin(r), r.home) || []);
-    if (move(r, dt)) { r.path = []; r.index = 0; }
-    if (r.charging) r.status = 'Charging';
+    if (parked(r) || r.idle < PARK_AFTER) { r.speed = 0; return; }
+    driveTo(r, r.home, dt);
   }
-  // Standby robots stay on the floor: they drive to their parking spot (straight after loading the page they
-  // wait in the corridors) and stand there until the fleet needs them, so no robot ever pops in or out.
+  // The reserve waits in the charging depots: a standby robot drives to its charging bay and tops up there
+  // until the fleet needs it, so no robot ever pops in or out and none stands in the busy middle.
   function standby(r, dt) {
-    r.status = 'Standby';
-    if (parked(r)) { r.speed = 0; return; }
-    if (!r.path.length || !same(r.path.at(-1), r.home)) setPath(r, router.route(origin(r), r.home) || []);
-    if (move(r, dt)) { r.path = []; r.index = 0; }
-    r.status = 'Standby';
+    if (!atCharger(r)) { driveTo(r, r.charger, dt); r.status = 'Standby'; return; }
+    r.speed = 0; r.status = 'Standby'; r.charging = false; r.battery = Math.min(100, r.battery + dt * CHARGE_RATE);
   }
   function updateRobot(r, dt) {
     if (!r.active) return standby(r, dt);
@@ -1177,7 +1210,7 @@ export function addWarehouseRobots(scene, getState) {
     if (!r.task) return idle(r, dt);
     const t = r.task;
     if (t.outStation && !t.outStation.ready || t.sourceStation && !t.sourceStation.ready && r.stage === 'To pickup') { r.status = 'Waiting for station'; return; }
-    r.status = r.stage; r.battery = Math.max(5, r.battery - dt * .02);
+    r.status = r.stage; r.battery = Math.max(5, r.battery - dt * DRAIN_WORK);
     if (r.stage === 'To pickup' || r.stage === 'Transporting') {
       if (move(r, dt)) { r.stage = r.stage === 'To pickup' ? 'Loading' : 'Unloading'; r.timer = 0; }
       return;
@@ -1255,6 +1288,7 @@ export function addWarehouseRobots(scene, getState) {
     // Names drawn as HTML tags over the 3D view: docks and the two buildings.
     mapTags() {
       const out = stations.map(st => ({key: st.id, text: st.id, kind: 'dock', x: st.g.position.x, y: 5, z: st.g.position.z}));
+      for (const d of depots) out.push({key: d.id, text: 'Charging', kind: 'dock', x: d.x + d.w / 2, y: 3, z: d.z + d.d / 2});
       if (spine) out.push({key: 'Receiving building', text: 'Receiving', kind: 'building', x: spine.x1 - BUILDING.length / 2, y: BUILDING.height + 3, z: 0},
         {key: 'Dispatch building', text: 'Dispatch', kind: 'building', x: spine.x2 + BUILDING.length / 2, y: BUILDING.height + 3, z: 0});
       return out;

@@ -11,13 +11,15 @@ const mod = (a, n) => ((a % n) + n) % n;
 // Direction of travel on a lane: +1 / -1 along the axis, 0 when the line is not a lane.
 export const laneDir = v => mod(v, LANE) ? 0 : mod(v / LANE, 2) ? -1 : 1;
 
-export function createRouter(racks, obstacles = []) {
-  const all = [...racks, ...obstacles];
+// `area` (points) widens the grid beyond racks and obstacles, e.g. to take in the charging depots.
+export function createRouter(racks, obstacles = [], area = []) {
+  const all = [...racks, ...obstacles, ...area.map(p => ({x: p.x, z: p.z, width: 0, depth: 0}))];
+  const solid = [...racks, ...obstacles];
   const minX = Math.floor((Math.min(0, ...all.map(r => r.x - r.width / 2)) - 20) / LANE) * LANE;
   const minZ = Math.floor((Math.min(0, ...all.map(r => r.z - r.depth / 2)) - 20) / LANE) * LANE;
   const maxX = Math.max(0, ...all.map(r => r.x + r.width / 2)) + 20, maxZ = Math.max(0, ...all.map(r => r.z + r.depth / 2)) + 35;
   const w = Math.ceil((maxX - minX) / STEP) + 1, h = Math.ceil((maxZ - minZ) / STEP) + 1, N = w * h, blocked = new Uint8Array(N);
-  for (const r of all) {
+  for (const r of solid) {
     const x0 = Math.max(0, Math.ceil((r.x - r.width / 2 - MARGIN - minX) / STEP)), x1 = Math.min(w - 1, Math.floor((r.x + r.width / 2 + MARGIN - minX) / STEP));
     const z0 = Math.max(0, Math.ceil((r.z - r.depth / 2 - MARGIN - minZ) / STEP)), z1 = Math.min(h - 1, Math.floor((r.z + r.depth / 2 + MARGIN - minZ) / STEP));
     for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) blocked[z * w + x] = 1;
@@ -196,24 +198,31 @@ export function createRouter(racks, obstacles = []) {
   // Free spots beside the network (a robot there never blocks a lane), spread round the `near` points.
   function parking(count, near, keepAway = []) {
     if (!network) return [];
-    const nears = [].concat(near), onNet = new Uint8Array(N);
-    for (const e of network) { onNet[Math.floor(e / N)] = 1; onNet[e % N] = 1; }
-    const netPoints = [], candidates = [];
-    for (let i = 0; i < N; i++) if (onNet[i]) netPoints.push(point(i));
-    const cell = new Map(), key = (x, z) => Math.floor(x / 8) + ',' + Math.floor(z / 8);
-    for (const q of netPoints) { const k = key(q.x, q.z); if (!cell.has(k)) cell.set(k, []); cell.get(k).push(q); }
-    // Only cells within 40 m of a dock are considered: a full scan of a large floor is slow.
-    for (let i = 0; i < N; i++) {
-      if (blocked[i] || onNet[i]) continue;
-      const p = point(i);
-      if (!nears.some(q => Math.abs(q.x - p.x) < 40 && Math.abs(q.z - p.z) < 40)) continue;
-      if (keepAway.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 8)) continue;
-      let gap = Infinity;
-      for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++)
-        for (const q of cell.get(key(p.x + dx * 8, p.z + dz * 8)) || []) gap = Math.min(gap, Math.hypot(q.x - p.x, q.z - p.z));
-      if (gap >= 4 && gap <= 6) candidates.push(p);
-    }
-    const lists = nears.map(n => candidates.map(c => ({...c, d: Math.hypot(c.x - n.x, c.z - n.z)})).sort((a, b) => a.d - b.d)), spots = [];
+    const nears = [].concat(near), onNet = i => onNetwork[i * 4] | onNetwork[i * 4 + 1] | onNetwork[i * 4 + 2] | onNetwork[i * 4 + 3];
+    // A spot is a free cell 4–6 m from the nearest network node. Only cells within 40 m of each `near`
+    // point are looked at (scanning the whole floor of a large layout took 150 ms).
+    const R = 20, gapOf = i => {
+      const x = i % w, z = (i / w) | 0; let gap = Infinity;
+      for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
+        const a = x + dx, b = z + dz;
+        if (a >= 0 && a < w && b >= 0 && b < h && onNet(b * w + a)) gap = Math.min(gap, Math.hypot(dx, dz) * STEP);
+      }
+      return gap;
+    };
+    const verdict = new Int8Array(N), lists = nears.map(n => {
+      const c = nearest(n), list = [];
+      if (c < 0) return list;
+      const cx = c % w, cz = (c / w) | 0;
+      for (let z = Math.max(0, cz - R); z <= Math.min(h - 1, cz + R); z++) for (let x = Math.max(0, cx - R); x <= Math.min(w - 1, cx + R); x++) {
+        const i = z * w + x;
+        if (!verdict[i]) {
+          const p = point(i), gap = blocked[i] || onNet(i) || keepAway.some(q => Math.hypot(q.x - p.x, q.z - p.z) < 8) ? 0 : gapOf(i);
+          verdict[i] = gap >= 4 && gap <= 6 ? 1 : -1;
+        }
+        if (verdict[i] === 1) { const p = point(i); list.push({...p, d: Math.hypot(p.x - n.x, p.z - n.z)}); }
+      }
+      return list.sort((a, b) => a.d - b.d);
+    }), spots = [];
     const free = c => spots.every(s => Math.hypot(s.x - c.x, s.z - c.z) >= 4);
     for (let round = 0; spots.length < count && round < count; round++)
       for (const list of lists) { const c = list.find(free); if (c && spots.length < count) spots.push({x: c.x, z: c.z}); }
@@ -224,7 +233,7 @@ export function createRouter(racks, obstacles = []) {
     const seen = new Uint8Array(N), q = new Int32Array(N); let start = nearest(origin), head = 0, tail = 0;
     if (start >= 0) { q[tail++] = start; seen[start] = 1; }
     while (head < tail) { const i = q[head++]; for (let d = 0; d < 4; d++) { const n = neighbour(i, d); if (n >= 0 && !blocked[n] && !seen[n]) { seen[n] = 1; q[tail++] = n; } } }
-    const inside = (x, z) => all.some(r => Math.abs(x - r.x) <= r.width / 2 + MARGIN && Math.abs(z - r.z) <= r.depth / 2 + MARGIN);
+    const inside = (x, z) => solid.some(r => Math.abs(x - r.x) <= r.width / 2 + MARGIN && Math.abs(z - r.z) <= r.depth / 2 + MARGIN);
     return p => {
       if (inside(p.x, p.z)) return false;
       const x = Math.round((p.x - minX) / STEP), z = Math.round((p.z - minZ) / STEP);
