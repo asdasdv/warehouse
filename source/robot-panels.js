@@ -6,7 +6,8 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
  const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`,chev='<img src="/assets/fg/chevron-right.svg" alt="">';
  const when=t=>new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).replace(',',' ·');
- function open(name,robot){const entering=!page;beforeOpen();page=name==='Box'?'Box':'Fleet';if(robot){id=robot;reveal=true;}document.body.classList.add('robot-mode');el.hidden=false;lightNav();if(robot)scene.followRobot(robot);else if(page==='Fleet'&&entering)scene.focusRobot(null);last='';render();}
+ function open(name,robot){beforeOpen();page=name==='Box'?'Box':'Fleet';if(robot){id=robot;reveal=true;}document.body.classList.add('robot-mode');el.hidden=false;lightNav();// Opening Fleet keeps the view where it is; only picking a robot moves the camera.
+ if(robot)scene.followRobot(robot);last='';render();}
  function close(){scene.followRobot(null);page=null;el.hidden=true;document.body.classList.remove('robot-mode');lightNav();}
  // One lit section in the top bar: Fleet for the fleet, Warehouse for a box card or the map.
  function lightNav(){document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',page==='Fleet'?b.hasAttribute('data-robot-view'):b.id==='warehouse'));}

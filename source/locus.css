@@ -446,3 +446,27 @@ dialog .lc-table thead th{position:sticky;top:0;z-index:6;background:linear-grad
 /* Task cards for a real box are clickable: they open the box and fly the camera to it. */
 .lc-task.go{cursor:pointer;transition:background .15s}
 .lc-task.go:hover{background:var(--surface-tertiary)}
+/* Location field before a product is chosen: an empty option row, not a hint text. */
+.lc-option.lc-placeholder{color:var(--content-tertiary);cursor:default}
+.lc-option.lc-placeholder i{background:var(--content-quaternary)}
+.lc-outline:disabled{opacity:.4;background:transparent;cursor:default}
+/* Place chooser · zones: round chips outlined in the zone colour, a thicker ring when chosen. */
+.lc-chips{display:flex;flex-wrap:wrap;gap:8px}
+.lc-chip{min-width:36px;height:36px;padding:0 10px;border-radius:999px;background:var(--surface-secondary);box-shadow:inset 0 0 0 1px var(--zone);font-size:14px;line-height:20px}
+.lc-chip:hover{box-shadow:inset 0 0 0 2px var(--zone);background:var(--surface-secondary)}
+/* Place chooser · cells: room = white outlined button, full = grey and dimmed; places: occupied filled, free dashed. */
+.lc-grid .lc-cell{height:40px;border-radius:12px;background:var(--surface-primary);box-shadow:inset 0 0 0 1px var(--content-quaternary);outline:0;gap:4px}
+.lc-grid .lc-cell:hover{background:var(--surface-secondary)}
+.lc-grid .lc-cell.chosen{box-shadow:inset 0 0 0 2px var(--accent-primary);background:var(--surface-primary)}
+.lc-grid .lc-cell.full{background:var(--surface-secondary);box-shadow:none;opacity:.6;cursor:default}
+.lc-grid .lc-cell i,.lc-legend i{width:16px;height:16px;border-radius:4px;background:none;border:1px dashed var(--content-tertiary);box-sizing:border-box;opacity:1}
+.lc-grid .lc-cell i.occ,.lc-legend i.occ{background:var(--cell-color,var(--accent-primary));border:0}
+.lc-legend i{width:12px;height:12px;border-radius:3px}
+/* Field errors: the message sits under its field; the field flashes a red outline. */
+.lc-field-error{font-size:12px;line-height:16px;color:var(--status-danger)}
+.lc-input.invalid,.lc-stepper.invalid{animation:lc-invalid 1.6s ease-out}
+@keyframes lc-invalid{0%,60%{box-shadow:inset 0 0 0 1.5px var(--status-danger)}100%{box-shadow:inset 0 0 0 1.5px transparent}}
+/* Stepper with a total: «1 / 184», the number and the total centred together. */
+.lc-qty{display:flex;align-items:center;justify-content:center;gap:4px;font-size:14px}
+.lc-qty input{width:2ch;text-align:right;padding:0}
+.lc-qty span{color:var(--content-secondary)}

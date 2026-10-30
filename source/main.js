@@ -72,7 +72,7 @@ setLiveRoom((rack, loc, product) => sim.cellRoom?.(rack, loc, product));
 
 // Toasts: a title, one line of detail and an optional action ({label, run}). Up to three stack at once.
 // The stack is a manual popover, so it sits in the top layer and stays visible over an open dialog.
-function toast(title, text = '', action = null) {
+function toast(title, text = '', action = null, {stay = false} = {}) {
   const stack = $('#toast'), el = document.createElement('div');
   el.className = 'toast';
   el.innerHTML = `<div class="t"><b>${esc(title)}</b>${text ? `<small>${esc(text)}</small>` : ''}</div>${action ? `<button>${esc(action.label)}</button>` : ''}`;
@@ -82,7 +82,7 @@ function toast(title, text = '', action = null) {
   stack.classList.add('visible');
   if (stack.showPopover) { if (stack.matches(':popover-open')) stack.hidePopover(); stack.showPopover(); }
   requestAnimationFrame(() => el.classList.add('visible'));
-  setTimeout(() => dismiss(el), action ? 6000 : 4000);
+  if (!stay) setTimeout(() => dismiss(el), action ? 6000 : 4000);
 }
 function dismiss(el) {
   el.classList.remove('visible');
@@ -119,7 +119,19 @@ function exists(sel) {
 }
 // The 3D scene knows zones, racks, cells and boxes; a shelf shows its rack.
 const sceneSel = s => s?.type === 'shelf' ? {type: 'rack', id: s.id.split('|')[0]} : s;
+// «Pick on the map» in the place chooser: the dialog steps aside, the next rack (or a cell or box on it)
+// clicked in 3D reopens the chooser on that rack's cells. Esc goes back to the chooser.
+let mapPicker = null;
+function pickOnMap(open) {
+  $('#dialog').close(); mapPicker = open;
+  toast('Click a rack on the map', 'Esc to go back to the list', null, {stay: true});
+}
 function pick(s) {
+  if (mapPicker) {
+    const rid = s?.type === 'rack' ? s.id : s?.type === 'location' || s?.type === 'shelf' ? s.id.split('|')[0] : s?.type === 'box' ? state.boxes.find(b => b.id === s.id)?.rack : null;
+    if (!rid) return;
+    const open = mapPicker; mapPicker = null; toast.clear(); return open(rid);
+  }
   $('#results').hidden = true; historyPage?.close(); inventoryPage?.close();
   if (editing) { selected = s?.type === 'zone' || s?.type === 'rack' ? s : null; scene.select(sceneSel(selected), false); return layoutEditor.select(selected); }
   if (s?.type === 'box') return robotPanels.openBox(s.id);
@@ -178,12 +190,35 @@ function dialogFrame({title, back, body, onBack, onSubmit}) {
   $('#closeDialog').onclick = () => d.close();
   if (back) $('#dlgBack').onclick = onBack;
   const form = d.querySelector('form');
-  form.onsubmit = e => { e.preventDefault(); try { onSubmit(); } catch (err) { $('#error').textContent = err.message; } };
+  form.onsubmit = e => { e.preventDefault(); try { onSubmit(); } catch (err) { const f = err.field || fieldFor(form, err.message); if (f) fieldError(form, f, err.message); else $('#error').textContent = err.message; } };
   if (!d.open) d.showModal();
   return form;
 }
+// An error about one field shows under that field, and the field flashes a red outline.
+const fieldErrorOf = (field, message) => Object.assign(Error(message), {field});
+function fieldError(form, selector, message) {
+  const box = form.querySelector(selector)?.closest('.lc-input, .lc-stepper'), field = box?.closest('.lc-field');
+  if (!box) { $('#error').textContent = message; return; }
+  let p = field.querySelector('.lc-field-error');
+  if (!p) { p = document.createElement('p'); p.className = 'lc-field-error'; box.after(p); }
+  p.textContent = message;
+  box.classList.remove('invalid'); void box.offsetWidth; box.classList.add('invalid');
+  const input = form.querySelector(selector);
+  input.focus(); input.addEventListener('input', () => clearFieldError(form, selector), {once: true});
+}
+// Errors thrown by the model and the simulation don't name a field; match them to the field they are about.
+// Only errors about the whole action (a box became busy, …) stay at the bottom of the dialog.
+function fieldFor(form, message) {
+  const has = sel => form.querySelector(sel) ? sel : null;
+  if (/\d+–\d+ boxes/.test(message)) return has('[name=qty]');
+  if (/name and SKU/.test(message)) return form.querySelector('#newName')?.value.trim() ? has('#newSku') : has('#newName');
+  if (/already exists/.test(message)) return has('#newName');
+  if (/product|component/i.test(message)) return has('#productInput') || has('#newName');
+  return null;
+}
+const clearFieldError = (form, selector) => { const f = form.querySelector(selector)?.closest('.lc-field'); f?.querySelector('.lc-field-error')?.remove(); f?.querySelector('.invalid')?.classList.remove('invalid'); };
 const zoneColor = rid => state.zones.find(z => z.id === state.racks.find(r => r.id === rid)?.zone)?.color || 'var(--accent-primary)';
-const stepper = (value, max) => `<div class="lc-stepper"><button type="button" data-step="-1" aria-label="Fewer">${icon('minus')}</button><input name="qty" type="number" min="1" max="${max}" value="${value}"><button type="button" data-step="1" aria-label="More">${icon('plus')}</button></div>`;
+const stepper = (value, max, of = false) => `<div class="lc-stepper"><button type="button" data-step="-1" aria-label="Fewer">${icon('minus')}</button>${of ? '<div class="lc-qty">' : ''}<input name="qty" type="number" min="1" max="${max}" value="${value}">${of ? '<span id="qtyOf"></span></div>' : ''}<button type="button" data-step="1" aria-label="More">${icon('plus')}</button></div>`;
 function bindStepper(form, onChange) {
   const input = form.querySelector('[name=qty]');
   const clamp = () => { input.value = Math.max(1, Math.min(Number(input.max) || 1, Math.round(Number(input.value) || 1))); onChange(Number(input.value)); };
@@ -281,7 +316,7 @@ function receivePhoenix(preset = {}) {
       : `<div class="lc-field"><span>Product</span>${productInput('Search product or SKU')}</div><div class="lc-field"><span>Boxes</span>${stepper(qty, 48)}</div><div class="lc-field"><span>Location</span><div class="lc-options" id="places"></div></div><button type="button" class="lc-outline" id="chooseOther">Choose another place</button><button class="primary" type="submit" id="submitBtn">${submitLabel()}</button>`,
     onSubmit: () => {
       if (isNew) product = addProduct(form.querySelector('#newName').value, form.querySelector('#newSku').value);
-      if (!catalog.some(p => p.name === product)) throw Error('Choose a product from the list or create a new one.');
+      if (!catalog.some(p => p.name === product)) throw fieldErrorOf(isNew ? '#newName' : '#productInput', 'Choose a product from the list or create a new one.');
       sim.receive(product, qty, choice);
       $('#dialog').close();
       toast(`${plural(qty, 'box', 'boxes')} received`, `Queued for robots · going to ${choice ? `${choice.rack} · ${choice.loc}` : 'storage'}`, {label: 'View robots', run: () => robotPanels.open('Fleet')});
@@ -291,18 +326,22 @@ function receivePhoenix(preset = {}) {
     if (choice && !cellRoom(state, choice.rack, choice.loc, p)) choice = null;
     const options = p ? receiveOptions(p, qty) : [];
     if (!choice && options[0]) choice = {rack: options[0].rack, loc: options[0].loc};
-    if (!p) form.querySelector('#places').innerHTML = '<p class="lc-empty">Choose a product to see free cells.</p>';
+    // Before a product is picked the field is still there, empty, like an unfilled input.
+    form.querySelector('#chooseOther').disabled = !p;
+    if (!p) form.querySelector('#places').innerHTML = '<div class="lc-option lc-placeholder"><i></i><span>Choose a product first</span></div>';
     else placeList(form.querySelector('#places'), options, () => choice && {...choice, product: p}, c => { choice = c; render(); });
     form.querySelector('#submitBtn').textContent = submitLabel();
   };
-  if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p !== product) { product = p; choice = null; render(); } },
+  if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
     onCreate: name => receivePhoenix({isNew: true, name, qty})});
   bindStepper(form, n => { qty = n; render(); });
   form.querySelector('#chooseOther').onclick = () => {
     const keep = {product, qty, isNew, name: form.querySelector('#newName')?.value, sku: form.querySelector('#newSku')?.value};
-    if (!isNew && !product) { $('#error').textContent = 'Choose a product first.'; return; }
-    placeChooser({dialog: $('#dialog'), state, product: isNew ? '__new__' : product, qty, backLabel: isNew ? 'New product' : 'Receive',
-      onPick: c => receivePhoenix({...keep, choice: c}), onBack: () => receivePhoenix(keep)});
+    if (!isNew && !product) return fieldError(form, '#productInput', 'Choose a product first.');
+    const open = startRack => { if (!$('#dialog').open) $('#dialog').showModal();
+      placeChooser({dialog: $('#dialog'), state, product: isNew ? '__new__' : product, qty, backLabel: isNew ? 'New product' : 'Receive', startRack,
+        onPick: c => receivePhoenix({...keep, choice: c}), onBack: () => receivePhoenix(keep), onMap: () => pickOnMap(open)}); };
+    open(null);
   };
   render();
 }
@@ -310,19 +349,21 @@ function receivePhoenix(preset = {}) {
 function shipDialog(preset = {}) {
   let product = preset.product || '', qty = preset.qty || 1, station = preset.station || sim.dispatchStations()[0];
   const form = dialogFrame({title: 'Ship',
-    body: `<div class="lc-field"><span>Product</span>${productInput('Search product or SKU')}<p class="lc-hint" id="inStock"></p></div><div class="lc-field"><span>Boxes</span>${stepper(qty, 1)}</div><label class="lc-field"><span>Take to</span><div class="lc-input"><select id="station">${sim.dispatchStations().map(s => `<option ${s === station ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></label><p class="lc-hint">Robots pick the nearest boxes first and bring them to Dispatch.</p><button class="primary" type="submit" id="submitBtn"></button>`,
+    body: `<div class="lc-field"><span>Product</span>${productInput('Search product or SKU')}</div><div class="lc-field"><span>Boxes</span>${stepper(qty, 1, true)}</div><label class="lc-field"><span>Take to</span><div class="lc-input"><select id="station">${sim.dispatchStations().map(s => `<option ${s === station ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></label><button class="primary" type="submit" id="submitBtn"></button>`,
     onSubmit: () => {
-      if (!product) throw Error('Choose a product to ship.');
+      if (!product) throw fieldErrorOf('#productInput', 'Choose a product to ship.');
       sim.ship(product, qty, station);
       $('#dialog').close();
     }});
   const render = () => {
     const n = product ? sim.inStock(product) : 0, input = form.querySelector('[name=qty]');
     input.max = Math.max(1, n); if (qty > n && n) { qty = n; input.value = n; }
-    form.querySelector('#inStock').textContent = product ? `${plural(n, 'box', 'boxes')} in stock` : '';
+    // Stock sits in the Boxes field: «1 / 184».
+    form.querySelector('#qtyOf').textContent = product ? `/ ${fmt(n)}` : '';
+    input.style.width = `${String(input.value).length + .6}ch`;
     form.querySelector('#submitBtn').textContent = `Ship ${plural(qty, 'box', 'boxes')}`;
   };
-  productField(form, {value: product, list: () => sim.products().sort(), onPick: p => { if (p !== product) { product = p; render(); } }});
+  productField(form, {value: product, list: () => sim.products().sort(), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; render(); } }});
   bindStepper(form, n => { qty = n; render(); });
   form.querySelector('#station').onchange = e => { station = e.target.value; };
   render();
@@ -356,8 +397,10 @@ function movePhoenix(preset = {}) {
   // Picking a place is the order itself: the robot is sent and the dialog closes, with no confirm step.
   const go = c => { try { sim.requestMove([box.id], c.rack, c.loc); $('#dialog').close(); } catch (e) { $('#dialog').close(); toast(e.message); } };
   const render = () => placeList(form.querySelector('#places'), best, () => null, go);
-  form.querySelector('#chooseOther').onclick = () => placeChooser({dialog: $('#dialog'), state, product: box.product, exclude, backLabel: 'Move box', instant: true,
-    onPick: go, onBack: () => movePhoenix({box: box.id})});
+  const open = startRack => { if (!$('#dialog').open) $('#dialog').showModal();
+    placeChooser({dialog: $('#dialog'), state, product: box.product, exclude, backLabel: 'Move box', instant: true, startRack,
+      onPick: go, onBack: () => movePhoenix({box: box.id}), onMap: () => pickOnMap(open)}); };
+  form.querySelector('#chooseOther').onclick = () => open(null);
   render();
 }
 
@@ -473,6 +516,7 @@ viewMenu.addEventListener('click', e => {
 document.addEventListener('click', e => { if (!viewMenu.hidden && !viewMenu.contains(e.target)) viewMenu.hidden = true; });
 document.addEventListener('keydown', e => {
   if (!editing && (e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); $('#search').focus(); }
+  if (e.key === 'Escape' && mapPicker) { const open = mapPicker; mapPicker = null; toast.clear(); return open(null); }
   if (e.key === 'Escape') { $('#results').hidden = true; viewMenu.hidden = true; if (editing) setMode('browse'); }
 });
 
