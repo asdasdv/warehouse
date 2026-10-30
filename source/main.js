@@ -48,6 +48,14 @@ $('#app').innerHTML = `<main>
  <dialog id="dialog" autofocus></dialog>
 </main>`;
 
+// A click on the backdrop closes the dialog. Only when the press also started outside,
+// so selecting text inside and releasing outside doesn't close it.
+{
+  const d = $('#dialog'), outside = e => { const r = d.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+  let pressedOutside = false;
+  d.addEventListener('pointerdown', e => { pressedOutside = e.target === d && outside(e); });
+  d.addEventListener('click', e => { if (pressedOutside && e.target === d && outside(e)) d.close(); pressedOutside = false; });
+}
 const scene = createScene($('#scene'), () => state, pick, draw);
 const sim = scene.robotics;
 const live = () => sim.dashboard(state);

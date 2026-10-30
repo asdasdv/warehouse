@@ -29,7 +29,7 @@ export function overviewHTML(state,sel){
  const z=sel.type==='zone'?state.zones.find(z=>z.id===sel.id):zoneOf(state,rid),color=z?.color||'var(--accent-primary)';
  if(sel.type==='zone'){
   const racks=state.racks.filter(r=>r.zone===sel.id).map(r=>({r,s:stock(state,[r])})).sort((a,b)=>b.s.stored-a.s.stored);
-  return `${crumb([{label:'Warehouse',root:true},{label:z?.name||sel.id}])}${hero(stock(state,racks.map(x=>x.r)))}<div class="lc-group">${head(`Racks · ${racks.length}`,'Stored / capacity')}<div class="lc-rows">${racks.slice(0,5).map(({r,s})=>row(r.id,`${s.stored} / ${s.total}`,'rack',r.id,color)).join('')}${racks.length>5?`<button class="lc-secondary" id="allRacks">See all ${racks.length} racks</button>`:''}</div></div>`;
+  return `${crumb([{label:'Warehouse',root:true},{label:z?.name||sel.id}])}${hero(stock(state,racks.map(x=>x.r)))}<div class="lc-group">${head(`Racks · ${racks.length}`,'Stored / capacity')}<div class="lc-rows">${racks.slice(0,5).map(({r,s})=>row(r.id,`${s.stored} / ${s.total}`,'rack',r.id,color)).join('')}${racks.length>5?`<button class="lc-outline" id="allRacks">See all ${racks.length} racks</button>`:''}</div></div>`;
  }
  if(!rack)return null;
  const at=state.boxes.filter(b=>b.rack===rack.id),trail=[{label:'Warehouse',root:true},{label:z?.name||'',type:'zone',id:z?.id||''}];
