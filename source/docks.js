@@ -76,7 +76,7 @@ export function onSpine(spine, x, kind) {
 }
 export const dockNorth = (spine, d) => d.kind === 'inbound';
 function spineDocks(spine) {
-  const xs = [-150, -90, -30, 30, 90, 150];
+  const xs = spine.docks || [-150, -90, -30, 30, 90, 150];
   return [...xs.map((x, i) => ({id: `Receiving ${i + 1}`, kind: 'inbound', ...onSpine(spine, x, 'inbound')})),
     ...xs.map((x, i) => ({id: `Dispatch ${i + 1}`, kind: 'outbound', ...onSpine(spine, x, 'outbound')}))];
 }

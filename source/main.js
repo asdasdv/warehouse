@@ -18,7 +18,7 @@ import {placeChooser, cellRoom} from './choose-place.js';
 
 // Concept demo: everything lives in memory and the robot simulation always runs.
 // A reload starts the demo warehouse again.
-const state = seed();
+const state = seed('large'); // 24 zones, ~1300 racks, ~45k boxes, ~170 robots
 let selected = null, editing = false, undo = [], rackDraft = config(templates.standard);
 let lastPanelHTML = '', occupancyOn = false;
 
@@ -41,7 +41,7 @@ $('#app').innerHTML = `<main>
   </nav>
   <div class="ph-actions"><button id="receive">Receive</button><button id="ship" class="primary">Ship</button></div>
  </div>
- <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Labels', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
+ <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Zone names', 'zoneTags'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
  <aside class="right card" id="overview"></aside>
  <div id="editor" hidden><div><strong>Build mode</strong><span id="modeHint"></span></div><button data-mode="browse" class="chosen">Select</button><button data-mode="zone">Rectangle</button><button data-mode="polygon">Custom zone</button><button id="finishZone" hidden>Close zone</button><button data-mode="rack">Place racks</button><button id="undo">Undo</button><button id="topView">Top view</button><button id="done">Finish building</button></div>
  <div id="buildInfo" hidden><span class="eyebrow">Warehouse builder</span><h2>Make room for what’s next.</h2><p>Draw zones, then place racks. Changes last until you reload the page.</p><span class="rack-cap">Rack catalog</span><div id="rackCatalog"></div><div id="buildSelection"></div></div>

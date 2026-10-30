@@ -20,19 +20,25 @@ export const colors=['#82c0fa','#8cd88a','#f0c977','#f29b6c','#b587f9','#f17fb7'
 // A large fulfilment-centre layout: two conveyor systems run west→east through the middle — a receiving
 // loop (fed by the receiving building at the west end) and a dispatch line (into the dispatch building at
 // the east end) — and 24 zones line both sides, racks facing the conveyors.
-export const SPINE={x1:-186,x2:186,crossings:[-120,-60,0,60,120],loop:{north:-8,south:-3},out:2};
-export function seed(){const zones=[],racks=[],boxes=[],flow={};let n=0;
- const rows=[{z:-95,north:true},{z:-62,north:true},{z:24,north:false},{z:57,north:false}];
- rows.forEach((row,ri)=>{for(let c=0;c<6;c++){const i=ri*6+c,id=String.fromCharCode(65+i),x=c*59-176,z=row.z,nr=14-(i*5)%3;
-  zones.push({id,name:`Zone ${id}`,x,z,w:56,d:30,color:colors[i%colors.length]});
-  // North racks face south (+z), south racks face north, so every rack front looks towards the spine.
+// Two sizes of the same layout. `large` is four times `small`: zones twice as wide and deep (four rack rows),
+// longer conveyors with more docks and bridges.
+export const LAYOUTS={
+ small:{zone:{w:56,d:30},cols:6,step:59,x0:-176,rows:[-95,-62,24,57],rackRows:2,perRow:7,
+  spine:{x1:-186,x2:186,crossings:[-120,-60,0,60,120],docks:[-150,-90,-30,30,90,150],loop:{north:-8,south:-3},out:2}},
+ large:{zone:{w:112,d:60},cols:6,step:115,x0:-345,rows:[-155,-92,24,87],rackRows:4,perRow:14,
+  spine:{x1:-366,x2:366,crossings:[-300,-240,-180,-120,-60,0,60,120,180,240,300],docks:[-270,-210,-150,-90,-30,30,90,150,210,270],loop:{north:-8,south:-3},out:2}}};
+export const SPINE=LAYOUTS.small.spine;
+export function seed(size='small'){const L=LAYOUTS[size],zones=[],racks=[],boxes=[],flow={};let n=0;
+ L.rows.forEach((rowZ,ri)=>{const north=rowZ<0;for(let c=0;c<L.cols;c++){const i=ri*L.cols+c,id=String.fromCharCode(65+i),x=c*L.step+L.x0,z=rowZ,full=L.rackRows*L.perRow,nr=full-(i*5)%3*L.rackRows/2;
+  zones.push({id,name:`Zone ${id}`,x,z,w:L.zone.w,d:L.zone.d,color:colors[i%colors.length]});
+  // North racks face south (+z), south racks face north, so every rack front looks towards the conveyors.
   const fill=.5+.06*((i*7)%5),count=Math.round(nr*rackCapacity(config(templates.standard))*fill);
   const weights=Array.from({length:nr},(_,j)=>1+.16*Math.sin(j*1.7+i*2.3)),sum=weights.reduce((a,b)=>a+b,0);let left=count;
-  for(let j=0;j<nr;j++){const rid=`${id}-${String(j+1).padStart(2,'0')}`,r={id:rid,zone:id,x:x+5+(j%7)*7.5,z:z+(row.north?7:8)+Math.floor(j/7)*15,...config(templates.standard),rotation:row.north?0:2};racks.push(r);
+  for(let j=0;j<nr;j++){const rid=`${id}-${String(j+1).padStart(2,'0')}`,r={id:rid,zone:id,x:x+5+(j%L.perRow)*7.5,z:z+(north?7:8)+Math.floor(j/L.perRow)*15,...config(templates.standard),rotation:north?0:2};racks.push(r);
    const qty=Math.min(rackCapacity(r),j===nr-1?left:Math.round(count*weights[j]/sum));left-=qty;const cells=locations(r);
    for(let k=0;k<qty;k++){const loc=cells[Math.floor(k/CELL_CAPACITY)],shelf=Number(loc.slice(1,loc.indexOf('-')));boxes.push({id:`BX-${String(10000+ ++n)}`,product:products[(i*5+j*3+shelf)%products.length],rack:rid,location:loc});}
    flow[rid]={in:Math.round(qty*(.06+.05*Math.abs(Math.sin(j+i)))),out:Math.round(qty*(.03+.04*Math.abs(Math.cos(j*2+i))))};}}});
- const demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:{...SPINE},today:{received:1104,putAway:1068,moved:120,shipped:756},yesterday:{received:984,putAway:990,moved:108,shipped:780},history:[]};backstory(demo);return demo;}
+ const k=size==='large'?4:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1068*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};backstory(demo);return demo;}
 // Give the demo a past: every box has a receipt date and document, and today already has a few hours of activity.
 // A fixed random seed keeps the story the same on every reload.
 function backstory(s,now=Date.now()){let r=1234567;const rnd=()=>{r=r+0x6D2B79F5|0;let t=Math.imul(r^r>>>15,1|r);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;},pick=a=>a[Math.floor(rnd()*a.length)];

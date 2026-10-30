@@ -6,7 +6,7 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
  const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`,chev='<img src="/assets/fg/chevron-right.svg" alt="">';
  const when=t=>new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).replace(',',' ·');
- function open(name,robot){const entering=!page;beforeOpen();page=name==='Box'?'Box':'Fleet';if(robot)id=robot;document.body.classList.add('robot-mode');el.hidden=false;document.querySelectorAll('[data-robot-view]').forEach(b=>b.classList.toggle('active',page==='Fleet'));document.querySelector('#warehouse').classList.toggle('active',page==='Box');if(robot)scene.focusRobot(robot);else if(page==='Fleet'&&entering)scene.focusRobot(null);last='';render();}
+ function open(name,robot){const entering=!page;beforeOpen();page=name==='Box'?'Box':'Fleet';if(robot)id=robot;document.body.classList.add('robot-mode');el.hidden=false;document.querySelectorAll('[data-robot-view]').forEach(b=>b.classList.toggle('active',page==='Fleet'));document.querySelector('#warehouse').classList.toggle('active',page==='Box');if(robot)scene.followRobot(robot);else if(page==='Fleet'&&entering)scene.focusRobot(null);last='';render();}
  function close(){scene.followRobot(null);page=null;el.hidden=true;document.body.classList.remove('robot-mode');document.querySelectorAll('[data-robot-view]').forEach(b=>b.classList.remove('active'));document.querySelector('#warehouse').classList.add('active');}
  function boxHTML(){
   const b=sim.boxInfo(boxId),st=getState(),rack=st?.racks.find(x=>x.id===b?.rack),zone=st?.zones.find(z=>z.id===rack?.zone),item=itemOf(b?.product);
@@ -29,13 +29,19 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
    return `<button class="lc-robot${r.id===id?' chosen':''}" data-rid="${r.id}"><div class="l1"><b>${r.id}</b><span>${task}</span></div><div class="lc-robot-steps">${[0,1,2].map(k=>`<i class="${k<=step?'on':''}"></i>`).join('')}</div><div class="l3"><span>${esc(status(r))}</span><span>${Math.round(r.battery)}%</span></div></button>`;}).join('')}</div></div>`;
  }
  let last='';
- function render(){if(!page)return;el.classList.toggle('box-panel',page==='Box');const html=page==='Box'?boxHTML():fleetHTML();if(html===last)return;last=html;const scroll=el.scrollTop;el.innerHTML=html;el.scrollTop=scroll;
+ // Live updates change the text inside the robot cards in place: rebuilding the cards every
+ // half second restarted their hover state, so a card under the cursor kept flashing.
+ function patch(html){if(page!=='Fleet')return false;const t=document.createElement('div');t.innerHTML=html;const was=[...el.querySelectorAll('[data-rid]')],now=[...t.querySelectorAll('[data-rid]')];
+  if(!was.length||was.length!==now.length||was.some((r,i)=>r.dataset.rid!==now[i].dataset.rid))return false;
+  was.forEach((r,i)=>{if(r.className!==now[i].className)r.className=now[i].className;if(r.innerHTML!==now[i].innerHTML)r.innerHTML=now[i].innerHTML;});
+  const head=el.querySelector('.lc-list-head'),next=t.querySelector('.lc-list-head');if(head&&next&&head.innerHTML!==next.innerHTML)head.innerHTML=next.innerHTML;return true;}
+ function render(){if(!page)return;el.classList.toggle('box-panel',page==='Box');const html=page==='Box'?boxHTML():fleetHTML();if(html===last)return;if(patch(html)){last=html;return;}last=html;const scroll=el.scrollTop;el.innerHTML=html;el.scrollTop=scroll;
   el.querySelector('#shipBox')?.addEventListener('click',()=>onShip(boxId));
   el.querySelector('#moveBox')?.addEventListener('click',()=>onMove(boxId));
   el.querySelector('#closeRobots')?.addEventListener('click',close);
   el.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>{close();onPick(null);});
   el.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{close();onPick({type:b.dataset.pick,id:b.dataset.id});});
-  el.querySelectorAll('[data-rid]').forEach(b=>b.onclick=()=>{id=b.dataset.rid;scene.focusRobot(id);last='';render();});}
+  el.querySelectorAll('[data-rid]').forEach(b=>b.onclick=()=>{id=b.dataset.rid;scene.followRobot(id);last='';render();});}
  let onPick=()=>{};
  function openBox(value){boxId=value;open('Box');scene.focusBox(value);}
  document.querySelectorAll('[data-robot-view]').forEach(b=>b.onclick=()=>page==='Fleet'?close():open('Fleet'));

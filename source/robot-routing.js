@@ -37,22 +37,32 @@ export function createRouter(racks, obstacles = []) {
   }
   // Neighbours in direction order: 0 +x, 1 -x, 2 +z, 3 -z.
   const neighbour = (i, d) => d === 0 ? (i % w < w - 1 ? i + 1 : -1) : d === 1 ? (i % w ? i - 1 : -1) : d === 2 ? (i + w < N ? i + w : -1) : (i >= w ? i - w : -1);
+  // `network` holds directed edges as i*N+n; `onNetwork[i*4+d]` is the same, for the hot loop.
   let network = null;
-  function edgeCost(i, n, d) {
-    const p = point(i), along = d < 2 ? laneDir(p.z) : laneDir(p.x), sign = d % 2 ? -1 : 1;
-    const c = !along ? OFF_LANE : along === sign ? FORWARD : BACKWARD;
-    return network && !network.has(i * N + n) ? Math.round(c * OFF_NETWORK) : c;
+  const onNetwork = new Uint8Array(N * 4);
+  // Lane costs depend only on the node and the heading, so they are worked out once.
+  const baseCost = new Uint8Array(N * 4);
+  for (let i = 0; i < N; i++) {
+    const x = minX + (i % w) * STEP, z = minZ + Math.floor(i / w) * STEP;
+    for (let d = 0; d < 4; d++) {
+      const along = d < 2 ? laneDir(z) : laneDir(x), sign = d % 2 ? -1 : 1;
+      baseCost[i * 4 + d] = !along ? OFF_LANE : along === sign ? FORWARD : BACKWARD;
+    }
   }
+  const edgeCost = (i, d) => { const c = baseCost[i * 4 + d]; return network && !onNetwork[i * 4 + d] ? Math.round(c * OFF_NETWORK) : c; };
+  function addEdge(i, n, d) { network.add(i * N + n); onNetwork[i * 4 + d] = 1; }
 
   // Search over (node, heading) so turns cost extra and paths stay straight; Dial's bucket queue.
   // With a goal it is A* (Manhattan distance at the cheapest step cost). `reverse` searches the
   // reversed graph: from a goal back to every node, so one search gives all routes *into* that goal.
   const OPP = [1, 0, 3, 2];
+  // Work arrays are allocated once per router and reused: fresh multi-megabyte arrays on every
+  // route made the garbage collector pause the whole page on large layouts.
+  const S = N * 5, dist = new Int32Array(S), prev = new Int32Array(S), buckets = Array.from({length: BUCKETS}, () => []);
   function search(a, goal, avoid, reverse = false) {
-    const S = N * 5, dist = new Int32Array(S).fill(0x7fffffff), prev = new Int32Array(S).fill(-1);
-    const g = goal >= 0 ? point(goal) : null;
-    const h = goal >= 0 ? i => { const q = point(i); return FORWARD * (Math.abs(q.x - g.x) + Math.abs(q.z - g.z)) / STEP; } : () => 0;
-    const buckets = Array.from({length: BUCKETS}, () => []);
+    dist.fill(0x7fffffff); prev.fill(-1); for (const b of buckets) b.length = 0;
+    const gx = goal >= 0 ? goal % w : 0, gz = goal >= 0 ? (goal / w) | 0 : 0;
+    const h = goal >= 0 ? i => FORWARD * (Math.abs(i % w - gx) + Math.abs(((i / w) | 0) - gz)) : () => 0;
     const start = a * 5 + 4; dist[start] = 0; buckets[h(a) % BUCKETS].push(start);
     let pending = 1;
     for (let c = h(a); pending; c++) {
@@ -66,7 +76,7 @@ export function createRouter(racks, obstacles = []) {
           // Forward: i → n heading d. Reverse: the original edge n → i, heading d.
           const n = neighbour(i, reverse ? OPP[d] : d);
           if (n < 0 || blocked[n] || avoid?.[n] && n !== goal) continue;
-          const next = n * 5 + d, cost = dist[s] + (reverse ? edgeCost(n, i, d) : edgeCost(i, n, d)) + (from < 4 && from !== d ? TURN : 0);
+          const next = n * 5 + d, cost = dist[s] + (reverse ? edgeCost(n, d) : edgeCost(i, d)) + (from < 4 && from !== d ? TURN : 0);
           if (cost < dist[next]) { dist[next] = cost; prev[next] = s; buckets[(cost + h(n)) % BUCKETS].push(next); pending++; }
         }
       }
@@ -75,13 +85,14 @@ export function createRouter(racks, obstacles = []) {
   }
   const unwind = (s, prev) => { const path = []; for (; s >= 0; s = prev[s]) path.push(point((s / 5) | 0)); return path.reverse(); };
   // `avoid` lists points (other robots) whose surroundings the route must not cross.
+  const avoidMask = new Uint8Array(N);
   function route(from, to, avoid = null) {
     const a = nearest(from), b = nearest(to);
     if (a < 0 || b < 0) return null;
     if (a === b) return [point(a)];
     let mask = null;
     if (avoid?.length) {
-      mask = new Uint8Array(N);
+      mask = avoidMask.fill(0);
       for (const p of avoid) {
         const x0 = Math.max(0, Math.ceil((p.x - p.r - minX) / STEP)), x1 = Math.min(w - 1, Math.floor((p.x + p.r - minX) / STEP));
         const z0 = Math.max(0, Math.ceil((p.z - p.r - minZ) / STEP)), z1 = Math.min(h - 1, Math.floor((p.z + p.r - minZ) / STEP));
@@ -99,8 +110,8 @@ export function createRouter(racks, obstacles = []) {
   // bundles onto a few main lanes instead of covering the floor.
   function buildNetwork(hubs, stops) {
     const hubIds = [...new Set(hubs.map(nearest).filter(i => i >= 0))];
-    const ids = [...new Set([...hubIds, ...stops.map(nearest).filter(i => i >= 0)])], used = new Set();
-    network = used;
+    const ids = [...new Set([...hubIds, ...stops.map(nearest).filter(i => i >= 0)])];
+    network = new Set(); onNetwork.fill(0);
     for (const a of hubIds) for (const reverse of [false, true]) {
       const {prev, dist} = search(a, -1, null, reverse);
       for (const b of ids) {
@@ -110,7 +121,7 @@ export function createRouter(racks, obstacles = []) {
         // Forward chains run target → source (add prev → s); reverse chains already run in travel order (add s → prev).
         for (let s = best; s >= 0 && prev[s] >= 0; s = prev[s]) {
           const u = (prev[s] / 5) | 0, v = (s / 5) | 0;
-          used.add(reverse ? v * N + u : u * N + v);
+          if (reverse) addEdge(v, u, s % 5); else addEdge(u, v, s % 5);
         }
       }
     }
