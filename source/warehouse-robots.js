@@ -3,6 +3,7 @@ import {locations, boxLayout, CELL_CAPACITY} from './storage.js';
 import {products as catalog} from './model.js';
 import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
+import {loadModel, fitted} from './warehouse-models.js';
 
 // The simulation owns the inventory: robots change `state.boxes` directly.
 // Boxes on shelves live in `state.boxes`; boxes at a dock or on a robot live in `held`.
@@ -17,7 +18,10 @@ const SPEED = 9;
 // Each dock is a belt running away from the robot port (+z, station-local).
 const BELT_TOP = 1.5;        // level with the robot deck
 const BELT_START = -2.4;     // hand-off end, next to the stopped robot
-const BELT_END = 9.5;        // far end, inside the tunnel
+// conveyor.glb: belt top 0.65 m, «Dispatch hide» marker 5.8 m from the hand-off end; scaled so the belt top is BELT_TOP.
+const CONVEYOR_SCALE = BELT_TOP / .65;
+const BELT_END = BELT_START + 5.8 * CONVEYOR_SCALE; // far end, inside the tunnel
+const ROBOT_SCALE = BELT_TOP / .665; // robot.glb deck height 0.665 m
 const BELT_SPEED = 2.5;
 const HISTORY_LIMIT = 300;
 const KEEP_COMPLETED_ORDERS = 20;
@@ -162,6 +166,16 @@ export function addWarehouseRobots(scene, getState) {
     m.position.set(x, y, z); m.scale.set(w, h, d); m.castShadow = true; m.receiveShadow = true;
     parent.add(m); return m;
   }
+  // A box on a robot or a belt: a unit carton scaled to the box size, so `scale` keeps working like a plain cube.
+  let cartonModel = null;
+  function cartonContent() {
+    if (cartonModel) { const m = cartonModel.clone(true); m.position.y -= .5; return m; }
+    const c = new T.Group(); box(c, 0, 0, 0, 1, 1, 1, boxMat); box(c, 0, .51, 0, .12, .02, 1.01, silver); return c;
+  }
+  function carton(parent, x, y, z, w, h, d) {
+    const c = new T.Group(); c.add(cartonContent());
+    c.position.set(x, y, z); c.scale.set(w, h, d); parent.add(c); return c;
+  }
   function label(parent, text, x, y, z) {
     const c = document.createElement('canvas'); c.width = 512; c.height = 96;
     const t = c.getContext('2d');
@@ -172,15 +186,16 @@ export function addWarehouseRobots(scene, getState) {
 
   for (let i = 0; i < ROBOTS; i++) {
     const g = new T.Group(), id = `AMR-0${i + 1}`;
-    group.add(g);
-    box(g, 0, .7, 0, 2.6, 1.1, 3.4, yellow); box(g, 0, 1.35, 0, 2.3, .22, 2.8, black);
-    for (const x of [-1.2, 1.2]) for (const z of [-1, 1]) box(g, x, .35, z, .35, .65, .8, black);
-    box(g, 0, 1.58, 1.35, .6, .25, .35, green); box(g, 0, 3, -1.1, .25, 5.2, .3, silver);
-    const cargo = box(g, 0, 2.1, 0, 1.7, 1.3, 1.9, boxMat); box(cargo, 0, .51, 0, .12, .02, 1.01, silver); cargo.visible = false;
+    const body = new T.Group();
+    group.add(g); g.add(body);
+    box(body, 0, .7, 0, 2.6, 1.1, 3.4, yellow); box(body, 0, 1.35, 0, 2.3, .22, 2.8, black);
+    for (const x of [-1.2, 1.2]) for (const z of [-1, 1]) box(body, x, .35, z, .35, .65, .8, black);
+    box(body, 0, 1.58, 1.35, .6, .25, .35, green); box(body, 0, 3, -1.1, .25, 5.2, .3, silver);
+    const cargo = carton(g, 0, 2.1, 0, 1.7, 1.3, 1.9); cargo.visible = false;
     label(g, id, 0, 4, 0);
     const hit = box(g, 0, 1.7, 0, 3.1, 3.5, 3.8, new T.MeshBasicMaterial({visible: false}));
     hit.userData = {type: 'robot', id}; hits.push(hit);
-    robots.push({id, g, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 92 - i * 5, paused: false, chargeNext: false,
+    robots.push({id, g, body, cargo, active: i < MIN_ACTIVE, status: 'Idle', battery: 92 - i * 5, paused: false, chargeNext: false,
       charging: false, cycles: 0, task: null, path: [], index: 0, retry: i * .3, product: '', boxId: '', mission: ''});
   }
   // Belt surface: a striped texture that scrolls with the belt.
@@ -195,22 +210,44 @@ export function addWarehouseRobots(scene, getState) {
   const frameMat = new T.MeshStandardMaterial({color: '#6f7e86', roughness: .6, metalness: .3});
   const tunnelMat = new T.MeshStandardMaterial({color: '#b9c2c4', roughness: .8});
   for (let i = 0; i < 4; i++) {
-    const g = new T.Group(), kind = i < 2 ? 'inbound' : 'outbound', id = `${i < 2 ? 'Receiving' : 'Dispatch'} ${i % 2 + 1}`;
-    group.add(g);
-    box(g, 0, .12, 2, 12, .24, 13, new T.MeshStandardMaterial({color: i < 2 ? '#d6e5ce' : '#e9dfb3', roughness: 1}));
+    const g = new T.Group(), body = new T.Group(), kind = i < 2 ? 'inbound' : 'outbound', id = `${i < 2 ? 'Receiving' : 'Dispatch'} ${i % 2 + 1}`;
+    group.add(g); g.add(body);
+    box(g, 0, .12, 4.5, 12, .24, 18, new T.MeshStandardMaterial({color: i < 2 ? '#d6e5ce' : '#e9dfb3', roughness: 1}));
     const length = BELT_END - BELT_START + 1, mid = (BELT_END + BELT_START) / 2;
     const tex = beltTexture();
-    box(g, 0, BELT_TOP - .06, mid, 2.2, .12, length, new T.MeshStandardMaterial({map: tex, roughness: .9}));
+    box(body, 0, BELT_TOP - .06, mid, 2.2, .12, length, new T.MeshStandardMaterial({map: tex, roughness: .9}));
     for (const x of [-1.25, 1.25]) {
-      box(g, x, BELT_TOP - .05, mid, .3, .4, length, frameMat);
-      for (let z = BELT_START; z <= BELT_END; z += 3) box(g, x, (BELT_TOP - .25) / 2, z, .25, BELT_TOP - .25, .25, frameMat);
+      box(body, x, BELT_TOP - .05, mid, .3, .4, length, frameMat);
+      for (let z = BELT_START; z <= BELT_END; z += 3) box(body, x, (BELT_TOP - .25) / 2, z, .25, BELT_TOP - .25, .25, frameMat);
     }
     // The tunnel hides boxes as they leave (dispatch) or before they appear (receiving).
-    box(g, -1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat); box(g, 1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat);
-    box(g, 0, 3.8, BELT_END - .5, 3.8, .4, 3, tunnelMat); box(g, 0, 2, BELT_END + 1, 3.8, 4, .2, tunnelMat);
+    box(body, -1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat); box(body, 1.7, 2, BELT_END - .5, .4, 4, 3, tunnelMat);
+    box(body, 0, 3.8, BELT_END - .5, 3.8, .4, 3, tunnelMat); box(body, 0, 2, BELT_END + 1, 3.8, 4, .2, tunnelMat);
     label(g, id, 0, 4.9, BELT_END - 2).scale.set(9, 1.5, 1);
-    stations.push({g, id, kind, ready: true, queue: [], port: {x: 0, z: 0}, tex});
+    stations.push({g, body, id, kind, ready: true, queue: [], port: {x: 0, z: 0}, tex});
   }
+  // Blender models replace the simple shapes once they load (see public/assets/models/README.md).
+  loadModel('robot').then(model => {
+    if (!model) return;
+    for (const r of robots) {
+      r.body.clear();
+      const m = model.clone(true); m.scale.setScalar(ROBOT_SCALE); r.body.add(m);
+    }
+  });
+  loadModel('conveyor').then(model => {
+    if (!model) return;
+    for (const st of stations) {
+      st.body.clear();
+      const m = model.clone(true); m.scale.setScalar(CONVEYOR_SCALE);
+      m.rotation.y = -Math.PI / 2; m.position.z = BELT_START; // the model runs along +x from the hand-off end
+      st.body.add(m);
+    }
+  });
+  loadModel('box').then(model => {
+    if (!model) return;
+    cartonModel = fitted(model, {w: 1, h: 1, d: 1});
+    for (const r of robots) { r.cargo.clear(); r.cargo.add(cartonContent()); }
+  });
   const pickupMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#ffd900', wireframe: true, depthTest: false}));
   const dropMarker = new T.Mesh(geo, new T.MeshBasicMaterial({color: '#6c9ee8', wireframe: true, depthTest: false}));
   pickupMarker.renderOrder = dropMarker.renderOrder = 15;
@@ -240,8 +277,7 @@ export function addWarehouseRobots(scene, getState) {
     const s = getState();
     const b = {id: `BX-${++s.serial}`, product: item.product, rack: 'receiving', location: st.id, receivedAt: new Date().toISOString(), doc: `inv. ${2060 + Math.floor(s.serial / 12) % 900}`};
     const slot = freeSlot(st), local = localPose(slot, arrivalSize());
-    const mesh = box(st.g, local.x, local.y, BELT_END, local.w, local.h, local.d, boxMat); // rides in from the tunnel
-    box(mesh, 0, .51, 0, .12, .02, 1.01, silver);
+    const mesh = carton(st.g, local.x, local.y, BELT_END, local.w, local.h, local.d); // rides in from the tunnel
     const q = {box: b, slot, local, mesh, age: 0, arrived: true, atFront: false, target: item.target || null, user: item.user || null, taken: false};
     st.queue.push(q);
     held.set(b.id, {box: b, where: 'receiving', place: st.id});
@@ -380,7 +416,7 @@ export function addWarehouseRobots(scene, getState) {
     if (t.transfer) t.transfer.status = 'In progress';
     if (t.outStation) {
       const slot = freeSlot(t.outStation), local = localPose(slot, t.pickup);
-      const mesh = box(t.outStation.g, local.x, local.y, local.z, local.w, local.h, local.d, boxMat);
+      const mesh = carton(t.outStation.g, local.x, local.y, local.z, local.w, local.h, local.d);
       mesh.visible = false;
       t.output = {box: t.box, slot, local, mesh, age: 0, arrived: false};
       t.outStation.queue.push(t.output);
