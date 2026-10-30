@@ -391,7 +391,7 @@ function receivePhoenix(preset = {}) {
       if (!catalog.some(p => p.name === product)) throw fieldErrorOf(isNew ? '#newName' : '#productInput', 'Choose a product from the list or create a new one.');
       sim.receive(product, qty, choice);
       $('#dialog').close();
-      toast(`${plural(qty, 'box', 'boxes')} received`, `Queued for robots · going to ${choice ? `${choice.rack} · ${choice.loc}` : 'storage'}`, {label: 'View robots', run: () => robotPanels.open('Fleet')});
+      toast(`${plural(qty, 'box', 'boxes')} received`, `Queued for robots · going to ${choice ? `${choice.rack} · ${choice.loc}` : 'storage'}`);
     }});
   const render = () => {
     const p = isNew ? '__new__' : product;
@@ -482,7 +482,7 @@ function setMode(m) {
   if (editing && m === 'browse') builderTools.select();
 }
 function toggleEdit(value) {
-  // A toast's action (View robots / View history) would leave the editor half-open, so it goes away first.
+  // A toast's action (View history) would leave the editor half-open, so it goes away first.
   if (value) { robotPanels.close(); historyPage.close(); inventoryPage.close(); setOccupancy(false); toast.clear(); }
   editing = value;
   document.body.classList.toggle('building', value);
