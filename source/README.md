@@ -24,14 +24,20 @@
 - Панель справа: склад → зона → стеллаж → полка → ячейка → коробка; All zones / All racks — таблицы.
 - Inventory (фильтры Zone/Rack/Shelf/Product/SKU/Received date), History, Fleet — живые представления симуляции.
 
+## Страницы сайта
+- `/` — лендинг Porter: `index.html` + `landing/` (стили, скрипт, картинки). Анимации: заголовки по словам из размытия,
+  блоки проступают при прокрутке, скриншоты чуть увеличиваются при наведении, плавная прокрутка колесом.
+- `/demo/` — живое демо склада: `demo/index.html` → `main.js`. Иконки и 3D-модели демо лежат в `public/assets/`
+  и остаются по адресам `/assets/...` от корня сайта.
+
 ## Разработка
 ```
 npm install
-npm run dev     # http://127.0.0.1:5173
+npm run dev     # http://127.0.0.1:5173 (лендинг) и /demo/ (демо)
 npm test        # логика склада и роботов
-npm run build   # сборка в dist/
+npm run build   # сборка обеих страниц в dist/
 ```
-Папка `../locus-cloudflare` — содержимое `dist/` для деплоя на Cloudflare Pages.
+Папка `../locus-cloudflare` — содержимое `dist/` для деплоя на Cloudflare.
 
 Главные файлы: `main.js` (интерфейс и окна), `phoenix-panel.js` (правая панель), `tasks-panel.js`, `locus.css` (токены из Figma), `layout-editor.js` (редактор планировки), `warehouse-robots.js` (симуляция — единственный источник
 данных о коробках), `scene.js` (3D), `model.js` / `storage.js` (склад, адреса, стеллажи).
