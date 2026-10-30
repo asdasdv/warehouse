@@ -158,7 +158,7 @@ dialog .icon{width:28px;height:28px;border-radius:8px}
 .lc-field>span,.lc-label{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-input{display:flex;align-items:center;gap:8px;height:36px;padding:0 12px;border-radius:12px;background:var(--surface-secondary)}
 .lc-input img{width:16px;height:16px;opacity:.6}
-.lc-input input,.lc-input select{flex:1;min-width:0;border:0;background:transparent;outline:0;height:100%;font-size:14px}
+.lc-input input,.lc-input select{flex:1;min-width:0;border:0;background:transparent;outline:0;height:100%;font-size:14px;padding:0}
 .lc-hint{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-stepper{display:grid;grid-template-columns:40px 1fr 40px;align-items:center;height:40px;border-radius:12px;background:var(--surface-secondary)}
 .lc-stepper button{background:none;height:40px;padding:0;display:grid;place-items:center}
