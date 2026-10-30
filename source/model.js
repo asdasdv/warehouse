@@ -70,7 +70,10 @@ export const LAYOUTS={
   spine:{x1:-186,x2:186,crossings:[-120,-60,0,60,120],docks:dockPlan([-150,-90,-30,30,90,150])}},
  // The demo: zones of different sizes and layouts in three bands on each side of the conveyors.
  large:{varied:true,x0:-345,x1:345,corridor:40,seed:20261030,
-  spine:{x1:-366,x2:366,crossings:[-270,-210,-150,-90,-30,30,90,150,210,270],docks:dockPlan([-300,-240,-180,-120,-60,0,60,120,180,240,300])}}};
+  spine:{x1:-366,x2:366,crossings:[-270,-210,-150,-90,-30,30,90,150,210,270],docks:dockPlan([-300,-240,-180,-120,-60,0,60,120,180,240,300])}},
+ // The site: the same kind of warehouse at about half the size (two bands each side), light enough for a laptop.
+ medium:{varied:true,x0:-225,x1:225,corridor:40,seed:20261030,bands:2,
+  spine:{x1:-246,x2:246,crossings:[-150,-90,-30,30,90,150],docks:dockPlan([-180,-120,-60,0,60,120,180])}}};
 export const SPINE=LAYOUTS.small.spine;
 const zoneId=i=>i<26?String.fromCharCode(65+i):String.fromCharCode(65+Math.floor(i/26)-1)+String.fromCharCode(65+i%26);
 const shelfProduct=(zi,j,shelf)=>{const u=Math.abs(Math.sin(zi*12.9898+j*78.233+shelf*37.719)*43758.5453)%1;return Math.floor(products.length*u**1.8);};
@@ -97,13 +100,13 @@ export function seed(size='small'){const L=LAYOUTS[size],zones=[],racks=[],boxes
   fillRacks(zr,i,boxes,flow,.5+.06*((i*7)%5),next);}});}
  else{// Deterministic random: the same warehouse on every reload.
   let st=L.seed;const rnd=()=>{st=st+0x6D2B79F5|0;let t=Math.imul(st^st>>>15,1|st);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};
-  let zi=0;for(const north of [true,false]){let from=L.corridor;for(let band=0;band<3;band++){let deepest=0;
+  let zi=0;for(const north of [true,false]){let from=L.corridor;for(let band=0;band<(L.bands||3);band++){let deepest=0;
    for(let x=L.x0;x<L.x1-60;){let w=Math.round(70+rnd()*80);if(L.x1-(x+w+10)<70)w=L.x1-x;const d=Math.round(48+rnd()*36),id=zoneId(zi);
     const zone={id,name:`Zone ${id}`,x,z:north?-(from+d):from,w,d,color:colors[zi%colors.length]};zones.push(zone);
     const zr=zoneRacks(zone,north,rnd).map((r,j)=>({id:`${id}-${String(j+1).padStart(2,'0')}`,zone:id,...r}));racks.push(...zr);
     fillRacks(zr,zi,boxes,flow,.45+.35*rnd(),next);deepest=Math.max(deepest,d);x+=w+10;zi++;}
    from+=deepest+10;}}}
- const k=size==='large'?4:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1104*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};
+ const k=size==='large'?4:size==='medium'?2:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1104*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};
  backstory(demo);return demo;}
 // Give the demo a past: every box has a receipt date and document, and today already has a few hours of activity.
 // A fixed random seed keeps the story the same on every reload.

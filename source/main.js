@@ -19,7 +19,7 @@ import {toggleSort, bindSort} from './table-sort.js';
 
 // Concept demo: everything lives in memory and the robot simulation always runs.
 // A reload starts the demo warehouse again.
-const state = seed('large'); // 35 zones, 1203 racks, ~44.7k boxes, ~76 robots
+const state = seed('medium');
 let selected = null, editing = false, rackDraft = config(templates.standard);
 let lastPanelHTML = '', occupancyOn = false;
 
