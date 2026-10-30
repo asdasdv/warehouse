@@ -1096,11 +1096,15 @@ export function addWarehouseRobots(scene, getState) {
   }
   function assign(r) {
     if (!getState().racks.length || !router || networkPending) return;
-    const urgent = book.orders.some(o => o.priority === 'Urgent' && o.allocated.length < o.quantity);
+    // An urgent order only jumps the line while there is stock to fill it: one that can't be filled would
+    // otherwise keep every robot on shipping and leave the receiving docks unserved.
+    const urgent = book.orders.some(o => o.priority === 'Urgent' && o.allocated.length < o.quantity && [...boxesOf(o.product)].some(b => !reserved.has(b.id)));
+    // No box waits at receiving for more than a minute, whatever the stock level says.
+    const starving = stations.some(st => st.kind === 'inbound' && st.queue.some(q => q.arrived && !q.taken && q.age > 60));
     // Background work only (serveUser hands out the user's): receiving and shipping, towards the starting
     // stock level when it has drifted, else alternating per robot. An urgent order jumps the line.
     const level = stockLevel();
-    const inboundFirst = !urgent && (level < -.001 || level <= .001 && r.cycles % 2 === 0);
+    const inboundFirst = starving || !urgent && (level < -.001 || level <= .001 && r.cycles % 2 === 0);
     const jobs = inboundFirst ? [inboundJob, outboundJob] : [outboundJob, inboundJob];
     for (const job of jobs) if (job(r)) return;
     if (reslotJob(r)) return;
