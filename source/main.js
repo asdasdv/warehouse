@@ -494,7 +494,8 @@ $('#search').oninput = e => {
   el.innerHTML = hits.length ? hits.map(h => `<button class="ph-row" data-type="${h.type}" data-id="${esc(h.id)}"><i style="background:${h.color || 'var(--accent-primary)'}"></i><span>${esc(h.label)}<small>${esc(h.sub)}</small></span>${h.value ? `<em>${esc(h.value)}</em>` : ''}</button>`).join('') : '<p>No results. Try “A-01”, “WAGO” or “Dispatch”.</p>';
   el.querySelectorAll('button').forEach(b => b.onclick = () => {
     const {type, id} = b.dataset;
-    el.hidden = true;
+    // Picking a result puts the search back to the magnifier.
+    el.hidden = true; $('#search').value = ''; $('#search').blur(); searchWrap.classList.remove('is-open');
     if (type === 'product') return showInventory(id);
     if (type === 'dock') { pick(null); return scene.focusIssue(id); }
     pick({type, id});
