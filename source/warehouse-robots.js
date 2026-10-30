@@ -31,6 +31,9 @@ const SPINE_SPEED = 6;       // main conveyors: fast enough to keep up, slow eno
 const TRANSFER_SECONDS = .8; // a pop-up transfer pushes a box sideways between a main belt and a dock belt
 const AGE_METRES = 3;        // outbound picking: one day older is worth this many metres of extra driving
 const PICK_SAMPLE = 24;      // outbound picking: how many of a product's boxes are weighed against each other
+// Background work vs. distance: this share of background arrivals is stored by the dock (the rest near the centre
+// of a random zone), and background picks count the drive at this weight. Lower spreads work wider, moves fewer boxes.
+const SPREAD_NEAR = .5, SPREAD_DRIVE = .5;
 const USER_ROOM = 2;         // dispatch dock slots background orders leave free for the user's boxes
 const RECEIVE_AHEAD = 2;     // background boxes on a receiving dock still without a robot, at most (robots are sent for two at a time)
 const EMPTY_METRES = 12;     // put-away: an empty cell is worth this much more driving than topping up the same product
@@ -968,7 +971,7 @@ export function addWarehouseRobots(scene, getState) {
     // A user's box goes to the nearest free cell (fast). Background arrivals spread over the whole warehouse:
     // a zone is drawn at random (bigger zones more often) and the box goes near that zone's centre, so robots
     // work every zone instead of only the racks by the docks.
-    if (q.user) return place(q.box, null, false, st.port);
+    if (q.user || Math.random() < SPREAD_NEAR) return place(q.box, null, false, st.port);
     return place(q.box, null, false, randomZoneCentre()) || place(q.box, null, false, st.port);
   }
   let zoneDraw = null;
@@ -1059,7 +1062,7 @@ export function addWarehouseRobots(scene, getState) {
         // Background orders mostly take the oldest of their sample wherever it is (the drive counts a fifth),
         // so picking reaches every zone; a user's order still takes the quickest box.
         const travel = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) + drive;
-        const value = (order.user ? travel : travel * .2) - days * AGE_METRES;
+        const value = (order.user ? travel : travel * SPREAD_DRIVE) - days * AGE_METRES;
         if (value < score) { score = value; best = b; bestDock = dock; }
       }
       if (best && (!pick || score < pick.score)) pick = {order, box: best, dock: bestDock, score};

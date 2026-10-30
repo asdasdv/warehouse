@@ -103,7 +103,7 @@ export function seed(size='small'){const L=LAYOUTS[size],zones=[],racks=[],boxes
     const zr=zoneRacks(zone,north,rnd).map((r,j)=>({id:`${id}-${String(j+1).padStart(2,'0')}`,zone:id,...r}));racks.push(...zr);
     fillRacks(zr,zi,boxes,flow,.45+.35*rnd(),next);deepest=Math.max(deepest,d);x+=w+10;zi++;}
    from+=deepest+10;}}}
- const k=size==='large'?4:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1068*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};
+ const k=size==='large'?4:1,demo={version:2,zones,racks,boxes,serial:10000+n,flow,spine:structuredClone(L.spine),today:{received:1104*k,putAway:1104*k,moved:120*k,shipped:756*k},yesterday:{received:984*k,putAway:990*k,moved:108*k,shipped:780*k},history:[]};
  backstory(demo);return demo;}
 // Give the demo a past: every box has a receipt date and document, and today already has a few hours of activity.
 // A fixed random seed keeps the story the same on every reload.
