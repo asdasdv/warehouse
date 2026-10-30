@@ -12,7 +12,8 @@ import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUI
 // Nothing is saved — a reload starts the demo again.
 
 // Fleet size and demand are set for 312 racks and grow with the warehouse (see `scale` below).
-const BASE_RACKS = 312, BASE_ROBOTS = 40, BASE_ACTIVE = 16;
+const BASE_RACKS = 312, BASE_ROBOTS = 40, BASE_ACTIVE = 16, ROBOTS_PER_DOCK = 5;
+const RESLOT_SHARE = .25;    // at most this share of the fleet does internal moves (reslotting) when there is no other work
 const STATION_CAPACITY = 6;
 const MAX_PER_ADDRESS = CELL_CAPACITY;
 const HANDOFF_SECONDS = 1.5; // the robot stands still this long after a box swaps on or off it
@@ -40,7 +41,8 @@ const pick = list => list[Math.floor(Math.random() * list.length)];
 
 export function addWarehouseRobots(scene, getState) {
   const scale = Math.max(1, getState().racks.length / BASE_RACKS);
-  const ROBOTS = Math.round(BASE_ROBOTS * scale), MIN_ACTIVE = Math.round(BASE_ACTIVE * scale);
+  // More robots than the docks can serve only stand in queues, so the fleet is also capped at ROBOTS_PER_DOCK.
+  const ROBOTS = Math.min(Math.round(BASE_ROBOTS * scale), docksOf(getState()).length * ROBOTS_PER_DOCK), MIN_ACTIVE = Math.round(ROBOTS * BASE_ACTIVE / BASE_ROBOTS);
   const group = new T.Group();
   scene.add(group);
 
@@ -650,13 +652,15 @@ export function addWarehouseRobots(scene, getState) {
   // Floor markings: lane lines with arrows on one-way runs, and a bay at each parking spot.
   const laneGroup = new T.Group(); group.add(laneGroup);
   // Opaque, so crossing lines do not add up where they overlap.
-  const laneMat = new T.MeshBasicMaterial({color: '#f7f8fa', depthWrite: false, toneMapped: false});
-  const bayMat = new T.MeshBasicMaterial({color: '#f7f8fa', depthWrite: false, toneMapped: false});
+  // Drawn a little above the zone plinths and pulled towards the camera in depth: at a distance the two surfaces
+  // are too close for the depth buffer and the lines flickered.
+  const laneMat = new T.MeshBasicMaterial({color: '#f7f8fa', depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
+  const bayMat = laneMat;
   const flat = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const arrowGeo = new T.ShapeGeometry(new T.Shape([new T.Vector2(.55, 0), new T.Vector2(-.35, .45), new T.Vector2(-.35, -.45)])).rotateX(-Math.PI / 2);
   function instanced(geometry, material, items) {
     const m = new T.InstancedMesh(geometry, material, Math.max(1, items.length)), o = new T.Object3D();
-    items.forEach((it, i) => { o.position.set(it.x, .05, it.z); o.rotation.set(0, it.angle || 0, 0); o.scale.set(it.sx || 1, 1, it.sz || 1); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
+    items.forEach((it, i) => { o.position.set(it.x, .09, it.z); o.rotation.set(0, it.angle || 0, 0); o.scale.set(it.sx || 1, 1, it.sz || 1); o.updateMatrix(); m.setMatrixAt(i, o.matrix); });
     m.count = items.length; m.renderOrder = 3; m.raycast = () => {};
     laneGroup.add(m);
   }
@@ -674,13 +678,13 @@ export function addWarehouseRobots(scene, getState) {
     for (const p of spots) for (const [dx, dz, sx, sz] of [[-1.6, 0, .16, 3.8], [1.6, 0, .16, 3.8], [0, -1.9, 3.36, .16], [0, 1.9, 3.36, .16]]) bays.push({x: p.x + dx, z: p.z + dz, sx, sz});
     instanced(flat, laneMat, strips); instanced(arrowGeo, laneMat, arrows); instanced(flat, bayMat, bays);
   }
-  let routeKey = null, networkJob = null, networkId = 0;
+  let routeKey = null, networkJob = null, networkId = 0, networkPending = false;
   // The lane network is built in a worker in the browser (it takes a second or two on a large layout);
   // without workers (tests) it is built a step per frame. Robots route without it until it is ready.
   const worker = typeof Worker !== 'undefined' && typeof window !== 'undefined' ? new Worker(new URL('./network-worker.js', import.meta.url), {type: 'module'}) : null;
   if (worker) worker.onmessage = e => { if (e.data.id === networkId) { router.setNetwork(e.data.network); networkReady(e.data.segments); } };
   function buildNetwork(hubs, stops, racks, obstacles) {
-    networkId++;
+    networkId++; networkPending = true;
     if (worker) { networkJob = null; worker.postMessage({id: networkId, racks, obstacles, hubs, stops}); return; }
     networkJob = router.networkSteps(hubs, stops);
   }
@@ -693,10 +697,16 @@ export function addWarehouseRobots(scene, getState) {
     }
   }
   // Parking is spread along the docks so idle robots wait close to where work appears.
-  function networkReady(segments) {
-    const spots = router.parking(ROBOTS, stations.map(st => st.port), stations.map(st => st.port));
+  // Robots take no work until the network is ready, so they never set off across the floor without lanes.
+  function networkReady() {
+    // Parking (and charging) bays are spread over the building: beside the docks and beside every zone.
+    const zoneSpots = getState().zones.map(z => ({x: z.x + z.w / 2, z: z.z + z.d / 2}));
+    const spots = router.parking(ROBOTS, [...stations.map(st => st.port), ...zoneSpots], stations.map(st => st.port));
     robots.forEach((r, i) => { r.home = spots[i] || null; });
-    drawLanes(segments, spots);
+    // The short way into each parking bay becomes part of the network: drawn, and kept to.
+    for (const spot of spots) router.connect(spot);
+    drawLanes(router.segments(), spots);
+    networkPending = false;
   }
   function checkLayout() {
     const s = getState(), docks = docksOf(s);
@@ -882,13 +892,33 @@ export function addWarehouseRobots(scene, getState) {
   }
   const waitingInbound = () => stations.filter(s => s.kind === 'inbound').reduce((n, s) => n + s.queue.filter(q => !q.taken).length, 0);
   const dispatchFull = () => stations.filter(s => s.kind === 'outbound').every(s => !s.ready || s.queue.length >= STATION_CAPACITY);
+  // Internal move: a box goes from one rack to a rack in another zone (consolidation, as real warehouses do
+  // between rushes). Keeps robots busy all over the building instead of waiting around the docks.
+  function reslotJob(r) {
+    if (Math.random() > .5 || robots.filter(o => o.task?.reslot).length >= ROBOTS * RESLOT_SHARE) return false;
+    const s = getState();
+    if (!s.racks.length) return false;
+    refreshPoses();
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const source = s.racks[Math.floor(Math.random() * s.racks.length)], poses = rackPoses.get(source.id) || [];
+      if (!poses.length) continue;
+      const box = poses[Math.floor(Math.random() * poses.length)].box;
+      if (!boxInfo(box.id)?.actionable) continue;
+      const dest = place(box);
+      if (!dest || dest.rack.zone === source.zone) continue;
+      const pickup = {...poseOf(box.id)};
+      if (start(r, {box, source, target: dest.rack, slot: dest.loc, pickup, drop: shelfDrop(dest.rack, dest.loc, box, pickup), reslot: true})) return true;
+    }
+    return false;
+  }
   function assign(r) {
-    if (!getState().racks.length || !router) return;
+    if (!getState().racks.length || !router || networkPending) return;
     const urgent = book.orders.some(o => o.priority === 'Urgent' && o.allocated.length < o.quantity);
     // User moves first, then alternate receiving and shipping per robot; a full dock or an urgent order jumps the line.
     const inboundFirst = !urgent && (waitingInbound() >= STATION_CAPACITY * 1.5 || r.cycles % 2 === 0);
     const jobs = inboundFirst ? [transferJob, inboundJob, outboundJob] : [transferJob, outboundJob, inboundJob];
     for (const job of jobs) if (job(r)) return;
+    if (reslotJob(r)) return;
     r.status = book.pending ? (dispatchFull() ? 'Waiting for dispatch capacity' : 'Waiting for stock or route') : 'Waiting for work';
   }
   function balance() {
@@ -897,7 +927,6 @@ export function addWarehouseRobots(scene, getState) {
     robots.forEach((r, i) => {
       if (i < wanted && !r.active) { r.active = true; r.status = 'Idle'; r.retry = 0; note(`${r.id} joined the fleet`); }
       if (i >= wanted && r.active && !r.task && !r.charging && parked(r)) { r.active = false; r.status = 'Standby'; r.cargo.visible = false; note(`${r.id} returned to standby`); }
-      r.g.visible = r.active;
     });
   }
 
@@ -924,7 +953,11 @@ export function addWarehouseRobots(scene, getState) {
   function updateLights(dt) {
     clock += dt;
     for (const r of robots) {
-      if (!r.active) continue;
+      if (!r.active) {
+        r.pitch = 0; r.body.rotation.x = 0; r.pad.visible = false;
+        if (r.leds) for (const k of ['main', 'left', 'right']) light(r.leds[k], LIGHT.ready, .25);
+        continue;
+      }
       // Lean back when speeding up, dip the nose when braking.
       r.pitch += (Math.max(-.05, Math.min(.05, -r.accel * .012)) - r.pitch) * Math.min(1, dt * 8);
       r.body.rotation.x = r.pitch;
@@ -1129,8 +1162,17 @@ export function addWarehouseRobots(scene, getState) {
     if (move(r, dt)) { r.path = []; r.index = 0; }
     if (r.charging) r.status = 'Charging';
   }
+  // Standby robots stay on the floor: they drive to their parking spot (straight after loading the page they
+  // wait in the corridors) and stand there until the fleet needs them, so no robot ever pops in or out.
+  function standby(r, dt) {
+    r.status = 'Standby';
+    if (parked(r)) { r.speed = 0; return; }
+    if (!r.path.length || !same(r.path.at(-1), r.home)) setPath(r, router.route(origin(r), r.home) || []);
+    if (move(r, dt)) { r.path = []; r.index = 0; }
+    r.status = 'Standby';
+  }
   function updateRobot(r, dt) {
-    if (!r.active) { r.status = 'Standby'; return; }
+    if (!r.active) return standby(r, dt);
     if (r.paused) { r.status = 'Paused'; r.speed = 0; return; }
     if (!r.task) return idle(r, dt);
     const t = r.task;
@@ -1200,7 +1242,7 @@ export function addWarehouseRobots(scene, getState) {
     updateDetail(camera, show) {
       let bodies = 0, loads = 0;
       for (const r of robots) {
-        const far = show && r.active && camera.distanceTo(r.g.position) > ROBOT_NEAR;
+        const far = show && camera.distanceTo(r.g.position) > ROBOT_NEAR;
         r.body.visible = !far; if (r.cargo.children[0]) r.cargo.children[0].visible = !far;
         if (!far) continue;
         proxyObj.position.set(r.g.position.x, .75, r.g.position.z); proxyObj.rotation.set(0, r.g.rotation.y, 0); proxyObj.scale.set(2.7, 1.5, 3.2); proxyObj.updateMatrix();

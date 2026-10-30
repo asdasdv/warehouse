@@ -4,7 +4,9 @@
 // so they are only used for the last metres to a rack face or where an aisle has no lane.
 const STEP = 2, MARGIN = 1.8, LANE = 4;
 // Integer costs (per 2 m step) so the search can use a bucket queue.
-const FORWARD = 5, BACKWARD = 30, OFF_LANE = 15, TURN = 10, OFF_NETWORK = 2, BUCKETS = 128;
+// OFF_NETWORK: while the network is laid, routes mildly prefer lanes already laid (so they bundle); once it is
+// done, robots keep to the drawn lanes and leave them only when there is no other way (ROUTE_OFF_NETWORK).
+const FORWARD = 5, BACKWARD = 30, OFF_LANE = 15, TURN = 10, OFF_NETWORK = 2, ROUTE_OFF_NETWORK = 4, BUCKETS = 1024;
 const mod = (a, n) => ((a % n) + n) % n;
 // Direction of travel on a lane: +1 / -1 along the axis, 0 when the line is not a lane.
 export const laneDir = v => mod(v, LANE) ? 0 : mod(v / LANE, 2) ? -1 : 1;
@@ -49,7 +51,8 @@ export function createRouter(racks, obstacles = []) {
       baseCost[i * 4 + d] = !along ? OFF_LANE : along === sign ? FORWARD : BACKWARD;
     }
   }
-  const edgeCost = (i, d) => { const c = baseCost[i * 4 + d]; return network && !onNetwork[i * 4 + d] ? Math.round(c * OFF_NETWORK) : c; };
+  let offNetwork = OFF_NETWORK;
+  const edgeCost = (i, d) => { const c = baseCost[i * 4 + d]; return network && !onNetwork[i * 4 + d] ? Math.round(c * offNetwork) : c; };
   function addEdge(i, n, d) { network.add(i * N + n); onNetwork[i * 4 + d] = 1; }
 
   // Search over (node, heading) so turns cost extra and paths stay straight; Dial's bucket queue.
@@ -116,6 +119,7 @@ export function createRouter(racks, obstacles = []) {
   // A generator: one hub search per step, so a caller can spread the work over several frames.
   // It returns the lane segments when done; `buildNetwork` runs it in one go.
   function* networkSteps(hubs, stops) {
+    offNetwork = OFF_NETWORK;
     const hubIds = [...new Set(hubs.map(nearest).filter(i => i >= 0))];
     const ids = [...new Set([...hubIds, ...stops.map(nearest).filter(i => i >= 0)])];
     network = new Set(); onNetwork.fill(0);
@@ -134,11 +138,31 @@ export function createRouter(racks, obstacles = []) {
       }
       yield;
     }
+    offNetwork = ROUTE_OFF_NETWORK;
     return segments();
   }
   // The network as plain arrays (to send between threads) and back.
   const networkData = () => ({pairs: Float64Array.from(network || []), dirs: Uint8Array.from(onNetwork)});
-  function setNetwork(data) { network = new Set(data.pairs); onNetwork.set(data.dirs); }
+  function setNetwork(data) { network = new Set(data.pairs); onNetwork.set(data.dirs); offNetwork = ROUTE_OFF_NETWORK; }
+  // Joins a point (a parking spot) to the nearest network node, both ways, and adds that spur to the network.
+  function connect(p) {
+    const a = nearest(p); if (a < 0 || !network) return;
+    const ax = a % w, az = (a / w) | 0; let best = -1, bestD = Infinity;
+    for (let dz = -6; dz <= 6; dz++) for (let dx = -6; dx <= 6; dx++) {
+      const x = ax + dx, z = az + dz, i = z * w + x;
+      if (x < 0 || x >= w || z < 0 || z >= h || blocked[i] || !(onNetwork[i * 4] | onNetwork[i * 4 + 1] | onNetwork[i * 4 + 2] | onNetwork[i * 4 + 3])) continue;
+      const d = Math.abs(dx) + Math.abs(dz); if (d < bestD) { bestD = d; best = i; }
+    }
+    if (best < 0) return;
+    for (const [from, to] of [[a, best], [best, a]]) { const r = search(from, to, null, false, 5000); if (r.s >= 0) addToNetwork(unwind(r.s, r.prev)); }
+  }
+  // Adds a route to the network, so it is drawn and robots keep to it.
+  function addToNetwork(path) {
+    for (let k = 1; k < path.length; k++) {
+      const a = nearest(path[k - 1]), b = nearest(path[k]), d = [1, -1, w, -w].indexOf(b - a);
+      if (a >= 0 && b >= 0 && d >= 0) addEdge(a, b, d);
+    }
+  }
   function buildNetwork(hubs, stops) { const it = networkSteps(hubs, stops); for (;;) { const r = it.next(); if (r.done) return r.value; } }
   // Network edges merged into straight runs: {x1, z1, x2, z2, dir} with dir +1/-1 along the run or 0 for two-way.
   function segments() {
@@ -214,5 +238,5 @@ export function createRouter(racks, obstacles = []) {
   const back = r => { const t = (r.rotation || 0) % 4; return t === 1 ? {x: r.x + r.width / 2 + 3, z: r.z} : t === 2 ? {x: r.x, z: r.z + r.depth / 2 + 3} : t === 3 ? {x: r.x - r.width / 2 - 3, z: r.z} : {x: r.x, z: r.z - r.depth / 2 - 3}; };
   const ports = r => [port(r), back(r)];
   const port = r => { const t = (r.rotation || 0) % 4; return t === 1 ? {x: r.x - r.width / 2 - 3, z: r.z} : t === 2 ? {x: r.x, z: r.z - r.depth / 2 - 3} : t === 3 ? {x: r.x + r.width / 2 + 3, z: r.z} : {x: r.x, z: r.z + r.depth / 2 + 3}; };
-  return {route, reachableFrom, port, ports, buildNetwork, networkSteps, networkData, setNetwork, parking, point: p => { const i = nearest(p); return i < 0 ? null : point(i); }, blocked};
+  return {route, reachableFrom, port, ports, buildNetwork, networkSteps, networkData, setNetwork, connect, segments, parking, point: p => { const i = nearest(p); return i < 0 ? null : point(i); }, blocked};
 }
