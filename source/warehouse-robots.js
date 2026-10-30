@@ -965,7 +965,25 @@ export function addWarehouseRobots(scene, getState) {
     const dest = q.target && place(q.box, q.target, true);
     if (dest) return dest;
     if (q.target && !q.redirected) { q.redirected = true; finished.push({kind: 'ReceiveRedirected', box: q.box, place: q.target.rack}); note(`${q.box.id} · ${q.target.rack} is full · stored nearby instead`); }
-    return place(q.box, null, false, st.port);
+    // A user's box goes to the nearest free cell (fast). Background arrivals spread over the whole warehouse:
+    // a zone is drawn at random (bigger zones more often) and the box goes near that zone's centre, so robots
+    // work every zone instead of only the racks by the docks.
+    if (q.user) return place(q.box, null, false, st.port);
+    return place(q.box, null, false, randomZoneCentre()) || place(q.box, null, false, st.port);
+  }
+  let zoneDraw = null;
+  function randomZoneCentre() {
+    const s = getState();
+    if (!zoneDraw || zoneDraw.racks !== s.racks.length || zoneDraw.zones !== s.zones.length) {
+      const counts = new Map();
+      for (const r of s.racks) counts.set(r.zone, (counts.get(r.zone) || 0) + 1);
+      const list = s.zones.filter(z => counts.get(z.id)).map(z => ({x: z.x + z.w / 2, z: z.z + z.d / 2, w: counts.get(z.id)}));
+      zoneDraw = {racks: s.racks.length, zones: s.zones.length, list, total: list.reduce((n, z) => n + z.w, 0)};
+    }
+    let k = Math.random() * zoneDraw.total;
+    // The same object every time: place() caches rack order per `near` object.
+    for (const z of zoneDraw.list) { k -= z.w; if (k <= 0) return z; }
+    return zoneDraw.list.at(-1) || null;
   }
   const userAt = st => st.queue.some(q => q.user);
   const onBelt = st => st.queue.filter(q => !q.onSpine);
@@ -1038,7 +1056,10 @@ export function addWarehouseRobots(scene, getState) {
         const days = b.receivedAt ? (now - Date.parse(b.receivedAt)) / 864e5 : 0;
         let dock = null, drive = Infinity;
         for (const x of docks) { const d = Math.abs(x.port.x - p.x) + Math.abs(x.port.z - p.z) + x.queue.length * 8; if (d < drive) { drive = d; dock = x; } }
-        const value = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) + drive - days * AGE_METRES;
+        // Background orders mostly take the oldest of their sample wherever it is (the drive counts a fifth),
+        // so picking reaches every zone; a user's order still takes the quickest box.
+        const travel = Math.abs(p.x - r.g.position.x) + Math.abs(p.z - r.g.position.z) + drive;
+        const value = (order.user ? travel : travel * .2) - days * AGE_METRES;
         if (value < score) { score = value; best = b; bestDock = dock; }
       }
       if (best && (!pick || score < pick.score)) pick = {order, box: best, dock: bestDock, score};
