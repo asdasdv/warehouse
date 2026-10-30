@@ -386,8 +386,11 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 ::-webkit-scrollbar-thumb:hover{background-color:rgba(0,0,0,.32)}
 ::-webkit-scrollbar-corner{background:transparent}
 /* Figma "Search field / Size=Small" in the top bar: 312×28, r8; results popover centred under the nav. */
-.ph-search.is-open,.ph-search:focus-within{width:312px;height:28px;border-radius:8px;padding:0 12px 0 6px}
-.ph-search.is-open input,.ph-search:focus-within input{width:auto;flex:1;margin-left:2px}
+.ph-search.is-open,.ph-search:focus-within{width:312px;height:28px;border-radius:8px;padding:0 12px 0 8px}
+.ph-search.is-open input,.ph-search:focus-within input{width:auto;flex:1;margin-left:6px}
+/* Open search: the magnifier is just the field's icon, not a button to hover or click. */
+.ph-search.is-open>button,.ph-search:focus-within>button{width:auto;height:auto;padding:0;background:none;pointer-events:none;cursor:default}
+.ph-search.is-open>button .fg-ic,.ph-search:focus-within>button .fg-ic{opacity:.5}
 .ph-search #results{top:45px;left:-54px}
 /* Tables (All zones, Inventory, History): rounded header and rows; a hovered row
    gets the grey fill and drops its own divider and the one above it. Separate

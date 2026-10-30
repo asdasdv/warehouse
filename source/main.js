@@ -437,7 +437,11 @@ $('#search').oninput = e => {
   });
 };
 const searchWrap = $('.ph-search');
-$('#phSearchButton').onclick = () => { $('#search').focus(); searchWrap.classList.add('is-open'); };
+// The button only opens the field: focus goes straight to the input, and while open the magnifier
+// is the field's icon (out of the Tab order).
+$('#phSearchButton').onmousedown = e => e.preventDefault();
+$('#phSearchButton').onclick = () => { searchWrap.classList.add('is-open'); $('#search').focus(); };
+new MutationObserver(() => { $('#phSearchButton').tabIndex = searchWrap.classList.contains('is-open') ? -1 : 0; }).observe(searchWrap, {attributes: true, attributeFilter: ['class']});
 $('#search').addEventListener('focus', () => searchWrap.classList.add('is-open'));
 $('#search').addEventListener('blur', () => setTimeout(() => { if (!$('#search').value) searchWrap.classList.remove('is-open'); }, 180));
 
