@@ -547,3 +547,9 @@ body.product-open #inventoryPage.lc-inv{padding-right:calc(var(--panel-w) + 24px
 .inventory-mode.product-open #robotPanel{visibility:visible;display:flex}
 /* Selects inside a field keep a chevron: the field rule above clears the background, appearance stays none. */
 .lc-input select{appearance:none;-webkit-appearance:none;background:url(/assets/fg/chevron-down.svg) no-repeat right center/16px;padding-right:24px;cursor:pointer;opacity:1}
+.ph-history-table tbody tr[data-box]{cursor:pointer}
+/* A focused field also gets a thin grey ring, so focus is visible beyond the slight fill change (not blue). */
+.lc-input:focus-within,.lc-stepper:focus-within{box-shadow:inset 0 0 0 1px var(--content-tertiary)}
+/* Inventory numbers shrink with the window instead of forcing a horizontal scroll at 900–950 px. */
+.lc-inv-metrics{grid-template-columns:repeat(3,minmax(0,300px))}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}

@@ -135,11 +135,17 @@ export const POST = {back: 2.1, width: 1.1, depth: .35};
 export const depotPosts = depots => depots.flatMap(d => d.bays.map(b => ({x: b.x, z: b.z + b.face * POST.back, width: POST.width, depth: POST.depth})));
 
 const overlaps = (a, b, gap) => Math.abs(a.x - b.x) < (a.width + b.width) / 2 + gap && Math.abs(a.z - b.z) < (a.depth + b.depth) / 2 + gap;
-// Docks keep a robot's width clear of racks and of each other, and their port must be open floor.
+// Docks keep a robot's width clear of racks, of each other and of the conveyors and their buildings, and their port
+// must be open floor. A dock on the conveyors meets its line by design, so only a dock off the line is kept clear of
+// the belt; a dock on the line must also sit along it, between the two buildings.
 export function validateDocks(s) {
-  const docks = docksOf(s);
+  const docks = docksOf(s), fixed = spineRects(s.spine);
   for (const d of docks) {
+    if (![d.x, d.z].every(Number.isFinite)) throw Error(`Enter a valid position for ${d.id}.`);
     const rect = dockRect(d), port = dockPort(d), portRect = {...port, width: 3, depth: 3};
+    const block = fixed.find(f => (!d.line || f.id !== 'Conveyor') && (overlaps(rect, f, 1) || overlaps(portRect, f, .5)));
+    if (block) throw Error(`${d.id} is too close to the ${block.id === 'Conveyor' ? 'conveyor' : block.id.toLowerCase()}.`);
+    if (d.line && s.spine && !(d.x - HALF_WIDTH > s.spine.x1 && d.x + HALF_WIDTH < s.spine.x2)) throw Error(`${d.id} must sit along the conveyor, between the buildings.`);
     const rack = (s.racks || []).find(r => overlaps(rect, r, 1) || overlaps(portRect, r, .5));
     if (rack) throw Error(`${d.id} is too close to rack ${rack.id}.`);
     const other = docks.find(o => o !== d && (overlaps(rect, dockRect(o), 1) || overlaps(portRect, dockRect(o), .5)));

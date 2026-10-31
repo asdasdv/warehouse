@@ -41,7 +41,7 @@ const EMPTY_METRES = 12;     // put-away: an empty cell is worth this much more 
 const SCANNER_Z = BELT_START + 1.35 * BELT_TOP / .65, FLASH = 1.2;
 // Demand is tuned for the 24-zone spine warehouse (~40 robots); arrivals and orders come every few seconds.
 const ARRIVAL_EVERY = {low: 1.8, normal: 2.6, high: 4.5}, ORDER_EVERY = 2.2, PENDING = {low: 15, normal: 30, high: 50};
-const HISTORY_LIMIT = 300;
+const HISTORY_LIMIT = 3000;
 const KEEP_COMPLETED_ORDERS = 20;
 
 const addressKey = (rack, loc) => rack + '|' + loc;
@@ -496,7 +496,10 @@ export function addWarehouseRobots(scene, getState) {
   const rollerMat = new T.MeshStandardMaterial({color: '#b8c1c4', roughness: .35, metalness: .6});
   const plateMat = new T.MeshStandardMaterial({color: '#2a3033', roughness: .8});
   const LAST_ROLLER = 7.75; // conveyor.glb: the last roller, station-local z
+  const sharedTransferGeo = new Set([geo, crossRoller, bridgeRoller]);
   function drawTransfers() {
+    // Merged pieces own their geometry; the materials are shared and stay.
+    transferGroup.traverse(o => { if (o.isMesh && !sharedTransferGeo.has(o.geometry)) o.geometry.dispose(); });
     transferGroup.clear();
     if (!spine) return;
     for (const st of stations) {
@@ -552,7 +555,7 @@ export function addWarehouseRobots(scene, getState) {
   const postMat = new T.MeshStandardMaterial({color: PALETTE.white, roughness: .6});
   const postLightMat = new T.MeshStandardMaterial({color: '#7fe3a8', emissive: '#2fe37a', emissiveIntensity: 1.6});
   function drawDepots() {
-    depotGroup.traverse(o => { if (o.isInstancedMesh) o.dispose(); });
+    depotGroup.traverse(o => { if (o.isInstancedMesh) o.dispose(); else if (o.isMesh) o.geometry.dispose(); });
     depotGroup.clear();
     const bays = depots.flatMap(d => d.bays);
     for (const d of depots) {
@@ -1475,6 +1478,14 @@ export function addWarehouseRobots(scene, getState) {
   }
 
   // ---------- read-only views for the UI ----------
+  // Shelf boxes nobody has claimed (same test as boxInfo().actionable, without building a record per box).
+  function claimedIds() {
+    const out = new Set(reserved);
+    for (const t of transfers) if (t.status !== 'Done') out.add(t.id);
+    for (const o of book.orders) { for (const id of o.allocated) out.add(id); if (o.boxId) out.add(o.boxId); }
+    return out;
+  }
+  function freeCount(product, claimed = claimedIds()) { let n = 0; for (const b of boxesOf(product)) if (!claimed.has(b.id)) n++; return n; }
   function boxInfo(id) {
     const shelf = index().byId.get(id), h = held.get(id);
     const b = shelf || h?.box;
@@ -1578,11 +1589,11 @@ export function addWarehouseRobots(scene, getState) {
     },
     // Ship from the top bar: robots bring the nearest boxes of a product to the chosen dispatch station.
     ship(product, qty, station = null) {
-      const free = [...boxesOf(product)].filter(b => boxInfo(b.id)?.actionable).length;
+      const free = freeCount(product);
       if (!Number.isInteger(qty) || qty < 1 || qty > free) throw Error(`Choose 1–${free} boxes.`);
       return Object.assign(book.create(product, qty, 'Normal'), {user: true, station});
     },
-    inStock(product) { return [...boxesOf(product)].filter(b => boxInfo(b.id)?.actionable).length; },
+    inStock(product) { return freeCount(product); },
     dispatchStations() { return stations.filter(s => s.kind === 'outbound').map(s => s.id); },
     // Work the user asked for, one card per box: what the robot is doing right now.
     tasks() {
@@ -1598,7 +1609,17 @@ export function addWarehouseRobots(scene, getState) {
         out.push({id: t.box.id, kind, to, robot: r.id, step, text, cancellable: !isLoaded(r)});
       }
       for (const tr of transfers.filter(t => t.status === 'Queued')) out.push({id: tr.id, kind: 'Move', to: `${tr.rack}${tr.loc ? ' · ' + tr.loc : ''}`, step: -1, text: 'Waiting for a free robot', cancellable: true});
-      for (const o of book.orders.filter(o => o.user)) for (let i = o.allocated.length; i < o.quantity; i++) out.push({id: `${o.id}#${i}`, kind: 'Ship', to: o.station || 'Dispatch', step: -1, text: o.station && stationFull(o.station) ? `Waiting for space at ${o.station}` : 'Waiting for a free robot', cancellable: true});
+      // Cards beyond the free stock of their product (shared by the orders in turn) wait for stock, not for a robot.
+      const stock = new Map(), unreserved = b => !reserved.has(b.id);
+      for (const o of book.orders.filter(o => o.user)) {
+        if (!stock.has(o.product)) { let n = 0; for (const b of boxesOf(o.product)) if (unreserved(b)) n++; stock.set(o.product, n); }
+        for (let i = o.allocated.length; i < o.quantity; i++) {
+          const left = o.boxId ? (index().byId.get(o.boxId) && !reserved.has(o.boxId) ? 1 : 0) : stock.get(o.product);
+          if (left > 0 && !o.boxId) stock.set(o.product, left - 1);
+          const text = left <= 0 ? 'Waiting for stock' : o.station && stationFull(o.station) ? `Waiting for space at ${o.station}` : 'Waiting for a free robot';
+          out.push({id: `${o.id}#${i}`, kind: 'Ship', to: o.station || 'Dispatch', step: -1, text, cancellable: true});
+        }
+      }
       for (const st of stations) for (const q of st.queue) if (q.user && !q.taken) out.push({id: q.box.id, kind: 'Receive', to: q.target ? `${q.target.rack} · ${q.target.loc}` : 'storage', step: -1, text: `${q.box.id} is waiting at ${st.id}`, cancellable: true});
       for (const q of backlog) if (q.user) out.push({id: q.id, kind: 'Receive', to: q.target ? `${q.target.rack} · ${q.target.loc}` : 'storage', step: -1, text: `${q.product} · waiting for dock space`, cancellable: true});
       return out;

@@ -30,7 +30,10 @@ export function installTasksPanel(sim, toast, {onHistory, onBox}) {
       });
       el.querySelectorAll('[data-cancel]').forEach(b => b.onclick = e => {
         e.stopPropagation();
-        try { sim.cancelTask(b.dataset.cancel); toast('Task cancelled'); } catch (e) { toast(e.message); }
+        // The card may be stale (the task finished between redraws): say so instead of a false «cancelled».
+        const id = b.dataset.cancel;
+        if (!sim.tasks().some(t => t.id === id && t.cancellable)) toast('This task can’t be cancelled any more', 'The robot already has the box or the task has finished');
+        else try { sim.cancelTask(id); toast('Task cancelled'); } catch (e) { toast(e.message); }
         render();
       });
     }

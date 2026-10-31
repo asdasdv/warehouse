@@ -42,7 +42,7 @@ $('#app').innerHTML = `<main>
   </nav>
   <div class="ph-actions"><button id="receive">Receive</button><button id="ship" class="primary">Ship</button></div>
  </div>
- <div id="viewMenu" hidden><button class="vm-row" data-vm="occ"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Zone names', 'zoneTags'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
+ <div id="viewMenu" hidden><button class="vm-row" data-vm="occ" role="switch" aria-checked="false"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Zone names', 'zoneTags'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer role="switch" aria-checked="true"><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
  <aside class="right card" id="overview"></aside>
  <div id="toast" role="status" popover="manual"></div>
  <div id="narrow" role="note"><b>Open Porter on a wider screen</b><span>The warehouse map, panels and dialogs need a window at least 900 px wide.</span></div>
@@ -302,7 +302,8 @@ function productField(form, {value, list, onPick, onCreate, count}) {
       if (box.hidden) show();
       if (!items.length) return;
       active = e.key === 'ArrowDown' ? (active + 1) % items.length : (active <= 0 ? items.length : active) - 1;
-      items.forEach((b, i) => b.classList.toggle('on', i === active));
+      items.forEach((b, i) => { b.classList.toggle('on', i === active); b.id = b.id || `suggest-${i}`; });
+      if (items[active]) input.setAttribute('aria-activedescendant', items[active].id);
       items[active]?.scrollIntoView({block: 'nearest'});
     } else if (e.key === 'Enter' && !box.hidden && items[active]) {
       e.preventDefault();
@@ -310,7 +311,8 @@ function productField(form, {value, list, onPick, onCreate, count}) {
       if (b.id === 'createNew') onCreate(input.value.trim()); else choose(b.dataset.p);
     } else if (e.key === 'Escape' && !box.hidden) { e.preventDefault(); box.hidden = true; }
   };
-  input.setAttribute('role', 'combobox'); box.setAttribute('role', 'listbox');
+  input.setAttribute('role', 'combobox'); input.setAttribute('aria-autocomplete', 'list'); input.setAttribute('aria-controls', 'productSuggest'); box.setAttribute('role', 'listbox');
+  new MutationObserver(() => input.setAttribute('aria-expanded', String(!box.hidden))).observe(box, {attributes: true, attributeFilter: ['hidden']});
   input.value = value || '';
   input.onfocus = show;
   // Editing the text drops the picked product until a name from the list is chosen again.
@@ -410,9 +412,12 @@ function receivePhoenix(preset = {}) {
   };
   if (!isNew) productField(form, {value: product, list: () => catalog.map(p => p.name), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; choice = null; render(); } },
     onCreate: name => receivePhoenix({isNew: true, name, qty})});
-  bindStepper(form, n => { qty = n; if (!picked) choice = null; render(); });
+  // Holding + or − changes the amount many times a second: the places are re-planned once it settles (150 ms).
+  let replan = null;
+  bindStepper(form, n => { qty = n; if (!picked) choice = null; form.querySelector('#submitBtn').textContent = submitLabel(); clearTimeout(replan); replan = setTimeout(render, 150); });
   form.querySelector('#chooseOther').onclick = () => {
-    const keep = {product, qty, isNew, name: form.querySelector('#newName')?.value, sku: form.querySelector('#newSku')?.value};
+    // Back from the chooser returns to the same receipt, including a place the user had already picked.
+    const keep = {product, qty, isNew, name: form.querySelector('#newName')?.value, sku: form.querySelector('#newSku')?.value, choice: picked ? choice : null};
     if (!isNew && !product) return fieldError(form, '#productInput', 'Choose a product first.');
     const open = startRack => { if (!$('#dialog').open) $('#dialog').showModal();
       placeChooser({dialog: $('#dialog'), state, product: isNew ? '__new__' : product, qty, backLabel: isNew ? 'New product' : 'Receive', startRack,
@@ -514,7 +519,7 @@ function showHistory(type) { if (editing) toggleEdit(false); $('#results').hidde
 function showInventory(query) { if (editing) toggleEdit(false); $('#results').hidden = true; historyPage.close(); robotPanels.close(); inventoryPage.open(typeof query === 'string' ? query : undefined); }
 function setOccupancy(on) {
   occupancyOn = on; scene.setOccupancy(on);
-  $('#vmSwitch').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`;
+  $('#vmSwitch').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`; $('[data-vm="occ"]').setAttribute('aria-checked', String(on));
 }
 
 const robotPanels = installRobotPanels(scene, () => { if (editing) toggleEdit(false); historyPage?.close(); inventoryPage?.close(); }, () => state,
@@ -524,7 +529,7 @@ const robotPanels = installRobotPanels(scene, () => { if (editing) toggleEdit(fa
     onClose: () => inventoryPage.markChosen(),
     onMap: product => { inventoryPage.close(); setNav('warehouse'); scene.showRacks([...new Set(state.boxes.filter(b => b.product === product).map(b => b.rack))]); }});
 robotPanels.setPick(s => pick(s));
-const historyPage = installHistoryPage({getState: live});
+const historyPage = installHistoryPage({getState: live, onBox: id => { if (sim.boxInfo(id)) pick({type: 'box', id}); else toast(`${id} has left the warehouse`); }});
 const inventoryPage = installInventoryPage({getState: () => state, sim, onShip: () => shipDialog(), onReceive: () => receivePhoenix(), onHistory: showHistory,
   onProduct: product => { robotPanels.openProduct(product); inventoryPage.markChosen(); }, chosen: () => robotPanels.product,
   onLocation: (kind, id) => { if (kind === 'stored') pick({type: 'rack', id}); else robotPanels.open('Fleet'); }});
@@ -537,8 +542,11 @@ const layoutEditor = installLayoutEditor({getState: () => state, scene, builderT
   onExit: () => { toggleEdit(false); pick(null); }});
 
 // ---------- search ----------
-$('#search').oninput = e => {
-  const q = e.target.value.trim().toLowerCase(), el = $('#results');
+// The top-bar search filters every box: it runs after a short pause in typing (80 ms), not on each key.
+let searchTimer = null;
+$('#search').oninput = e => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(e.target.value), 80); };
+function runSearch(value) {
+  const q = value.trim().toLowerCase(), el = $('#results');
   el.hidden = !q;
   if (!q) return;
   const zoneOf = id => state.zones.find(z => z.id === id), rackZone = id => zoneOf(state.racks.find(r => r.id === id)?.zone);
@@ -546,6 +554,7 @@ $('#search').oninput = e => {
     ...state.zones.filter(z => z.name.toLowerCase().includes(q)).map(z => ({type: 'zone', id: z.id, label: z.name, sub: 'Zone', color: z.color})),
     ...state.racks.filter(r => r.id.toLowerCase().includes(q)).slice(0, 8).map(r => ({type: 'rack', id: r.id, label: r.id, sub: zoneOf(r.zone)?.name || 'Rack', color: zoneOf(r.zone)?.color})),
     ...sim.stations.filter(st => st.id.toLowerCase().includes(q)).slice(0, 6).map(st => ({type: 'dock', id: st.id, label: st.id, sub: st.kind === 'inbound' ? 'Receiving dock' : 'Dispatch dock'})),
+    ...sim.robots.filter(r => r.id.toLowerCase().includes(q)).slice(0, 5).map(r => ({type: 'robot', id: r.id, label: r.id, sub: r.active ? (r.task ? r.status : 'Idle') : 'In reserve · charging'})),
     // A product is one row (it opens Inventory filtered to it), not a box per shelf.
     ...catalog.filter(p => `${p.name} ${p.sku}`.toLowerCase().includes(q)).slice(0, 6).map(p => ({type: 'product', id: p.name, label: p.name, sub: `SKU ${p.sku}`, value: `${fmt(sim.inStock(p.name))} in stock`})),
     // Boxes match by id: on shelves, at docks and on robots.
@@ -594,7 +603,7 @@ viewMenu.addEventListener('click', e => {
   if (b.hasAttribute('data-layer')) {
     const on = !scene.layer(b.dataset.vm);
     scene.setLayer(b.dataset.vm, on);
-    b.querySelector('img').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`;
+    b.querySelector('img').src = `/assets/fg/switch-${on ? 'on' : 'off'}.svg`; b.setAttribute('aria-checked', String(on));
     return;
   }
   viewMenu.hidden = true;

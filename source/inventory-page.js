@@ -1,6 +1,8 @@
 import {pageButtons} from './pager.js';
 import {sortHead, sortRows, toggleSort, bindSort} from './table-sort.js';
-import {itemOf} from './model.js';
+import {catalog} from './model.js';
+// Product lookup by name through a map (rebuilt when the catalogue grows): the table looks it up per box.
+let items=null,itemCount=-1;const itemOf=name=>{if(itemCount!==catalog.length){items=new Map(catalog.map(p=>[p.name,p]));itemCount=catalog.length;}return items.get(name);};
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])),fmt=n=>n.toLocaleString('en-US');
 const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`;
 export function inventorySnapshot(state,sim){
@@ -41,10 +43,12 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const rows=sortRows([...groups].sort((a,b)=>a[0].localeCompare(b[0])),sort,value),pages=Math.max(1,Math.ceil(rows.length/size));page=Math.min(page,pages-1);
   // Daily numbers follow the filters: location filters use per-rack flow, others the history.
   const today=new Date().toDateString(),racks=new Set(hit.map(b=>b.rack)),products=new Set(hit.map(b=>b.product));
-  const flowIn=[...racks].reduce((n,r)=>n+(st.flow?.[r]?.in||0),0),flowOut=[...racks].reduce((n,r)=>n+(st.flow?.[r]?.out||0),0);
+  const flowOut=[...racks].reduce((n,r)=>n+(st.flow?.[r]?.out||0),0);
+  // Received today under a filter: the matching boxes whose receipt is dated today (the same base as the overview).
+  const dayStart=new Date().setHours(0,0,0,0),receivedToday=hit.reduce((n,b)=>n+(Date.parse(b.receivedAt||0)>=dayStart?1:0),0);
   const histCount=type=>st.history.filter(e=>e.type===type&&new Date(e.time).toDateString()===today&&products.has(e.product)).length;
   const filtered=[...filters.values()].some(v=>v.size),y=st.yesterday||{},pct=(a,b)=>!b?'':(a>=b?'+':'−')+Math.abs(Math.round((a-b)/b*100))+'%';
-  const metrics=filtered?[['Boxes stored',hit.length,''],['Received today',located?flowIn:histCount('Received'),''],['Shipped today',located?flowOut:histCount('Shipped'),'']]
+  const metrics=filtered?[['Boxes stored',hit.length,''],['Received today',receivedToday,''],['Shipped today',located?flowOut:histCount('Shipped'),'']]
    :[['Boxes on site',live.onSite??boxes.length,''],['Received today',live.today.received,pct(live.today.received,y.received)],['Shipped today',live.today.shipped,pct(live.today.shipped,y.shipped)]];
   const pill=b=>{const z=zoneOfRack(st,b.rack),[s]=b.location.split('-'),text=filters.get('Rack')?.size?b.location:`${b.rack} · ${s}`;return {key:text,zone:z,html:`<button class="lc-loc" data-rack="${esc(b.rack)}" style="background:${z?.color||'var(--accent-primary)'}">${esc(text)}</button>`};};
   const byRack=filters.get('Rack')?.size,locCell=bs=>{const seen=new Map();for(const b of bs){const key=byRack?b.location:`${b.rack} · ${b.location.split('-')[0]}`;if(!seen.has(key))seen.set(key,pill(b));}const list=[...seen.values()],shown=filters.get('Rack')?.size?3:2,rest=list.slice(shown);if(rest.length)others.push(rest);return list.slice(0,shown).map(p=>p.html).join('')+(rest.length?`<span class="more" tabindex="0" role="button" aria-haspopup="dialog" data-more="${others.length-1}">+${rest.length} ${rest.length===1?'place':'places'}</span>`:'');};

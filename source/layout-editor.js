@@ -1,8 +1,8 @@
 import {ed} from './editor-icons.js';
 import {zonePoints, contains, polygonZone, zoneArea, snapRack, fitsZone, MIN_ZONE_SIDE, ZONE_SIZE_MESSAGE} from './zone-shape.js';
-import {applyLayoutEdit, rowPositions, createSessionLog} from './layout-edit.js';
+import {applyLayoutEdit, rowPositions, createSessionLog, deleteRacks, deleteZone} from './layout-edit.js';
 import {validateLayoutAccess, inaccessibleRacks, createAccessCheck} from './layout-access.js';
-import {addZone, addRack, colors, log} from './model.js';
+import {addZone, addRack, colors, log, checkZoneName, freeZoneName} from './model.js';
 import {config, locations} from './storage.js';
 import {docksOf, dockRect, dockPort, snapDock, validateDocks, onSpine, spineRects} from './docks.js';
 
@@ -11,6 +11,8 @@ import {docksOf, dockRect, dockPort, snapDock, validateDocks, onSpine, spineRect
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const fmt = n => n.toLocaleString('en-US');
 const r1 = n => Math.round(n * 10) / 10;
+// A typed number: «abc», an empty field, Infinity and the like are refused with a plain message.
+const num = (value, label) => { const t = String(value).trim(), n = Number(t); if (!t || !Number.isFinite(n)) throw Error(`${label} must be a number.`); return n; };
 const ROBOT_AISLE = 3.6; // robots need this much room between rack faces
 const SVGNS = 'http://www.w3.org/2000/svg';
 
@@ -50,6 +52,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     try { fn(); const was = JSON.parse(before), s = getState(); validateDocks(s); validateLayoutAccess(was.racks, s.racks, was.docks, docksOf(s), s.spine); }
     catch (e) { restore(before); sessionLog.forget(top); error = e.message; render(); return false; }
     const logs = sessionLog.take(top);
+    // Nothing changed (the same value typed again): no undo step, nothing to save.
+    if (!logs.length && snapshot() === before) { error = ''; render(); return true; }
     undo.push({snap: before, logs}); undo = undo.slice(-50); redo = []; error = ''; report = null;
     onChange(); render(); return true;
   }
@@ -61,6 +65,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (sel?.type === 'racks') { sel.ids = new Set([...sel.ids].filter(id => getState().racks.some(r => r.id === id))); if (!sel.ids.size) sel = null; }
     error = ''; report = null; onChange(); render();
   }
+  // Save stays off until the draft differs from what was opened (undoing every edit turns it off again).
+  const dirty = () => baseline !== null && snapshot() !== baseline;
   function changes() {
     const was = JSON.parse(baseline), s = getState(), out = {zones: [], racks: []};
     const count = (before, after, moved) => {
@@ -324,25 +330,28 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
   }
   function edit(name, value) {
     const s = getState(), n = Number(value);
-    if (name === 'newName') { newName = value; return; }
+    if (name === 'newName') { newName = value; try { checkZoneName(s, value); error = ''; } catch (e) { error = e.message; } return render(); }
     if (name === 'gap') { rowGap = Math.max(1, n || 1); return render(); } // racks keep at least 1 m apart
-    if (name === 'newW' || name === 'newD') { if (n >= MIN_ZONE_SIDE) pending[name === 'newW' ? 'w' : 'd'] = n; return render(); }
+    if (name === 'newW' || name === 'newD') {
+      try { const v = num(value, name === 'newW' ? 'Width' : 'Depth'); if (v < MIN_ZONE_SIDE) throw Error(ZONE_SIZE_MESSAGE); pending[name === 'newW' ? 'w' : 'd'] = v; error = ''; } catch (e) { error = e.message; }
+      return render();
+    }
     if (sel?.type === 'zone') {
       const z = s.zones.find(z => z.id === sel.id);
-      if (name === 'name') return apply(() => { if (!value.trim()) throw Error('Enter a zone name.'); z.name = value.trim(); });
-      if (name === 'w' || name === 'd') return apply(() => { if (!(n >= MIN_ZONE_SIDE)) throw Error(ZONE_SIZE_MESSAGE); applyLayoutEdit(s, {type: 'zone', id: z.id, points: zonePoints({...z, [name]: n})}); delete s.zones.find(x => x.id === z.id).points; Object.assign(s.zones.find(x => x.id === z.id), {[name]: n}); });
-      if (name === 'px' || name === 'pz') return apply(() => { const ps = zonePoints(z).map(p => ({...p})); ps[pointIndex][name === 'px' ? 'x' : 'z'] = n; applyLayoutEdit(s, {type: 'zone', id: z.id, points: ps}); });
+      if (name === 'name') return apply(() => { z.name = checkZoneName(s, value, z.id); });
+      if (name === 'w' || name === 'd') return apply(() => { const v = num(value, name === 'w' ? 'Width' : 'Depth'); if (v < MIN_ZONE_SIDE) throw Error(ZONE_SIZE_MESSAGE); applyLayoutEdit(s, {type: 'zone', id: z.id, points: zonePoints({...z, [name]: v})}); delete s.zones.find(x => x.id === z.id).points; Object.assign(s.zones.find(x => x.id === z.id), {[name]: v}); });
+      if (name === 'px' || name === 'pz') return apply(() => { const v = num(value, name === 'px' ? 'X' : 'Y'), ps = zonePoints(z).map(p => ({...p})); ps[pointIndex][name === 'px' ? 'x' : 'z'] = v; applyLayoutEdit(s, {type: 'zone', id: z.id, points: ps}); });
     }
     if (sel?.type === 'dock') {
       const d = docksOf(s).find(d => d.id === sel.id);
-      if (name === 'dx' || name === 'dz') return apply(() => Object.assign(d, dockAt2(d, {x: name === 'dx' ? n : d.x, z: name === 'dz' ? n : d.z})));
+      if (name === 'dx' || name === 'dz') return apply(() => { const v = num(value, name === 'dx' ? 'X' : 'Y'); Object.assign(d, dockAt2(d, {x: name === 'dx' ? v : d.x, z: name === 'dz' ? v : d.z})); });
       if (name === 'drot') return apply(() => { d.rotation = Math.round(n / 90) % 4; });
       if (name === 'dside' && s.spine) return apply(() => Object.assign(d, onSpine(s.spine, d.x, d.kind, value === 'North')));
     }
     if (sel?.type === 'racks' && sel.ids.size === 1) {
       const r = s.racks.find(r => sel.ids.has(r.id));
       const o = zoneOrigin(r);
-      if (name === 'x' || name === 'z') return apply(() => applyLayoutEdit(s, {type: 'move', ids: [r.id], dx: name === 'x' ? n + o.x - r.x : 0, dz: name === 'z' ? n + o.z - r.z : 0}));
+      if (name === 'x' || name === 'z') return apply(() => { const v = num(value, name === 'x' ? 'X' : 'Y'); applyLayoutEdit(s, {type: 'move', ids: [r.id], dx: name === 'x' ? v + o.x - r.x : 0, dz: name === 'z' ? v + o.z - r.z : 0}); });
       if (name === 'rot') { const turns = ((n / 90) - (r.rotation || 0) + 4) % 4; return apply(() => { for (let i = 0; i < turns; i++) applyLayoutEdit(s, {type: 'rotate', ids: [r.id]}); }); }
     }
   }
@@ -375,6 +384,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     root.dataset.view = view;
     root.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('on', b.dataset.view === view));
     $('[data-cmd=undo]').disabled = !undo.length; $('[data-cmd=redo]').disabled = !redo.length;
+    $('[data-cmd=save]').disabled = !dirty();
     $('[data-cmd=snap]').classList.toggle('on', snap);
     renderRail(); renderObjects(); renderInspector();
     if (view === '2D') drawPlan();
@@ -388,7 +398,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (cmd === 'undo') return step(undo, redo);
     if (cmd === 'redo') return step(redo, undo);
     if (cmd === 'snap') { snap = !snap; return render(); }
-    if (cmd === 'save') return close(true);
+    if (cmd === 'save') return dirty() && close(true);
     if (cmd === 'cancel') return cancel();
     if (cmd === 'recheck') { report = accessReport(); return render(); }
     if (cmd === 'access') { report = null; return setTool('robot'); }
@@ -407,13 +417,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       error = 'No free space next to the selection for a copy.'; return render();
     }
     if (cmd === 'delete') {
-      if (sel?.type === 'zone') {
-        const ids = new Set(s.racks.filter(r => r.zone === sel.id).map(r => r.id)), id = sel.id;
-        if (s.boxes.some(b => ids.has(b.rack))) { error = 'Move or ship all boxes in this zone before deleting it.'; return render(); }
-        if (apply(() => { s.racks = s.racks.filter(r => !ids.has(r.id)); s.zones = s.zones.filter(z => z.id !== id); })) sel = null;
-        return render();
-      }
-      if (selectedRacks().length && apply(() => applyLayoutEdit(s, {type: 'delete', ids: selectedRacks()}))) { sel = null; render(); }
+      if (sel?.type === 'zone') { const id = sel.id; if (apply(() => deleteZone(s, id))) sel = null; return render(); }
+      if (selectedRacks().length && apply(() => deleteRacks(s, selectedRacks()))) { sel = null; render(); }
       return;
     }
     if (cmd === 'dupZone' && sel?.type === 'zone') {
@@ -421,7 +426,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       let id;
       if (apply(() => {
         id = addZone(s, {points: zonePoints(z).map(p => ({x: p.x + dx, z: p.z}))});
-        Object.assign(s.zones.find(x => x.id === id), {name: `${z.name} copy`, color: z.color});
+        Object.assign(s.zones.find(x => x.id === id), {name: freeZoneName(s, `${z.name} copy`), color: z.color});
         for (const r of s.racks.filter(r => r.zone === z.id)) { const copy = addRack(s, id, r.x + dx, r.z, r); Object.assign(s.racks.find(x => x.id === copy), {rotation: r.rotation || 0, width: r.width, depth: r.depth}); }
       })) { sel = {type: 'zone', id}; fit(); render(); }
       return;
@@ -430,7 +435,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (cmd === 'createZone' && pending) {
       const shape = pending.points ? {points: pending.points} : {x: pending.x, z: pending.z, w: pending.w, d: pending.d};
       let id;
-      if (apply(() => { id = addZone(s, shape); const name = newName.trim() || `Zone ${id}`; Object.assign(s.zones.find(z => z.id === id), {name, color: newColor}); const e = s.history.find(e => e.type === 'Zone created'); if (e) e.detail = name; })) {
+      if (apply(() => { id = addZone(s, shape); const name = newName.trim() ? checkZoneName(s, newName, id) : freeZoneName(s, `Zone ${id}`, id); Object.assign(s.zones.find(z => z.id === id), {name, color: newColor}); const e = s.history.find(e => e.type === 'Zone created'); if (e) e.detail = name; })) {
         pending = null; poly = null; sel = {type: 'zone', id}; tool = 'select'; render();
       }
       return;
@@ -451,8 +456,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (d && view === '2D' && vb) { const b = dockRect(d); vb.x = b.x - vb.w / 2; vb.z = b.z - vb.h / 2; }
   }
   function nextZoneDefaults() {
-    const s = getState(), used = new Set(s.zones.map(z => z.name));
-    let i = 0; while (used.has(`Zone ${String.fromCharCode(65 + i)}`)) i++;
+    const s = getState(), used = new Set(s.zones.map(z => String(z.name).trim().toLowerCase()));
+    let i = 0; while (used.has(`zone ${String.fromCharCode(97 + i)}`)) i++;
     newName = `Zone ${String.fromCharCode(65 + i)}`;
     newColor = colors.find(c => !s.zones.some(z => z.color === c)) || colors[s.zones.length % colors.length];
   }

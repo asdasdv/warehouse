@@ -57,10 +57,10 @@ function palette(n){const out=[...BASE],used=out.map(lab),cands=[];
  while(out.length<n){let best=-1,bestD=-1;labs.forEach((c,i)=>{const m=Math.min(...used.map(u=>d(u,c)));if(m>bestD){bestD=m;best=i;}});out.push(cands[best]);used.push(labs[best]);}
  return out;}
 export const colors=palette(48);
-// Demo warehouse from the Figma screens: 8 zones, 57 racks of 7 shelves × 4 cells, 2 boxes per cell.
-// A large fulfilment-centre layout: two conveyor systems run west→east through the middle — a receiving
-// loop (fed by the receiving building at the west end) and a dispatch line (into the dispatch building at
-// the east end) — and 24 zones line both sides, racks facing the conveyors.
+// Layouts: small (24 zones, 312 racks: tests), medium (16 zones, 556 racks: the site) and large (35 zones,
+// 1,203 racks: load tests). Two conveyor systems run west→east through the middle — a receiving loop (fed by
+// the receiving building at the west end) and a dispatch line (into the dispatch building at the east end) —
+// and zones line both sides, racks facing the conveyors. Every cell holds 2 boxes.
 // Docks alternate kinds along the conveyors, offset between the two sides, so every stretch of the
 // building has a receiving and a dispatch dock nearby on each side.
 const dockPlan=xs=>[...xs.map((x,i)=>({x,kind:i%2?'outbound':'inbound',north:true})),...xs.map((x,i)=>({x,kind:i%2?'inbound':'outbound',north:false}))];
@@ -124,6 +124,10 @@ function backstory(s,now=Date.now()){let r=1234567;const rnd=()=>{r=r+0x6D2B79F5
 export function receive(s,rack,product,qty,location){if(!Number.isInteger(qty)||qty<1||qty>10000||typeof product!=='string'||!product.trim())throw Error('Enter a component and 1–10,000 whole boxes.');destination(s,rack,location,product,[],qty);for(let i=0;i<qty;i++)s.boxes.push({id:`BX-${++s.serial}`,product,rack,location});s.today.received+=qty;log(s,'Received',`${product} · ${rack} / ${location} · ${qty} boxes`);}
 export function transact(s,ids,type,target,targetLocation){let wanted=new Set(ids),selected=s.boxes.filter(b=>wanted.has(b.id));if(!selected.length||selected.length!==wanted.size)throw Error('Select existing boxes.');let source=[...new Set(selected.map(b=>`${b.rack} / ${b.location}`))].join(', ');if(type==='Moved'){if(new Set(selected.map(b=>b.product)).size!==1)throw Error('Move one component type at a time.');destination(s,target,targetLocation,selected[0].product,ids,selected.length);if(selected.every(b=>b.rack===target&&b.location===targetLocation))throw Error('Choose a different location.');selected.forEach(b=>{b.rack=target;b.location=targetLocation;});}else if(type==='Shipped'){s.boxes=s.boxes.filter(b=>!wanted.has(b.id));s.today.shipped+=selected.length;}else throw Error('Unknown operation');log(s,type,`${selected.length} ${selected.length===1?'box':'boxes'} · ${source}${target?' → '+target+' / '+targetLocation:''}`);}
 export function log(s,type,detail){s.history.unshift({type,detail,time:new Date().toISOString()});s.history=s.history.slice(0,300);}
+// Zone names are required and unique, ignoring case (`id` is the zone being renamed, which may keep its own name).
+export function checkZoneName(s,name,id=null){name=String(name??'').trim();if(!name)throw Error('Enter a zone name.');if(s.zones.some(z=>z.id!==id&&String(z.name).trim().toLowerCase()===name.toLowerCase()))throw Error(`A zone named «${name}» already exists.`);return name;}
+// A name like `base`, `base 2`, `base 3`, … that no zone uses yet.
+export function freeZoneName(s,base,id=null){let name=base,i=2;while(s.zones.some(z=>z.id!==id&&String(z.name).trim().toLowerCase()===name.toLowerCase()))name=`${base} ${i++}`;return name;}
 export function addZone(s,z){if(z.points)z=polygonZone(z.points);if(!z.points&&(z.w<12||z.d<12))throw Error('Draw a zone at least 12 × 12 m.');if(s.zones.some(a=>zonesOverlap(z,a)))throw Error('Zones cannot overlap. Draw in an empty area.');let i=1;while(s.zones.some(a=>a.id===`N${i}`))i++;s.zones.push({...z,id:`N${i}`,name:`Zone N${i}`,color:colors[s.zones.length%colors.length]});log(s,'Zone created',`Zone N${i}`);return `N${i}`;}
 export function addRack(s,zone,x,z,settings={}){let c=config(settings);placement(s,zone,x,z,c);let i=1;while(s.racks.some(r=>r.id===`${zone}-${String(i).padStart(2,'0')}`))i++;let id=`${zone}-${String(i).padStart(2,'0')}`;s.racks.push({id,zone,x,z,...c});log(s,'Rack added',id);return id;}
 export function updateRack(s,id,settings){let r=s.racks.find(r=>r.id===id);if(!r)throw Error('Rack not found.');let c=config(settings);placement(s,r.zone,r.x,r.z,c,id);let valid=new Set(locations(c));if(s.boxes.some(b=>b.rack===id&&!valid.has(b.location)))throw Error('Some locations you are removing still contain boxes. Move those boxes first.');Object.assign(r,c);delete r.capacity;log(s,'Rack updated',`${id} · ${c.shelves} shelves · ${c.places} locations per shelf`);}
