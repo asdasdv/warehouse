@@ -157,6 +157,9 @@ function pickOnMap(open) {
   $('#dialog').close(); mapPicker = open;
   toast('Click a rack on the map', 'Esc to go back to the list', null, {stay: true});
 }
+// Leaving for another section (Inventory, History, Fleet, Receive, Ship, the editor…) ends the pick: the hint goes,
+// and Esc no longer brings the chooser back over that section.
+document.addEventListener('click', e => { if (mapPicker && e.target.closest('.ph-topbar')) { mapPicker = null; toast.clear(); } }, true);
 function pick(s) {
   if (mapPicker) {
     const rid = s?.type === 'rack' ? s.id : s?.type === 'location' || s?.type === 'shelf' ? s.id.split('|')[0] : s?.type === 'box' ? state.boxes.find(b => b.id === s.id)?.rack : null;

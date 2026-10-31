@@ -675,6 +675,7 @@ export function addWarehouseRobots(scene, getState) {
           ahead = p.z + q.local.d + .4;
           q.mesh.visible = p.z <= BELT_END;
           q.atFront = p.z === BELT_START;
+          if (q.atFront) q.waited = (q.waited || 0) + dt; // time at the robot end, not the ride along the conveyor
           continue;
         }
         p.z += dt * BELT_SPEED; moving = true;
@@ -776,18 +777,19 @@ export function addWarehouseRobots(scene, getState) {
   // The lane network is built in a worker in the browser (it takes a second or two on a large layout);
   // without workers (tests) it is built a step per frame. Robots route without it until it is ready.
   // If the worker fails, it is dropped and the network is built here instead, so robots never freeze.
-  let worker = null;
+  let worker = null, workerTimer = null;
   try { worker = typeof Worker !== 'undefined' && typeof window !== 'undefined' ? new Worker(new URL('./network-worker.js', import.meta.url), {type: 'module'}) : null; }
   catch (e) { console.warn('Route worker unavailable, building routes on the main thread', e); }
   function workerFailed(e) {
     console.warn('Route worker failed, building routes on the main thread', e?.message || e?.data?.error || e);
-    worker?.terminate(); worker = null;
+    clearTimeout(workerTimer); worker?.terminate(); worker = null;
     if (networkPending && networkArgs) networkJob = router.networkSteps(networkArgs.hubs, networkArgs.stops);
   }
   if (worker) {
     worker.onmessage = e => {
       if (e.data.error) return workerFailed(e);
       if (e.data.id !== networkId) return;
+      clearTimeout(workerTimer);
       try { router.setNetwork(e.data.network); networkReady(e.data.segments); } catch (err) { workerFailed(err); }
     };
     worker.onerror = e => { e.preventDefault?.(); workerFailed(e); };
@@ -797,6 +799,9 @@ export function addWarehouseRobots(scene, getState) {
     networkId++; networkPending = true; networkArgs = {hubs, stops};
     if (worker) {
       networkJob = null;
+      // A worker the browser killed or that hangs never answers: after 15 s the routes are built here instead.
+      clearTimeout(workerTimer); const id = networkId;
+      workerTimer = setTimeout(() => { if (networkPending && id === networkId) workerFailed(new Error('no answer in 15 s')); }, 15000);
       try { worker.postMessage({id: networkId, racks, obstacles, area, hubs, stops}); return; } catch (e) { workerFailed(e); return; }
     }
     networkJob = router.networkSteps(hubs, stops);
@@ -1099,8 +1104,8 @@ export function addWarehouseRobots(scene, getState) {
     // An urgent order only jumps the line while there is stock to fill it: one that can't be filled would
     // otherwise keep every robot on shipping and leave the receiving docks unserved.
     const urgent = book.orders.some(o => o.priority === 'Urgent' && o.allocated.length < o.quantity && [...boxesOf(o.product)].some(b => !reserved.has(b.id)));
-    // No box waits at receiving for more than a minute, whatever the stock level says.
-    const starving = stations.some(st => st.kind === 'inbound' && st.queue.some(q => q.arrived && !q.taken && q.age > 60));
+    // No box waits at the robot end of a receiving belt for more than 45 s, whatever the stock level says.
+    const starving = stations.some(st => st.kind === 'inbound' && st.queue.some(q => q.arrived && !q.taken && (q.waited || 0) > 45));
     // Background work only (serveUser hands out the user's): receiving and shipping, towards the starting
     // stock level when it has drifted, else alternating per robot. An urgent order jumps the line.
     const level = stockLevel();

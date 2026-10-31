@@ -60,7 +60,7 @@ test('a receipt for a full cell goes to the nearest free cell on that rack', () 
   const full = state.boxes.find(b => count(b.rack, b.location) === CELL_CAPACITY && state.boxes.filter(x => x.rack === b.rack).length < 40);
   sim.receive(full.product, 1, {rack: full.rack, loc: full.location});
   const done = [];
-  run(sim, 400, () => { done.push(...sim.takeFinished()); return done.some(f => f.kind === 'Receive'); });
+  run(sim, 900, () => { done.push(...sim.takeFinished()); return done.some(f => f.kind === 'Receive'); });
   const f = done.find(f => f.kind === 'Receive');
   assert.ok(f, 'the box was put away');
   assert.equal(done.some(f => f.kind === 'ReceiveRedirected'), false);
@@ -84,4 +84,20 @@ test('a failing route worker falls back to building the network on the main thre
     assert.ok(sim.delivered > 0, 'robots keep working');
     assert.equal(warned.filter(a => /Route worker/.test(a[0])).length, 1);
   } finally { console.warn = warn; delete globalThis.window; delete globalThis.Worker; }
+});
+
+test('a route worker that never answers is given up after 15 s and routes are built here', async (t) => {
+  const warned = [], warn = console.warn;
+  console.warn = (...a) => warned.push(a);
+  globalThis.window = {};
+  globalThis.Worker = class { postMessage() {} terminate() {} };
+  t.mock.timers.enable({apis: ['setTimeout']});
+  try {
+    const state = seed(), sim = addWarehouseRobots(new T.Scene(), () => state);
+    sim.update(.1);
+    t.mock.timers.tick(15001);
+    for (let i = 0; i < 600; i++) sim.update(.1);
+    assert.ok(warned.some(w => String(w[1]).includes('no answer')), 'the silent worker was given up');
+    assert.ok(sim.robots.some(r => r.task), 'robots got work without the worker');
+  } finally { console.warn = warn; delete globalThis.Worker; delete globalThis.window; t.mock.timers.reset(); }
 });

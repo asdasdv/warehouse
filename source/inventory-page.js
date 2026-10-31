@@ -14,7 +14,7 @@ const age=b=>{const t=Date.parse(b.receivedAt||0),start=new Date().setHours(0,0,
 const KEYS=['Zone','Rack','Shelf','Product','SKU','Received date'];
 export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation,onProduct,chosen=()=>null}){
  const el=document.createElement('section');el.id='inventoryPage';el.className='lc-inv';el.hidden=true;document.querySelector('main').append(el);
- let sort={key:'boxes',dir:'desc'},active=false,query='',page=0,popover=null,popQuery='',hovering=false;const others=[];const filters=new Map(),size=50;
+ let sort={key:'boxes',dir:'desc'},active=false,query='',typed='',page=0,popover=null,popQuery='',hovering=false;const others=[];const filters=new Map(),size=50;
  // Rack → zone, rebuilt once per render: looking it up box by box over 1 200 racks made Inventory slow to open.
  let rackZone=new Map();const zoneOfRack=(st,rid)=>rackZone.get(rid);
  function value(st,b,key){const stored=b.kind===undefined||b.kind==='stored';if(key==='Zone')return stored?zoneOfRack(st,b.rack)?.id:null;if(key==='Rack')return stored?b.rack:null;if(key==='Shelf')return stored?b.location.split('-')[0]:null;if(key==='Product')return b.product;if(key==='SKU')return itemOf(b.product)?.sku||null;return age(b);}
@@ -25,7 +25,9 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   if(!popover)return '';
   if(popover==='add'){const keys=KEYS.filter(k=>!filters.has(k)&&k.toLowerCase().includes(popQuery));return `<div class="lc-pop" id="invPop"><div class="lc-pop-search">${icon('search')}<input id="popSearch" placeholder="Filter by…" value="${esc(popQuery)}"></div>${keys.map(k=>`<button data-add="${k}">${k}</button>`).join('')||'<p class="lc-empty">No more filters.</p>'}</div>`;}
   const set=filters.get(popover)||new Set(),counts=new Map();for(const b of boxes){if(!matches(st,b,popover))continue;const v=value(st,b,popover);if(v!=null)counts.set(v,(counts.get(v)||0)+1);}
-  const vals=[...counts].filter(([v])=>label(st,popover,v).toLowerCase().includes(popQuery)).sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'en',{numeric:true}));
+  // Received date reads in time order (Today, Last 7 days, Older); everything else sorts naturally.
+  const ORDER=['Today','Last 7 days','Older'],rank=v=>popover==='Received date'?ORDER.indexOf(v):0;
+  const vals=[...counts].filter(([v])=>label(st,popover,v).toLowerCase().includes(popQuery)).sort((a,b)=>rank(a[0])-rank(b[0])||String(a[0]).localeCompare(String(b[0]),'en',{numeric:true}));
   return `<div class="lc-pop wide" id="invPop"><div class="lc-pop-search">${icon('search')}<input id="popSearch" placeholder="${esc(popover)}" value="${esc(popQuery)}"></div><div class="lc-pop-list">${vals.map(([v,n])=>{const z=popover==='Zone'?st.zones.find(x=>x.id===v):null;return `<button data-toggle="${esc(v)}" class="${set.has(v)?'on':''}"><span class="lc-check">${set.has(v)?'✓':''}</span>${z?`<i style="background:${z.color}"></i>`:''}<span class="v">${esc(label(st,popover,v))}</span><small>${fmt(n)}</small></button>`;}).join('')||'<p class="lc-empty">No values.</p>'}</div></div>`;
  }
  function render(inPlace=false){
@@ -49,7 +51,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   others.length=0;
   const st0=page*size;
   const html=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
-  <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(query)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
+  <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(typed)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
   <table class="ph-history-table lc-inv-table"><colgroup><col style="width:160px"><col><col style="width:80px"><col style="width:390px"></colgroup><thead><tr>${sortHead('SKU','sku',sort,'','asc')}${sortHead('Product','product',sort,'','asc')}${sortHead('Boxes','boxes',sort,'num')}${sortHead('Location','location',sort)}</tr></thead><tbody>${rows.slice(st0,st0+size).map(([p,bs])=>`<tr data-product="${esc(p)}" tabindex="0"><td class="sub">${esc(itemOf(p)?.sku||'—')}</td><td>${esc(p)}</td><td class="num">${fmt(bs.length)}</td><td class="lc-locs">${locCell(bs)}</td></tr>`).join('')||'<tr class="lc-empty-row"><td colspan="4">No matching stock<small>Try another search or remove a filter</small></td></tr>'}</tbody></table>
   ${pages>1?`<div class="ph-history-foot"><span>Showing ${st0+1}–${Math.min(st0+size,rows.length)} of ${fmt(rows.length)} products</span><div><button id="invPrev" ${page===0?'disabled':''}>‹</button>${pageButtons(page,pages)}<button id="invNext" ${page>=pages-1?'disabled':''}>›</button></div></div>`:''}`;
   if(inPlace&&patch(html))return;
@@ -86,7 +88,8 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   el.querySelector('#popSearch')?.addEventListener('input',e=>{popQuery=e.target.value.toLowerCase();keepFocus('#popSearch',render);});
   el.querySelector('#invPop')?.addEventListener('click',e=>e.stopPropagation());
   el.querySelector('#invClear')?.addEventListener('click',()=>{filters.clear();page=0;render();});
-  el.querySelector('#invSearch').oninput=e=>{query=e.target.value.trim().toLowerCase();page=0;keepFocus('#invSearch',render);};
+  // The field keeps what was typed (spaces, capitals); matching uses a trimmed lower-case copy.
+  el.querySelector('#invSearch').oninput=e=>{typed=e.target.value;query=typed.trim().toLowerCase();page=0;keepFocus('#invSearch',render);};
   el.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>{page=+b.dataset.page;render();});
   el.querySelector('#invPrev')?.addEventListener('click',()=>{page--;render();});el.querySelector('#invNext')?.addEventListener('click',()=>{page++;render();});
   bindRows();
@@ -117,5 +120,5 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  document.addEventListener('click',e=>{if(active&&popover&&!e.target.closest('#invPop')){popover=null;render();}});
  function close(){active=false;popover=null;tip.hidden=true;hovering=false;el.hidden=true;document.body.classList.remove('inventory-mode');}
  setInterval(()=>{if(active&&!hovering&&!popover&&!el.contains(document.activeElement))render(true);},1500);
- return {markChosen,close,open(q){if(q!==undefined){query=q.toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
+ return {markChosen,close,open(q){if(q!==undefined){typed=q;query=q.trim().toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
 }

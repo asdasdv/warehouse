@@ -545,3 +545,5 @@ body.product-open #inventoryPage.lc-inv{padding-right:calc(var(--panel-w) + 24px
 .lc-inv-table tbody tr.chosen td:first-child{border-radius:12px 0 0 12px}.lc-inv-table tbody tr.chosen td:last-child{border-radius:0 12px 12px 0}
 .lc-inv-table tbody tr:has(+tr.chosen) td{border-bottom-color:transparent}
 .inventory-mode.product-open #robotPanel{visibility:visible;display:flex}
+/* Selects inside a field keep a chevron: the field rule above clears the background, appearance stays none. */
+.lc-input select{appearance:none;-webkit-appearance:none;background:url(/assets/fg/chevron-down.svg) no-repeat right center/16px;padding-right:24px;cursor:pointer;opacity:1}

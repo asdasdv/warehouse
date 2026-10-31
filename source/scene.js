@@ -22,7 +22,7 @@ const homeOffset=new T.Vector3(.39,.92,1).multiplyScalar(extent.size);scene.fog.
 const robotics=addWarehouseRobots(scene,getBaseState);
 const operations=sceneOperations(scene,robotics,getBaseState);
 const camera=new T.PerspectiveCamera(38,1,.3,extent.size*7.5);camera.position.set(extent.cx+homeOffset.x,homeOffset.y,extent.cz+homeOffset.z);
-const renderer=new T.WebGLRenderer({antialias:true,logarithmicDepthBuffer:true});const MAX_RATIO=Math.min(devicePixelRatio,1.5);renderer.setPixelRatio(MAX_RATIO);container.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFSoftShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+const renderer=new T.WebGLRenderer({antialias:true,logarithmicDepthBuffer:true});const MAX_RATIO=Math.min(devicePixelRatio,1.5);renderer.setPixelRatio(MAX_RATIO);container.append(renderer.domElement);renderer.outputColorSpace=T.SRGBColorSpace;renderer.shadowMap.enabled=true;renderer.shadowMap.type=T.PCFShadowMap;renderer.toneMapping=T.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
 
 
 const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.maxPolarAngle=Math.PI*.46;controls.minDistance=8;controls.maxDistance=extent.size*3;controls.target.set(extent.cx,0,extent.cz);controls.zoomToCursor=true;

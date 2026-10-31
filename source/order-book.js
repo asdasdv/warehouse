@@ -1,7 +1,8 @@
 export function createOrderBook(){
  const orders=[];let serial=0;
  function create(product,quantity,priority='Normal',boxId=null){
-  if(!product||!Number.isInteger(quantity)||quantity<1||quantity>100)throw Error('Choose a product and 1–100 boxes.');
+  // The upper bound is the stock: sim.ship() checks the boxes free to ship; 10,000 is only a sanity cap.
+  if(!product||!Number.isInteger(quantity)||quantity<1||quantity>10000)throw Error('Choose a product and 1–10,000 boxes.');
   const o={id:`ORD-${++serial+1000}`,product,quantity,priority:priority==='Urgent'?'Urgent':'Normal',boxId,allocated:[],staged:[],shipped:[]};orders.push(o);return o;
  }
  function candidates(b){const specific=orders.find(o=>o.boxId===b.id);return orders.filter(o=>(!specific||o===specific)&&o.product===b.product&&(!o.boxId||o.boxId===b.id)&&o.allocated.length<o.quantity).sort((a,b)=>(b.priority==='Urgent')-(a.priority==='Urgent'));}
