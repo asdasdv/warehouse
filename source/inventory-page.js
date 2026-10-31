@@ -12,7 +12,7 @@ const DAY=86400e3;
 const age=b=>{const t=Date.parse(b.receivedAt||0),start=new Date().setHours(0,0,0,0);return t>=start?'Today':t>=start-6*DAY?'Last 7 days':'Older';};
 // Filters: Zone, Rack, Shelf, Product, SKU, Received date. Each keeps a set of chosen values.
 const KEYS=['Zone','Rack','Shelf','Product','SKU','Received date'];
-export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation}){
+export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation,onProduct,chosen=()=>null}){
  const el=document.createElement('section');el.id='inventoryPage';el.className='lc-inv';el.hidden=true;document.querySelector('main').append(el);
  let sort={key:'boxes',dir:'desc'},active=false,query='',page=0,popover=null,popQuery='',hovering=false;const others=[];const filters=new Map(),size=50;
  // Rack → zone, rebuilt once per render: looking it up box by box over 1 200 racks made Inventory slow to open.
@@ -50,7 +50,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const st0=page*size;
   const html=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
   <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(query)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
-  <table class="ph-history-table lc-inv-table"><colgroup><col style="width:160px"><col><col style="width:80px"><col style="width:390px"></colgroup><thead><tr>${sortHead('SKU','sku',sort,'','asc')}${sortHead('Product','product',sort,'','asc')}${sortHead('Boxes','boxes',sort,'num')}${sortHead('Location','location',sort)}</tr></thead><tbody>${rows.slice(st0,st0+size).map(([p,bs])=>`<tr><td class="sub">${esc(itemOf(p)?.sku||'—')}</td><td>${esc(p)}</td><td class="num">${fmt(bs.length)}</td><td class="lc-locs">${locCell(bs)}</td></tr>`).join('')||'<tr class="lc-empty-row"><td colspan="4">No matching stock<small>Try another search or remove a filter</small></td></tr>'}</tbody></table>
+  <table class="ph-history-table lc-inv-table"><colgroup><col style="width:160px"><col><col style="width:80px"><col style="width:390px"></colgroup><thead><tr>${sortHead('SKU','sku',sort,'','asc')}${sortHead('Product','product',sort,'','asc')}${sortHead('Boxes','boxes',sort,'num')}${sortHead('Location','location',sort)}</tr></thead><tbody>${rows.slice(st0,st0+size).map(([p,bs])=>`<tr data-product="${esc(p)}" tabindex="0"><td class="sub">${esc(itemOf(p)?.sku||'—')}</td><td>${esc(p)}</td><td class="num">${fmt(bs.length)}</td><td class="lc-locs">${locCell(bs)}</td></tr>`).join('')||'<tr class="lc-empty-row"><td colspan="4">No matching stock<small>Try another search or remove a filter</small></td></tr>'}</tbody></table>
   ${pages>1?`<div class="ph-history-foot"><span>Showing ${st0+1}–${Math.min(st0+size,rows.length)} of ${fmt(rows.length)} products</span><div><button id="invPrev" ${page===0?'disabled':''}>‹</button>${pageButtons(page,pages)}<button id="invNext" ${page>=pages-1?'disabled':''}>›</button></div></div>`:''}`;
   if(inPlace&&patch(html))return;
   el.innerHTML=html;bind();
@@ -95,7 +95,12 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   el.querySelectorAll('[data-more]').forEach(m=>{const open=()=>showPlaces(m,others[Number(m.dataset.more)]);m.onmouseenter=open;m.onfocus=open;m.onblur=()=>{if(!tip.contains(document.activeElement))hidePlaces();};
    m.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();open();tip.querySelector('[data-rack]')?.focus();}if(e.key==='Escape')hidePlaces(true);};});
   el.querySelectorAll('[data-rack]').forEach(b=>b.onclick=()=>{close();onLocation('stored',b.dataset.rack);});
+  // A row is a product: clicking it (not one of its place pills) opens the product card on the right.
+  el.querySelectorAll('tbody tr[data-product]').forEach(tr=>{tr.onclick=e=>{if(!e.target.closest('.lc-loc,.more'))onProduct?.(tr.dataset.product);};
+   tr.onkeydown=e=>{if((e.key==='Enter'||e.key===' ')&&e.target===tr){e.preventDefault();onProduct?.(tr.dataset.product);}};});
+  markChosen();
  }
+ function markChosen(){const p=chosen();el.querySelectorAll('tbody tr[data-product]').forEach(tr=>tr.classList.toggle('chosen',tr.dataset.product===p));}
  // Live refresh changes only what changed: the numbers on top and the rows whose text moved. Rebuilding the
  // whole page every 1.5 s dropped the row under the cursor and felt like the table lagging.
  function patch(html){
@@ -112,5 +117,5 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  document.addEventListener('click',e=>{if(active&&popover&&!e.target.closest('#invPop')){popover=null;render();}});
  function close(){active=false;popover=null;tip.hidden=true;hovering=false;el.hidden=true;document.body.classList.remove('inventory-mode');}
  setInterval(()=>{if(active&&!hovering&&!popover&&!el.contains(document.activeElement))render(true);},1500);
- return {close,open(q){if(q!==undefined){query=q.toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
+ return {markChosen,close,open(q){if(q!==undefined){query=q.toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};
 }

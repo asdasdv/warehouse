@@ -515,10 +515,15 @@ function setOccupancy(on) {
 }
 
 const robotPanels = installRobotPanels(scene, () => { if (editing) toggleEdit(false); historyPage?.close(); inventoryPage?.close(); }, () => state,
-  id => movePhoenix({box: id}), shipBoxDialog);
+  id => movePhoenix({box: id}), shipBoxDialog, {
+    // Product card (from an Inventory row): receive or ship this product, or show every place of it on the map.
+    onReceive: product => receivePhoenix({product}), onShip: product => shipDialog({product}),
+    onClose: () => inventoryPage.markChosen(),
+    onMap: product => { inventoryPage.close(); setNav('warehouse'); scene.showRacks([...new Set(state.boxes.filter(b => b.product === product).map(b => b.rack))]); }});
 robotPanels.setPick(s => pick(s));
 const historyPage = installHistoryPage({getState: live});
 const inventoryPage = installInventoryPage({getState: () => state, sim, onShip: () => shipDialog(), onReceive: () => receivePhoenix(), onHistory: showHistory,
+  onProduct: product => { robotPanels.openProduct(product); inventoryPage.markChosen(); }, chosen: () => robotPanels.product,
   onLocation: (kind, id) => { if (kind === 'stored') pick({type: 'rack', id}); else robotPanels.open('Fleet'); }});
 const builderTools = installBuilderTools(scene.builderContext, () => state,
   a => commit(() => { applyLayoutEdit(state, a); log(state, 'Layout updated', a.type); }),

@@ -535,3 +535,13 @@ dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px}
    The page keeps no bottom padding (a sticky row stops at the padding edge); the row holds it instead. */
 #historyPage,#inventoryPage.lc-inv{padding-bottom:0}
 #historyPage .ph-history-foot,#inventoryPage .ph-history-foot{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:16px 0;background:var(--surface-primary);box-shadow:0 -1px 0 var(--content-quaternary)}
+/* Product card (Inventory row → right panel). */
+.lc-product-name{font-size:32px;line-height:32px;font-weight:600;letter-spacing:-.8px;margin:0}
+.lc-list-head .lc-text-btn{font-size:12px;line-height:16px}
+body.product-open #inventoryPage.lc-inv{padding-right:calc(var(--panel-w) + 24px)}
+.lc-inv-table tbody tr[data-product]{cursor:pointer}
+.lc-inv-table tbody tr.chosen{outline:1.5px solid var(--accent-primary);outline-offset:-1.5px;border-radius:12px}
+.lc-inv-table tbody tr.chosen td{background:rgba(76,168,248,.06);border-bottom-color:transparent}
+.lc-inv-table tbody tr.chosen td:first-child{border-radius:12px 0 0 12px}.lc-inv-table tbody tr.chosen td:last-child{border-radius:0 12px 12px 0}
+.lc-inv-table tbody tr:has(+tr.chosen) td{border-bottom-color:transparent}
+.inventory-mode.product-open #robotPanel{visibility:visible;display:flex}
