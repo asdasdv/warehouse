@@ -8,6 +8,8 @@ export function installTasksPanel(sim, toast, {onHistory, onBox}) {
   const el = document.createElement('section');
   el.id = 'tasksPanel'; el.hidden = true;
   document.querySelector('main').append(el);
+  // The panel holds the background; its inner block scrolls, so the clip can be rounded like the cards.
+  const body = document.createElement('div'); body.className = 'lc-scroll'; el.append(body);
   let last = '';
   function card(t) {
     const steps = STEPS[t.kind], status = t.step < 0 ? 'Waiting' : t.step === 0 ? 'Robot is coming' : steps[t.step];
@@ -23,7 +25,7 @@ export function installTasksPanel(sim, toast, {onHistory, onBox}) {
     const tasks = sim.tasks();
     const html = tasks.length ? `<p>Tasks · ${tasks.length}</p>${tasks.map(card).join('')}` : '';
     if (html !== last) {
-      last = html; el.innerHTML = html; el.hidden = !tasks.length;
+      last = html; body.innerHTML = html; el.hidden = !tasks.length;
       el.querySelectorAll('[data-box]').forEach(c => {
         c.onclick = e => { if (!e.target.closest('button')) onBox?.(c.dataset.box); };
         c.onkeydown = e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === c) { e.preventDefault(); onBox?.(c.dataset.box); } };

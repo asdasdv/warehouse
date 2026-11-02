@@ -134,7 +134,7 @@ dialog .icon{width:36px;height:36px}
 /* ---------- responsive ---------- */
 @media(max-width:1100px){:root{--panel-w:320px}.ph-search.is-open input,.ph-search:focus-within input{width:150px}.ph-total,.inv-heading h1,.ph-history-head h1{font-size:48px}}
 @media(max-width:760px){:root{--panel-w:280px}.ph-account{display:none}#results{width:300px}}
-#overview>.primary{flex:none}
+#overview>.lc-scroll>.primary{flex:none}
 /* panel scrolling: card scrolls, action stays pinned */
 #overview{overflow:hidden}
 #overview.home{overflow:auto}
