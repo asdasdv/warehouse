@@ -493,7 +493,8 @@ export function addWarehouseRobots(scene, getState) {
   // rollers that rises and pushes the box sideways onto the dock belt); dispatch docks get an incline up to
   // the dispatch line.
   const transferGroup = new T.Group(); group.add(transferGroup);
-  const crossRoller = new T.CylinderGeometry(.07, .07, 2.1, 10).rotateX(Math.PI / 2);
+  // Pop-up rollers turn about the line's own axis (x), so they push a box sideways (z) onto the dock belt.
+  const crossRoller = new T.CylinderGeometry(.07, .07, 2.6, 10).rotateZ(Math.PI / 2);
   const bridgeRoller = new T.CylinderGeometry(.07, .07, 2.2, 10).rotateZ(Math.PI / 2);
   const rollerMat = new T.MeshStandardMaterial({color: '#b8c1c4', roughness: .35, metalness: .6});
   const plateMat = new T.MeshStandardMaterial({color: '#2a3033', roughness: .8});
@@ -510,7 +511,7 @@ export function addWarehouseRobots(scene, getState) {
         const g = new T.Group(); g.position.set(st.g.position.x, spineLift(spine, st.g.position.x), 0); transferGroup.add(g);
         box(g, 0, BELT_TOP + .01, 0, 2.8, .02, BELT_HALF * 2, plateMat);
         const lift = new T.Group(); g.add(lift);
-        for (let i = 0; i < 8; i++) { const m = new T.Mesh(crossRoller, rollerMat); m.position.set(-1.2 + i * 2.4 / 7, BELT_TOP + .02, 0); m.castShadow = true; lift.add(m); }
+        for (let i = 0; i < 8; i++) { const m = new T.Mesh(crossRoller, rollerMat); m.position.set(0, BELT_TOP + .02, -.95 + i * 1.9 / 7); m.castShadow = true; lift.add(m); }
         st.lift = lift; st.pop = 0; lift.userData.lift = true;
         // A few rollers bridge the end of the dock belt (where the model's tunnel was) to the line.
         for (let lz = LAST_ROLLER + .35; lz < reach; lz += .35) { const m = new T.Mesh(bridgeRoller, rollerMat); m.position.copy(world(0, BELT_TOP - .07, lz)); transferGroup.add(m); }
