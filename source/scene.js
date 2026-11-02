@@ -269,12 +269,13 @@ function syncTags(){const s=getState(),want=[...s.zones.map(a=>({key:'zone:'+a.i
   // Robot names follow their robots; HTML keeps them sharp at any zoom (the old canvas sprites blurred).
   ...robotics.robots.map(r=>({key:'robot:'+r.id,text:r.id,kind:'robot',x:r.g.position.x,y:4,z:r.g.position.z}))];const keys=new Set(want.map(t=>t.key));
  for(const [k,t] of tags)if(!keys.has(k)){t.el.remove();tags.delete(k);}
- for(const t of want){let o=tags.get(t.key);if(!o){const el=document.createElement('div');el.className='map-tag tag-'+t.kind;tagLayer.append(el);o={el};tags.set(t.key,o);}const html=(t.color?`<i style="background:${t.color}"></i>`:'')+`<span>${t.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}</span>`;if(o.html!==html){o.el.innerHTML=html;o.html=html;}Object.assign(o,t);}}
+ for(const t of want){let o=tags.get(t.key);if(!o){const el=document.createElement('div');el.className='map-tag tag-'+t.kind;tagLayer.append(el);o={el};tags.set(t.key,o);}// A zone name shows its colour only when the zone floors are hidden; with the floors on it would repeat them.
+const html=(t.color&&!(t.kind==='zone'&&layers.zones)?`<i style="background:${t.color}"></i>`:'')+`<span>${t.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}</span>`;if(o.html!==html){o.el.innerHTML=html;o.html=html;}Object.assign(o,t);}}
 // Docks move when the layout changes, so positions are refreshed every frame (cheap: ~40 tags).
 // Dock names only show from close enough; from further away they pile up on top of each other.
 const DOCK_TAG_RANGE=Math.max(260,extent.size*.6);
 function placeTags(){syncTags();const w=renderer.domElement.clientWidth,h=renderer.domElement.clientHeight;tagLayer.hidden=building;if(building)return;
- for(const t of tags.values()){const on=t.kind==='zone'?layers.zoneTags&&layers.zones:t.kind==='robot'?layers.robots&&layers.labels&&(camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<180||robotics.selected===t.text):layers.dockTags&&(t.kind==='building'||camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<DOCK_TAG_RANGE);tagPoint.set(t.x,t.y,t.z).project(camera);const show=on&&tagPoint.z<1&&Math.abs(tagPoint.x)<1.1&&Math.abs(tagPoint.y)<1.1;
+ for(const t of tags.values()){const on=t.kind==='zone'?layers.zoneTags:t.kind==='robot'?layers.robots&&layers.labels&&(camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<180||robotics.selected===t.text):layers.dockTags&&(t.kind==='building'||camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<DOCK_TAG_RANGE);tagPoint.set(t.x,t.y,t.z).project(camera);const show=on&&tagPoint.z<1&&Math.abs(tagPoint.x)<1.1&&Math.abs(tagPoint.y)<1.1;
   if(!show){if(t.shown!==false){t.el.style.display='none';t.shown=false;}continue;}if(t.shown!==true){t.el.style.display='';t.shown=true;}t.el.style.transform=`translate(${((tagPoint.x+1)/2*w).toFixed(1)}px,${((1-tagPoint.y)/2*h).toFixed(1)}px) translate(-50%,-50%)`;}}
 // Adaptive resolution: when frames stay slow (under ~45 fps) the render resolution steps down to 1x, and steps back
 // up once frames have kept close to the display's refresh for a few windows. The refresh interval is the shortest
