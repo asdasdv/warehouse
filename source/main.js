@@ -43,7 +43,7 @@ $('#app').innerHTML = `<main>
   <div class="ph-actions"><button id="receive">Receive</button><button id="ship" class="primary">Ship</button></div>
  </div>
  <div id="viewMenu" hidden><button class="vm-row" data-vm="occ" role="switch" aria-checked="false"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer role="switch" aria-checked="true"><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
- <aside class="right card" id="overview"></aside>
+ <aside class="right card" id="overview"><div class="lc-scroll"></div></aside>
  <div id="toast" role="status" popover="manual"></div>
  <div id="narrow" role="note"><b>Open Porter on a wider screen</b><span>The warehouse map, panels and dialogs need a window at least 900 px wide.</span></div>
  <dialog id="dialog" autofocus></dialog>
@@ -187,13 +187,14 @@ function bindPicks(root) {
   root.querySelector('[data-root]')?.addEventListener('click', () => pick(null));
 }
 function renderPanel() {
-  const view = $('#overview');
+  // The panel holds the background; its inner block scrolls, so the clip can be rounded like the cards.
+  const view = $('#overview'), body = view.firstElementChild;
   if (!exists(selected)) selected = null;
-  const scroll = view.scrollTop;
+  const scroll = body.scrollTop;
   const html = overviewHTML(live(), selected?.type === 'box' ? null : selected);
   if (html === lastPanelHTML) return;
-  lastPanelHTML = html; view.innerHTML = html; view.classList.toggle('home', !selected);
-  view.scrollTop = scroll;
+  lastPanelHTML = html; body.innerHTML = html; view.classList.toggle('home', !selected);
+  body.scrollTop = scroll;
   bindPicks(view);
   // Keep the 3D outline for the row still under the pointer after a re-render.
   const hovered = view.querySelector('.lc-row[data-pick]:hover');

@@ -105,7 +105,7 @@ button.primary:hover{background:var(--accent-primary-hover)}
 /* ---------- tasks panel ---------- */
 #tasksPanel{position:absolute;left:8px;top:calc(var(--topbar-h) + 8px);width:336px;max-height:calc(100% - var(--topbar-h) - 16px);overflow:auto;z-index:8;padding:12px;border-radius:16px;
   background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:var(--floating-panel);display:flex;flex-direction:column;gap:8px}
-#tasksPanel>p{font-size:12px;line-height:16px;color:var(--content-secondary)}
+#tasksPanel>.lc-scroll>p{font-size:12px;line-height:16px;color:var(--content-secondary)}
 .lc-task{background:var(--surface-secondary);border-radius:12px;padding:12px 12px 8px;display:flex;flex-direction:column;gap:8px}
 .lc-task-line{display:flex;justify-content:space-between;gap:8px;white-space:nowrap}
 .lc-task-line small{font-size:12px;color:var(--content-secondary)}
@@ -557,3 +557,9 @@ body.product-open #inventoryPage.lc-inv{padding-right:calc(var(--panel-w) + 24px
 /* Inventory numbers shrink with the window instead of forcing a horizontal scroll at 900–950 px. */
 .lc-inv-metrics{grid-template-columns:repeat(3,minmax(0,300px))}
 @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}}
+/* Side panels: the panel paints the frosted background; its one inner block (.lc-scroll) scrolls. The block sits
+   6px in from the edge (room for the scrollbar) and is rounded 18px — concentric with the 12px cards 6px further
+   in — so cards scrolling past the top or bottom are cut by a rounded edge, not a square one. */
+#overview,#robotPanel,#tasksPanel{padding:0;border:0;overflow:hidden;display:flex;flex-direction:column;gap:0}
+#overview>.lc-scroll,#robotPanel>.lc-scroll,#tasksPanel>.lc-scroll{flex:1 1 auto;min-height:0;margin:6px;padding:6px;border-radius:18px;overflow:auto;scrollbar-width:thin;display:flex;flex-direction:column;gap:24px}
+#tasksPanel>.lc-scroll{gap:8px}

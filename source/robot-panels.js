@@ -3,6 +3,8 @@ import {itemOf} from './model.js';
 export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=>{},onShip=()=>{},product={}){
  const sim=scene.robotics;let page=null,id=null,boxId=null,productName=null,reveal=false;
  const el=document.createElement('aside');el.id='robotPanel';el.hidden=true;document.querySelector('main').append(el);
+ // The panel holds the background; its inner block scrolls, so the clip can be rounded like the cards.
+ const body=document.createElement('div');body.className='lc-scroll';el.append(body);
  const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`,chev='<img src="/assets/fg/chevron-right.svg" alt="">';
  const when=t=>new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).replace(',',' ·');
@@ -58,13 +60,13 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
   was.forEach((r,i)=>{if(r.className!==now[i].className)r.className=now[i].className;if(r.innerHTML!==now[i].innerHTML)r.innerHTML=now[i].innerHTML;});
   const head=el.querySelector('.lc-list-head'),next=t.querySelector('.lc-list-head');if(head&&next&&head.innerHTML!==next.innerHTML)head.innerHTML=next.innerHTML;return true;}
  // A robot picked on the map may be far down the list: its card is scrolled to the middle of the panel once.
- function showChosen(){if(!reveal||page!=='Fleet')return;const c=el.querySelector('.lc-robot.chosen');if(!c)return;reveal=false;const box=el.getBoundingClientRect(),r=c.getBoundingClientRect();
-  if(r.top<box.top||r.bottom>box.bottom)el.scrollTo({top:el.scrollTop+r.top-box.top-(box.height-r.height)/2,behavior:'smooth'});}
+ function showChosen(){if(!reveal||page!=='Fleet')return;const c=el.querySelector('.lc-robot.chosen');if(!c)return;reveal=false;const box=body.getBoundingClientRect(),r=c.getBoundingClientRect();
+  if(r.top<box.top||r.bottom>box.bottom)body.scrollTo({top:body.scrollTop+r.top-box.top-(box.height-r.height)/2,behavior:'smooth'});}
  function render(){draw();showChosen();}
  function draw(){if(!page)return;
   if(page==='Product'&&!productName){close();return;}
   // A box that has left the warehouse (shipped, cancelled) closes its card and goes back to the warehouse view.
-  if(page==='Box'&&!sim.boxInfo(boxId)){close();onPick(null);return;}el.classList.toggle('box-panel',page==='Box'||page==='Product');const html=page==='Box'?boxHTML():page==='Product'?productHTML():fleetHTML();if(html===last)return;if(patch(html)){last=html;return;}last=html;const scroll=el.scrollTop;el.innerHTML=html;el.scrollTop=scroll;
+  if(page==='Box'&&!sim.boxInfo(boxId)){close();onPick(null);return;}el.classList.toggle('box-panel',page==='Box'||page==='Product');const html=page==='Box'?boxHTML():page==='Product'?productHTML():fleetHTML();if(html===last)return;if(patch(html)){last=html;return;}last=html;const scroll=body.scrollTop;body.innerHTML=html;body.scrollTop=scroll;
   el.querySelector('#shipBox')?.addEventListener('click',()=>onShip(boxId));
   el.querySelector('#moveBox')?.addEventListener('click',()=>onMove(boxId));
   el.querySelector('#closeRobots')?.addEventListener('click',close);
