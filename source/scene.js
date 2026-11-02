@@ -93,9 +93,19 @@ function cargoMeshes(layout,group,selectedId=null,selectedLoc=null,closeUp=false
 // rebuild never disposes one and the shaders are never recompiled.
 const zoneParts=new Map(),zoneFloorMaterials=new Map();let rackHits=null;
 const rackKeyOf=r=>[r.id,r.x,r.z,r.width,r.depth,r.height,r.shelves,r.places,r.rotation||0].join(',');
-function zoneFloorMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshStandardMaterial({color:new T.Color('#f3f4f6').lerp(new T.Color(color),.85),roughness:.9});m.userData.keepColour=true;zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
+// Zones have no fill, only a coloured outline: the floor stays one calm tone. The floor plane is kept (invisible)
+// so a click on an empty part of a zone still picks it.
+const zoneFloor=new T.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false});sharedMaterials.add(zoneFloor);
+function zoneFloorMaterial(){return zoneFloor;}
+const ZONE_LINE=.8;
+function zoneLineMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshBasicMaterial({color,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-6,polygonOffsetUnits:-6});zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
+// One flat strip per edge, laid just inside the zone border.
+function zoneLineGeometry(a){const ps=zonePoints(a),pos=[],index=[];let sign=0;for(let i=0;i<ps.length;i++){const p=ps[i],q=ps[(i+1)%ps.length];sign+=p.x*q.z-q.x*p.z;}sign=sign>0?1:-1;
+ for(let i=0;i<ps.length;i++){const p=ps[i],q=ps[(i+1)%ps.length],len=Math.hypot(q.x-p.x,q.z-p.z)||1,nx=-(q.z-p.z)/len*sign*ZONE_LINE,nz=(q.x-p.x)/len*sign*ZONE_LINE,k=pos.length/3;
+  pos.push(p.x,0,p.z,q.x,0,q.z,q.x+nx,0,q.z+nz,p.x+nx,0,p.z+nz);index.push(k,k+1,k+2,k,k+2,k+3,k,k+2,k+1,k,k+3,k+2);}
+ const g=new T.BufferGeometry();g.setAttribute('position',new T.Float32BufferAttribute(pos,3));g.setIndex(index);return g;}
 function buildZoneParts(a,racks,zoneId){const meshes=[],dummy=new T.Object3D();
- if(a){let shape=new T.Shape(zonePoints(a).map(p=>new T.Vector2(p.x,-p.z)));let o=new T.Mesh(new T.ShapeGeometry(shape),zoneFloorMaterial(a.color));o.rotation.x=-Math.PI/2;o.position.y=.01;o.userData={type:'zone',id:a.id};o.receiveShadow=true;meshes.push(o);}
+ if(a){let shape=new T.Shape(zonePoints(a).map(p=>new T.Vector2(p.x,-p.z)));let o=new T.Mesh(new T.ShapeGeometry(shape),zoneFloorMaterial(a.color));o.rotation.x=-Math.PI/2;o.position.y=.01;o.userData={type:'zone',id:a.id};meshes.push(o);const line=new T.Mesh(zoneLineGeometry(a),zoneLineMaterial(a.color));line.position.y=.03;line.userData={zoneOutline:true};line.raycast=()=>{};meshes.push(line);}
  if(!racks.length){zoneBlocks.delete(zoneId);return meshes;}
  // Rack parts are batched per zone (so zones out of view are culled) and per kind. Far away a zone shows one
  // block per rack instead, tinted by how full the rack is (see zoneLevel).
@@ -272,8 +282,8 @@ function syncTags(){const s=getState(),want=[...s.zones.map(a=>({key:'zone:'+a.i
   // Robot names follow their robots; HTML keeps them sharp at any zoom (the old canvas sprites blurred).
   ...robotics.robots.map(r=>({key:'robot:'+r.id,text:r.id,kind:'robot',x:r.g.position.x,y:4,z:r.g.position.z}))];const keys=new Set(want.map(t=>t.key));
  for(const [k,t] of tags)if(!keys.has(k)){t.el.remove();tags.delete(k);}
- for(const t of want){let o=tags.get(t.key);if(!o){const el=document.createElement('div');el.className='map-tag tag-'+t.kind;tagLayer.append(el);o={el};tags.set(t.key,o);}// A zone name shows its colour only when the zone floors are hidden; with the floors on it would repeat them.
-const html=(t.color&&!(t.kind==='zone'&&layers.zones)?`<i style="background:${t.color}"></i>`:'')+`<span>${t.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}</span>`;if(o.html!==html){o.el.innerHTML=html;o.html=html;}Object.assign(o,t);}}
+ for(const t of want){let o=tags.get(t.key);if(!o){const el=document.createElement('div');el.className='map-tag tag-'+t.kind;tagLayer.append(el);o={el};tags.set(t.key,o);}// A zone name carries its colour: the floor has only a thin outline.
+const html=(t.color?`<i style="background:${t.color}"></i>`:'')+`<span>${t.text.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'})[c])}</span>`;if(o.html!==html){o.el.innerHTML=html;o.html=html;}Object.assign(o,t);}}
 // Docks move when the layout changes, so positions are refreshed every frame (cheap: ~40 tags).
 // Dock names only show from close enough; from further away they pile up on top of each other.
 const DOCK_TAG_RANGE=Math.max(260,extent.size*.6);
