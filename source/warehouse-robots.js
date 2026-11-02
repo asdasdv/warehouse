@@ -767,7 +767,8 @@ export function addWarehouseRobots(scene, getState) {
   // Drawn a little above the zone plinths and pulled towards the camera in depth: at a distance the two surfaces
   // are too close for the depth buffer and the lines flickered.
   // Light style: an even mid grey (opaque, so crossings don't darken) reads on the pale floor and on coloured zones.
-  const laneMat = new T.MeshBasicMaterial({color: '#a9b0b8', depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
+  // Lanes write depth, so the dotted floor grid (drawn later, transparent) stays under them.
+  const laneMat = new T.MeshBasicMaterial({color: '#a9b0b8', depthWrite: true, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
   const bayMat = laneMat;
   const flat = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const arrowGeo = new T.ShapeGeometry(new T.Shape([new T.Vector2(.55, 0), new T.Vector2(-.35, .45), new T.Vector2(-.35, -.45)])).rotateX(-Math.PI / 2);
