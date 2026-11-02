@@ -411,7 +411,6 @@ export function addWarehouseRobots(scene, getState) {
   // dispatch building. Robots drive under both where the receiving line climbs a bridge (see docks.js).
   const spineGroup = new T.Group(), spineItems = new T.Group(); group.add(spineGroup, spineItems);
   const spineTextures = [];
-  const beltMat = new T.MeshStandardMaterial({color: PALETTE.belt, roughness: .9});
   let spine = null, spineKey = null, span = null;
   // One belt material per direction; each belt piece carries its length in its UVs, so all pieces merge.
   const beltMats = {};
@@ -521,8 +520,8 @@ export function addWarehouseRobots(scene, getState) {
       // Dispatch: a short flat run, then the incline up to the overhead line, with a guard rail each side.
       st.lift = null;
       const flatEnd = LAST_ROLLER + 1, top = world(0, UPPER - .06, reach), bottom = world(0, BELT_TOP - .06, flatEnd);
-      beam(transferGroup, world(0, BELT_TOP - .06, LAST_ROLLER), bottom, BELT_HALF * 2, .12, beltMat);
-      beam(transferGroup, bottom, top, BELT_HALF * 2, .12, beltMat);
+      movingBelt(world(0, BELT_TOP - .06, LAST_ROLLER), bottom);
+      movingBelt(bottom, top);
       // Guard rails: flat along the short run, then up the incline. The incline rail starts inside a knee block
       // at the bend, so its slanted end doesn't stick out under the flat rail.
       for (const x of [-1.25, 1.25]) {
@@ -538,6 +537,14 @@ export function addWarehouseRobots(scene, getState) {
     // Static parts merged per material; each pop-up lift stays its own (merged) mesh so it can rise.
     mergeByMaterial(transferGroup, o => o.parent?.userData.lift);
     for (const st of stations) if (st.lift) mergeByMaterial(st.lift);
+  }
+  // A belt from `a` up to `b` with the same moving texture as the lines: its UVs run along the belt, so the
+  // stripes travel from a to b.
+  function movingBelt(a, b) {
+    const m = beam(transferGroup, a, b, BELT_HALF * 2, .12, beltMaterial(1)), len = a.distanceTo(b);
+    m.geometry = geo.clone(); const pos = m.geometry.attributes.position, uv = m.geometry.attributes.uv;
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, (pos.getZ(k) + .5) * len / 1.2, pos.getX(k) + .5);
+    return m;
   }
   // Moves a box straight to `to` in `seconds` (with a small hop for a pop-up transfer), then calls `done`.
   function transfer(st, q, to, done, seconds = TRANSFER_SECONDS, hop = true) {
