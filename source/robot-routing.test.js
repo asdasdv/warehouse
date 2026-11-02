@@ -6,3 +6,6 @@ test('a parking spot joins the lanes by one two-way spur, not a loop under its b
  nav.buildNetwork(ports,[...s.racks.flatMap(nav.ports),...depotStops(depots)]);const spots=nav.parking(20,[...ports,...s.zones.map(z=>({x:z.x+z.w/2,z:z.z+z.d/2}))],ports);assert.ok(spots.length>10);
  for(const p of spots)nav.connect(p);const segs=nav.segments(),at=(g,p)=>Math.min(g.x1,g.x2)<=p.x&&p.x<=Math.max(g.x1,g.x2)&&Math.min(g.z1,g.z2)<=p.z&&p.z<=Math.max(g.z1,g.z2);
  for(const p of spots){const t=segs.filter(g=>at(g,p));assert.equal(t.length,1,`one line into ${p.x},${p.z}`);assert.equal(t[0].dir,0,`two-way into ${p.x},${p.z}`);}});
+test('once the lanes are laid, a route between rack faces keeps to them',async()=>{const {seed}=await import('./model.js'),{docksOf,dockPort,layoutObstacles}=await import('./docks.js');
+ const s=seed('small'),nav=createRouter(s.racks,layoutObstacles(s)),ports=docksOf(s).map(dockPort),faces=s.racks.map(nav.port);nav.buildNetwork(ports,faces);
+ for(const [a,b] of [[faces[0],faces.at(-1)],[faces[3],ports[0]],[ports.at(-1),faces[10]]]){const path=nav.route(a,b);assert.ok(path?.length);for(const p of path)assert.ok(nav.onLanes(p),`off the lanes at ${p.x},${p.z}`);}});
