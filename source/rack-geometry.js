@@ -13,11 +13,13 @@ export function rackParts(r){
   const brace=(a,b)=>parts.push({kind:'brace',from:a,to:b,thickness:.045});
   for(const x of [-w/2,w/2])for(const z of [-d/2,d/2]){
     // Open channel uprights, anchor plates and connection hardware.
+    // The channel's flanges point into the rack; the anchor plate and its bolts sit centred under the whole upright.
+    const inward=x<0?1:-1,cx=x+inward*.03;
     add('frame',x,h/2,z,.10,h,.16);
-    add('frame',x+.075,h/2,z-.065,.07,h,.03);
-    add('frame',x+.075,h/2,z+.065,.07,h,.03);
-    add('frame',x,.035,z,.32,.07,.34);
-    for(const dx of [-.105,.105])for(const dz of [-.11,.11])add('hardware',x+dx,.083,z+dz,.035,.025,.035);
+    add('frame',x+inward*.075,h/2,z-.065,.07,h,.03);
+    add('frame',x+inward*.075,h/2,z+.065,.07,h,.03);
+    add('frame',cx,.035,z,.32,.07,.34);
+    for(const dx of [-.105,.105])for(const dz of [-.11,.11])add('hardware',cx+dx,.083,z+dz,.035,.025,.035);
     for(let s=0;s<r.shelves;s++){
       let y=base+s*gap+.16;
       for(const off of [0,.08,.16])if(y+off<h)add('hardware',x+.012,y+off,z+(z<0?-.086:.086),.035,.035,.012);
