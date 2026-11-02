@@ -516,7 +516,9 @@ input[type=search]::-webkit-search-cancel-button{display:none}
 .lc-places,.ed-inspector{border:6px solid transparent;padding:10px}
 .lc-suggest{border:4px solid transparent;padding:0}
 .lc-pop-list{border-right:4px solid transparent}
-dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px}
+dialog>.lc-dialog{border-right:6px solid transparent;padding-right:18px;overflow-x:hidden}
+/* The blur strips reach the padding edge on each side: 24px on the left, 18px on the right (the border holds the rest). */
+dialog>.lc-dialog::before,dialog>.lc-dialog::after{margin-inline:-24px -18px}
 /* Instant tooltip ([data-tip]) — a manual popover, so it shows above open dialogs too. */
 .lc-tip{position:fixed;inset:auto;margin:0;border:0;z-index:1000;padding:4px 8px;border-radius:8px;background:var(--content-primary);color:var(--surface-primary);font-size:12px;line-height:16px;white-space:nowrap;pointer-events:none}
 .lc-tip[hidden]{display:none}
