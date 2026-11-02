@@ -402,6 +402,8 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .lc-table td,.ph-history-table td{border-bottom:1px solid var(--content-quaternary)}
 .lc-table tbody tr:hover td,.ph-history-table tbody tr:hover td{background:var(--surface-secondary);border-bottom-color:transparent}
 .lc-table tbody tr:has(+tr:hover) td,.ph-history-table tbody tr:has(+tr:hover) td{border-bottom-color:transparent}
+/* No divider under the last row: the table or its panel already ends there. */
+.lc-table tbody tr:last-child td,.ph-history-table tbody tr:last-child td{border-bottom-color:transparent}
 .lc-title .icon{width:28px;height:28px;border-radius:8px}
 .lc-inv-table{table-layout:fixed}.lc-inv-table td{overflow:hidden;text-overflow:ellipsis}
 /* Editor panels per Figma: Objects header 22 + rows 2 apart; inspector header 38+8, section rows 4 apart */
