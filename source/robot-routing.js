@@ -146,7 +146,9 @@ export function createRouter(racks, obstacles = [], area = []) {
   // The network as plain arrays (to send between threads) and back.
   const networkData = () => ({pairs: Float64Array.from(network || []), dirs: Uint8Array.from(onNetwork)});
   function setNetwork(data) { network = new Set(data.pairs); onNetwork.set(data.dirs); offNetwork = ROUTE_OFF_NETWORK; }
-  // Joins a point (a parking spot) to the nearest network node, both ways, and adds that spur to the network.
+  // Joins a point (a parking spot) to the nearest network node with a two-way spur: one line in and out.
+  // (Routing in and out separately made a loop, as the way back kept to the one-way lanes, and the loop ran
+  // half under the bay's outline.)
   function connect(p) {
     const a = nearest(p); if (a < 0 || !network) return;
     const ax = a % w, az = (a / w) | 0; let best = -1, bestD = Infinity;
@@ -156,7 +158,11 @@ export function createRouter(racks, obstacles = [], area = []) {
       const d = Math.abs(dx) + Math.abs(dz); if (d < bestD) { bestD = d; best = i; }
     }
     if (best < 0) return;
-    for (const [from, to] of [[a, best], [best, a]]) { const r = search(from, to, null, false, 5000); if (r.s >= 0) addToNetwork(unwind(r.s, r.prev)); }
+    const r = search(a, best, null, false, 5000); if (r.s < 0) return;
+    // The spur ends where its way out first meets the network.
+    const path = unwind(r.s, r.prev), joins = path.findIndex(q => { const i = nearest(q); return onNetwork[i * 4] | onNetwork[i * 4 + 1] | onNetwork[i * 4 + 2] | onNetwork[i * 4 + 3]; });
+    const spur = path.slice(0, joins < 0 ? path.length : joins + 1);
+    addToNetwork(spur); addToNetwork([...spur].reverse());
   }
   // Adds a route to the network, so it is drawn and robots keep to it.
   function addToNetwork(path) {
