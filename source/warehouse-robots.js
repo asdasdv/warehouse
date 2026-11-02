@@ -410,8 +410,7 @@ export function addWarehouseRobots(scene, getState) {
   // Dispatch docks lift boxes up an incline onto the overhead dispatch line, which carries them into the
   // dispatch building. Robots drive under both where the receiving line climbs a bridge (see docks.js).
   const spineGroup = new T.Group(), spineItems = new T.Group(); group.add(spineGroup, spineItems);
-  const spineTextures = [], yellowMat = new T.MeshStandardMaterial({color: PALETTE.yellow, roughness: .6});
-  const beltMat = new T.MeshStandardMaterial({color: PALETTE.belt, roughness: .9});
+  const spineTextures = [];
   let spine = null, spineKey = null, span = null;
   // One belt material per direction; each belt piece carries its length in its UVs, so all pieces merge.
   const beltMats = {};
@@ -448,11 +447,15 @@ export function addWarehouseRobots(scene, getState) {
       for (const rail of [-1.25, 1.25]) piece(a, b, y(a) - .05, y(b) - .05, z + rail, .4, .3, frameMat);
     }
     // Overhead legs stand outside the floor belt; no legs in a robot passage.
+    // Legs reach a little into the rail (floor line) and crossbars end inside the legs: faces that only
+    // touch would share a plane and flicker as the camera moves.
     const step = height === null ? 4 : 8, off = height === null ? 1.25 : 1.75;
     for (let x = from + 1; x < to; x += step) {
       if ((sp.crossings || []).some(c => Math.abs(x - c) < BRIDGE_HALF + .5)) continue;
-      for (const side of [-1, 1]) legs.push({x, z: z + side * off, h: y(x) - .25});
-      if (height !== null) box(spineGroup, x, height - .35, z, .25, .2, off * 2 + .25, frameMat);
+      // Nor where a dock belt meets the lines: a leg there would stand in the dock's way.
+      if (docksOf(getState()).some(d => Math.abs(x - d.x) < BELT_HALF + 1.6)) continue;
+      for (const side of [-1, 1]) legs.push({x, z: z + side * off, h: y(x) - .2});
+      if (height !== null) box(spineGroup, x, height - .4, z, .21, .18, off * 2, frameMat);
     }
   }
   function drawSpine(sp) {
@@ -465,9 +468,8 @@ export function addWarehouseRobots(scene, getState) {
     box(spineGroup, span.recvEnd + .2, BELT_TOP - .1, 0, .4, .5, BELT_HALF * 2 + .6, frameMat);
     straightBelt(sp, span.dispStart, sp.x2, 0, legs, UPPER);        // dispatch line, overhead
     box(spineGroup, span.dispStart - .2, UPPER - .1, 0, .4, .5, BELT_HALF * 2 + .6, frameMat);
-    // Bridges: portal posts at each end and a yellow beam over the robot passage.
+    // Bridges: portal posts at each end of the robot passage.
     for (const c of sp.crossings || []) {
-      box(spineGroup, c, BELT_TOP + BRIDGE_LIFT - .45, 0, BRIDGE_HALF * 2, .3, 3.2, yellowMat);
       for (const e of [-BRIDGE_HALF, BRIDGE_HALF]) {
         box(spineGroup, c + e, BELT_TOP + BRIDGE_LIFT - .45, 0, .4, .4, 3.6, frameMat);
         for (const z of [-1.6, 1.6]) legs.push({x: c + e, z, h: UPPER - .25});
@@ -507,7 +509,6 @@ export function addWarehouseRobots(scene, getState) {
       if (st.kind === 'inbound') {
         const g = new T.Group(); g.position.set(st.g.position.x, spineLift(spine, st.g.position.x), 0); transferGroup.add(g);
         box(g, 0, BELT_TOP + .01, 0, 2.8, .02, BELT_HALF * 2, plateMat);
-        for (const x of [-1.4, 1.4]) box(g, x, BELT_TOP + .02, 0, .1, .04, BELT_HALF * 2, yellowMat);
         const lift = new T.Group(); g.add(lift);
         for (let i = 0; i < 8; i++) { const m = new T.Mesh(crossRoller, rollerMat); m.position.set(-1.2 + i * 2.4 / 7, BELT_TOP + .02, 0); m.castShadow = true; lift.add(m); }
         st.lift = lift; st.pop = 0; lift.userData.lift = true;
@@ -519,19 +520,31 @@ export function addWarehouseRobots(scene, getState) {
       // Dispatch: a short flat run, then the incline up to the overhead line, with a guard rail each side.
       st.lift = null;
       const flatEnd = LAST_ROLLER + 1, top = world(0, UPPER - .06, reach), bottom = world(0, BELT_TOP - .06, flatEnd);
-      beam(transferGroup, world(0, BELT_TOP - .06, LAST_ROLLER), bottom, BELT_HALF * 2, .12, beltMat);
-      beam(transferGroup, bottom, top, BELT_HALF * 2, .12, beltMat);
-      for (const x of [-1.25, 1.25]) beam(transferGroup, world(x, BELT_TOP + .1, flatEnd), world(x, UPPER + .1, reach), .25, .35, frameMat);
+      movingBelt(world(0, BELT_TOP - .06, LAST_ROLLER), bottom);
+      movingBelt(bottom, top);
+      // Guard rails: flat along the short run, then up the incline. The incline rail starts inside a knee block
+      // at the bend, so its slanted end doesn't stick out under the flat rail.
+      for (const x of [-1.25, 1.25]) {
+        beam(transferGroup, world(x, BELT_TOP + .1, LAST_ROLLER), world(x, BELT_TOP + .1, flatEnd), .25, .35, frameMat);
+        beam(transferGroup, world(x, BELT_TOP + .1, flatEnd), world(x, UPPER + .1, reach), .25, .35, frameMat);
+        beam(transferGroup, world(x, BELT_TOP + .05, flatEnd - .3), world(x, BELT_TOP + .05, flatEnd + .3), .27, .55, frameMat);
+      }
       for (let k = 1; k < 4; k++) {
         const lz = flatEnd + (reach - flatEnd) * k / 4, h = BELT_TOP + (UPPER - BELT_TOP) * k / 4;
         for (const x of [-1.25, 1.25]) beam(transferGroup, world(x, 0, lz), world(x, h - .2, lz), .2, .2, frameMat);
       }
-      const g = new T.Group(); g.position.set(st.g.position.x, 0, 0); transferGroup.add(g);
-      for (const x of [-1.4, 1.4]) box(g, x, UPPER + .02, 0, .1, .04, BELT_HALF * 2, yellowMat);
     }
     // Static parts merged per material; each pop-up lift stays its own (merged) mesh so it can rise.
     mergeByMaterial(transferGroup, o => o.parent?.userData.lift);
     for (const st of stations) if (st.lift) mergeByMaterial(st.lift);
+  }
+  // A belt from `a` up to `b` with the same moving texture as the lines: its UVs run along the belt, so the
+  // stripes travel from a to b.
+  function movingBelt(a, b) {
+    const m = beam(transferGroup, a, b, BELT_HALF * 2, .12, beltMaterial(1)), len = a.distanceTo(b);
+    m.geometry = geo.clone(); const pos = m.geometry.attributes.position, uv = m.geometry.attributes.uv;
+    for (let k = 0; k < uv.count; k++) uv.setXY(k, (pos.getZ(k) + .5) * len / 1.2, pos.getX(k) + .5);
+    return m;
   }
   // Moves a box straight to `to` in `seconds` (with a small hop for a pop-up transfer), then calls `done`.
   function transfer(st, q, to, done, seconds = TRANSFER_SECONDS, hop = true) {
