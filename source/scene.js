@@ -98,7 +98,13 @@ const rackKeyOf=r=>[r.id,r.x,r.z,r.width,r.depth,r.height,r.shelves,r.places,r.r
 const zoneFloor=new T.MeshBasicMaterial({transparent:true,opacity:0,depthWrite:false});sharedMaterials.add(zoneFloor);
 function zoneFloorMaterial(){return zoneFloor;}
 const ZONE_LINE=.8;
-function zoneLineMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshBasicMaterial({color,toneMapped:false,polygonOffset:true,polygonOffsetFactor:-6,polygonOffsetUnits:-6});zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
+// Pale zone colours (lime, mint, yellow) vanish on the light floor, so the line keeps the hue but is never lighter
+// than mid-tone: every outline reads the same.
+const lineHsl={};
+// Capped by perceived brightness (luminance), not HSL lightness: yellow-green at the same lightness looks far paler.
+const luminance=c=>.2126*c.r+.7152*c.g+.0722*c.b;
+function lineColour(color){const c=new T.Color(color);c.getHSL(lineHsl);let l=Math.min(lineHsl.l,.55);const s=Math.max(lineHsl.s,.55);c.setHSL(lineHsl.h,s,l);while(luminance(c)>.22&&l>.2){l-=.02;c.setHSL(lineHsl.h,s,l);}return c;}
+function zoneLineMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshBasicMaterial({color:lineColour(color),toneMapped:false,polygonOffset:true,polygonOffsetFactor:-6,polygonOffsetUnits:-6});zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
 // One flat strip per edge, laid just inside the zone border.
 function zoneLineGeometry(a){const ps=zonePoints(a),pos=[],index=[];let sign=0;for(let i=0;i<ps.length;i++){const p=ps[i],q=ps[(i+1)%ps.length];sign+=p.x*q.z-q.x*p.z;}sign=sign>0?1:-1;
  for(let i=0;i<ps.length;i++){const p=ps[i],q=ps[(i+1)%ps.length],len=Math.hypot(q.x-p.x,q.z-p.z)||1,nx=-(q.z-p.z)/len*sign*ZONE_LINE,nz=(q.x-p.x)/len*sign*ZONE_LINE,k=pos.length/3;
