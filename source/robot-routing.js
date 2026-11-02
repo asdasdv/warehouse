@@ -68,8 +68,13 @@ export function createRouter(racks, obstacles = [], area = []) {
   let gen = 0;
   const INF = 0x7fffffff, costOf = s => stamp[s] === gen ? dist[s] : INF;
   // `limit` caps the states expanded: a route that cannot be found quickly (a detour boxed in by robots) is given up.
-  function search(a, goal, avoid, reverse = false, limit = Infinity) {
+  // `keep`: once on the network, stay on it (leave a lane only along a drawn lane). Off-network steps are
+  // only for getting onto it from where a robot stands, or for a goal that is not on it.
+  const leaves = i => onNetwork[i * 4] | onNetwork[i * 4 + 1] | onNetwork[i * 4 + 2] | onNetwork[i * 4 + 3];
+  const arrives = i => { for (let d = 0; d < 4; d++) { const n = neighbour(i, d); if (n >= 0 && onNetwork[n * 4 + OPP[d]]) return true; } return false; };
+  function search(a, goal, avoid, reverse = false, limit = Infinity, keep = false) {
     gen++; for (const b of buckets) b.length = 0;
+    if (keep && (!network || goal < 0 || !arrives(goal))) keep = false;
     const gx = goal >= 0 ? goal % w : 0, gz = goal >= 0 ? (goal / w) | 0 : 0;
     const h = goal >= 0 ? i => FORWARD * (Math.abs(i % w - gx) + Math.abs(((i / w) | 0) - gz)) : () => 0;
     const start = a * 5 + 4; dist[start] = 0; prev[start] = -1; stamp[start] = gen; buckets[h(a) % BUCKETS].push(start);
@@ -86,6 +91,7 @@ export function createRouter(racks, obstacles = [], area = []) {
           // Forward: i → n heading d. Reverse: the original edge n → i, heading d.
           const n = neighbour(i, reverse ? OPP[d] : d);
           if (n < 0 || blocked[n] || avoid?.[n] && n !== goal) continue;
+          if (keep && !onNetwork[i * 4 + d] && leaves(i)) continue;
           const next = n * 5 + d, cost = dist[s] + (reverse ? edgeCost(n, d) : edgeCost(i, d)) + (from < 4 && from !== d ? TURN : 0);
           if (cost < costOf(next)) { dist[next] = cost; prev[next] = s; stamp[next] = gen; buckets[(cost + h(n)) % BUCKETS].push(next); pending++; }
         }
@@ -96,7 +102,9 @@ export function createRouter(racks, obstacles = [], area = []) {
   const unwind = (s, prev) => { const path = []; for (; s >= 0; s = prev[s]) path.push(point((s / 5) | 0)); return path.reverse(); };
   // `avoid` lists points (other robots) whose surroundings the route must not cross.
   const avoidMask = new Uint8Array(N);
-  function route(from, to, avoid = null, limit = avoid ? 40000 : 400000) {
+  // Robots keep to the drawn lanes: a route leaves them only to get onto them. If the lanes cannot reach the
+  // goal (the network is not built yet, or robots block every lane), the route may cross open floor.
+  function route(from, to, avoid = null, limit = avoid ? 40000 : 400000, lanesOnly = false) {
     const a = nearest(from), b = nearest(to);
     if (a < 0 || b < 0) return null;
     if (a === b) return [point(a)];
@@ -110,7 +118,8 @@ export function createRouter(racks, obstacles = [], area = []) {
       }
       mask[a] = 0;
     }
-    const {s, prev} = search(a, b, mask, false, limit);
+    let {s, prev} = search(a, b, mask, false, limit, true);
+    if (s < 0 && !lanesOnly) ({s, prev} = search(a, b, mask, false, limit));
     return s < 0 ? null : unwind(s, prev);
   }
 
@@ -253,5 +262,7 @@ export function createRouter(racks, obstacles = [], area = []) {
   const back = r => { const t = (r.rotation || 0) % 4; return t === 1 ? {x: r.x + r.width / 2 + 3, z: r.z} : t === 2 ? {x: r.x, z: r.z + r.depth / 2 + 3} : t === 3 ? {x: r.x - r.width / 2 - 3, z: r.z} : {x: r.x, z: r.z - r.depth / 2 - 3}; };
   const ports = r => [port(r), back(r)];
   const port = r => { const t = (r.rotation || 0) % 4; return t === 1 ? {x: r.x - r.width / 2 - 3, z: r.z} : t === 2 ? {x: r.x, z: r.z - r.depth / 2 - 3} : t === 3 ? {x: r.x + r.width / 2 + 3, z: r.z} : {x: r.x, z: r.z + r.depth / 2 + 3}; };
-  return {route, reachableFrom, port, ports, buildNetwork, networkSteps, networkData, setNetwork, connect, segments, parking, point: p => { const i = nearest(p); return i < 0 ? null : point(i); }, blocked};
+  return {route, reachableFrom, port, ports, buildNetwork, networkSteps, networkData, setNetwork, connect, segments, parking, point: p => { const i = nearest(p); return i < 0 ? null : point(i); },
+    // Whether a point lies on a drawn lane (always true before the lanes exist).
+    onLanes: p => { const i = nearest(p); return !network || i >= 0 && (leaves(i) || arrives(i)); }, blocked};
 }
