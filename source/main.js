@@ -42,7 +42,7 @@ $('#app').innerHTML = `<main>
   </nav>
   <div class="ph-actions"><button id="receive">Receive</button><button id="ship" class="primary">Ship</button></div>
  </div>
- <div id="viewMenu" hidden><button class="vm-row" data-vm="occ" role="switch" aria-checked="false"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Zone names', 'zoneTags'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer role="switch" aria-checked="true"><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
+ <div id="viewMenu" hidden><button class="vm-row" data-vm="occ" role="switch" aria-checked="false"><span>Occupancy</span><img id="vmSwitch" src="/assets/fg/switch-off.svg" alt=""></button>${[['Zones', 'zones'], ['Robots', 'robots'], ['Robot lanes', 'lanes'], ['Dock names', 'dockTags'], ['Robot names', 'labels']].map(([name, key]) => `<button class="vm-row" data-vm="${key}" data-layer role="switch" aria-checked="true"><span>${name}</span><img src="/assets/fg/switch-on.svg" alt=""></button>`).join('')}<div class="vm-div"></div><button class="vm-row" data-vm="edit"><span>Edit warehouse layout</span>${icon('open')}</button></div>
  <aside class="right card" id="overview"></aside>
  <div id="toast" role="status" popover="manual"></div>
  <div id="narrow" role="note"><b>Open Porter on a wider screen</b><span>The warehouse map, panels and dialogs need a window at least 900 px wide.</span></div>

@@ -54,7 +54,7 @@ const mat=(c)=>new T.MeshStandardMaterial({color:c,roughness:.8});
 const geometry=new T.BoxGeometry(1,1,1),cartonGeometry=new RoundedBoxGeometry(1,1,1,1,.035);
 // One palette for the whole scene (see PALETTE in warehouse-robots.js): light matte metal, white decks.
 const materials={frame:new T.MeshStandardMaterial({color:'#c3c9cf',metalness:.25,roughness:.5}),beam:new T.MeshStandardMaterial({color:'#e2e5e9',metalness:.15,roughness:.55}),deck:new T.MeshStandardMaterial({color:'#f6f7f8',metalness:.05,roughness:.75}),brace:new T.MeshStandardMaterial({color:'#d2d7db',metalness:.25,roughness:.5}),hardware:mat('#9aa1a8'),box:mat('#ffffff'),tape:mat('#a87942')};
-const layers={zones:true,robots:true,lanes:true,labels:true,zoneTags:true,dockTags:true};
+const layers={zones:true,robots:true,lanes:true,labels:true,dockTags:true};
 const sharedGeometries=new Set(),sharedMaterials=new Set(Object.values(materials));
 let cv=document.createElement('canvas');cv.width=128;cv.height=80;let ctx=cv.getContext('2d');ctx.fillStyle='#f4f4ed';ctx.fillRect(0,0,128,80);ctx.fillStyle='#8a9097';ctx.fillRect(9,10,58,6);ctx.fillRect(9,21,38,4);ctx.fillStyle='#39434b';for(let i=0;i<39;i++)ctx.fillRect(9+i*2.8,36,i%3===0?2:1,30);const labelTexture=new T.CanvasTexture(cv);materials.label=new T.MeshStandardMaterial({map:labelTexture,roughness:1});sharedMaterials.add(materials.label);
 function mesh(g,x,y,z,w,h,d,m){let o=new T.Mesh(geometry,m);o.position.set(x,y,z);o.scale.set(w,h,d);g.add(o);return o;}
@@ -275,7 +275,7 @@ const html=(t.color&&!(t.kind==='zone'&&layers.zones)?`<i style="background:${t.
 // Dock names only show from close enough; from further away they pile up on top of each other.
 const DOCK_TAG_RANGE=Math.max(260,extent.size*.6);
 function placeTags(){syncTags();const w=renderer.domElement.clientWidth,h=renderer.domElement.clientHeight;tagLayer.hidden=building;if(building)return;
- for(const t of tags.values()){const on=t.kind==='zone'?layers.zoneTags:t.kind==='robot'?layers.robots&&layers.labels&&(camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<180||robotics.selected===t.text):layers.dockTags&&(t.kind==='building'||camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<DOCK_TAG_RANGE);tagPoint.set(t.x,t.y,t.z).project(camera);const show=on&&tagPoint.z<1&&Math.abs(tagPoint.x)<1.1&&Math.abs(tagPoint.y)<1.1;
+ for(const t of tags.values()){const on=t.kind==='zone'?true:t.kind==='robot'?layers.robots&&layers.labels&&(camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<180||robotics.selected===t.text):layers.dockTags&&(t.kind==='building'||camera.position.distanceTo(tagPoint.set(t.x,t.y,t.z))<DOCK_TAG_RANGE);tagPoint.set(t.x,t.y,t.z).project(camera);const show=on&&tagPoint.z<1&&Math.abs(tagPoint.x)<1.1&&Math.abs(tagPoint.y)<1.1;
   if(!show){if(t.shown!==false){t.el.style.display='none';t.shown=false;}continue;}if(t.shown!==true){t.el.style.display='';t.shown=true;}t.el.style.transform=`translate(${((tagPoint.x+1)/2*w).toFixed(1)}px,${((1-tagPoint.y)/2*h).toFixed(1)}px) translate(-50%,-50%)`;}}
 // Adaptive resolution: when frames stay slow (under ~45 fps) the render resolution steps down to 1x, and steps back
 // up once frames have kept close to the display's refresh for a few windows. The refresh interval is the shortest
