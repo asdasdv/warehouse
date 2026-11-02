@@ -787,7 +787,9 @@ export function addWarehouseRobots(scene, getState) {
       for (let t = 4; t < len - 1; t += 8) arrows.push({x: g.x1 + (g.x2 - g.x1) * t / len, z: g.z1 + (g.z2 - g.z1) * t / len,
         angle: horizontal ? (g.dir > 0 ? 0 : Math.PI) : (g.dir > 0 ? -Math.PI / 2 : Math.PI / 2)});
     }
-    for (const p of spots) for (const [dx, dz, sx, sz] of [[-1.6, 0, .16, 3.8], [1.6, 0, .16, 3.8], [0, -1.9, 3.36, .16], [0, 1.9, 3.36, .16]]) bays.push({x: p.x + dx, z: p.z + dz, sx, sz});
+    // Bay outlines sit on the 2 m grid (a 4 m square), so neighbouring bays share a side and a lane between
+    // them runs on that same line, instead of two outlines and a lane drawn side by side.
+    for (const p of spots) for (const [dx, dz, sx, sz] of [[-2, 0, .14, 4.14], [2, 0, .14, 4.14], [0, -2, 4.14, .14], [0, 2, 4.14, .14]]) bays.push({x: p.x + dx, z: p.z + dz, sx, sz});
     instanced(flat, laneMat, strips); instanced(arrowGeo, laneMat, arrows); instanced(flat, bayMat, bays);
   }
   let routeKey = null, networkJob = null, networkId = 0, networkPending = false, networkArgs = null;
