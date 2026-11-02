@@ -71,7 +71,7 @@ loadModel('box').then(model=>{if(!model)return;const wrap=fitted(model,{w:1,h:1,
  wrap.traverse(o=>{if(!o.isMesh)return;const g=o.geometry.clone().applyMatrix4(o.matrixWorld);g.translate(0,-.5,0);parts.push({geometry:g,material:o.material,cardboard:/cardboard/i.test(o.material.name)});});
  for(const part of parts){sharedMaterials.add(part.material);sharedGeometries.add(part.geometry);}cartonParts=parts;for(const z of zoneCargo.values())dropNear(z);select(current,false);});
 // A box keeps its shade for life: picked from its id, not from where it sits in the list (that shifted on every move).
-const shades=['#ffffff','#f3ece2','#e8dccb','#f7f1e8'].map(c=>new T.Color(c)),fallbackShades=['#cba67a','#c09a6c','#d6b88f','#c8a274'].map(c=>new T.Color(c));
+const shades=['#ffffff']/* light style: one even tone, no per-box variation */.map(c=>new T.Color(c)),fallbackShades=['#ffffff'].map(c=>new T.Color(c));
 const shadeOf=(id,list)=>{let h=0;for(let i=0;i<id.length;i++)h=h*31+id.charCodeAt(i)|0;return list[Math.abs(h)%list.length];};
 // The sticker goes on the face that looks into the aisle, whichever way the rack is turned.
 const labelPlane=new T.PlaneGeometry(1,1);
