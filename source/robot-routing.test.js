@@ -1,3 +1,8 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {createRouter} from './robot-routing.js';
 test('routes detour around expanded rack footprint',()=>{const r={x:0,z:0,width:10,depth:10},nav=createRouter([r]),path=nav.route({x:-16,z:0},{x:16,z:0});assert.ok(path?.length);for(const p of path)assert.ok(Math.abs(p.x)>6.8||Math.abs(p.z)>6.8);for(let i=1;i<path.length;i++)assert.equal(Math.abs(path[i].x-path[i-1].x)+Math.abs(path[i].z-path[i-1].z),2);});
 test('sealed interior cannot be reached',()=>{let racks=[{x:0,z:-10,width:30,depth:2},{x:0,z:10,width:30,depth:2},{x:-14,z:0,width:2,depth:20},{x:14,z:0,width:2,depth:20}];assert.equal(createRouter(racks).route({x:0,z:0},{x:30,z:0}),null);});
+test('a parking spot joins the lanes by one two-way spur, not a loop under its bay',async()=>{const {seed}=await import('./model.js'),{chargingDepots,depotStops,docksOf,dockPort,layoutObstacles}=await import('./docks.js');
+ const s=seed('small'),depots=chargingDepots(s),area=depots.flatMap(d=>[{x:d.x-10,z:d.z-10},{x:d.x+d.w+10,z:d.z+d.d+10}]),nav=createRouter(s.racks,layoutObstacles(s),area),ports=docksOf(s).map(dockPort);
+ nav.buildNetwork(ports,[...s.racks.flatMap(nav.ports),...depotStops(depots)]);const spots=nav.parking(20,[...ports,...s.zones.map(z=>({x:z.x+z.w/2,z:z.z+z.d/2}))],ports);assert.ok(spots.length>10);
+ for(const p of spots)nav.connect(p);const segs=nav.segments(),at=(g,p)=>Math.min(g.x1,g.x2)<=p.x&&p.x<=Math.max(g.x1,g.x2)&&Math.min(g.z1,g.z2)<=p.z&&p.z<=Math.max(g.z1,g.z2);
+ for(const p of spots){const t=segs.filter(g=>at(g,p));assert.equal(t.length,1,`one line into ${p.x},${p.z}`);assert.equal(t[0].dir,0,`two-way into ${p.x},${p.z}`);}});
