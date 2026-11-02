@@ -766,7 +766,8 @@ export function addWarehouseRobots(scene, getState) {
   // Opaque, so crossing lines do not add up where they overlap.
   // Drawn a little above the zone plinths and pulled towards the camera in depth: at a distance the two surfaces
   // are too close for the depth buffer and the lines flickered.
-  const laneMat = new T.MeshBasicMaterial({color: '#f7f8fa', depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
+  // Lanes write depth, so the dotted floor grid (drawn later, transparent) stays under them.
+  const laneMat = new T.MeshBasicMaterial({color: '#f7f8fa', depthWrite: true, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
   const bayMat = laneMat;
   const flat = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const arrowGeo = new T.ShapeGeometry(new T.Shape([new T.Vector2(.55, 0), new T.Vector2(-.35, .45), new T.Vector2(-.35, -.45)])).rotateX(-Math.PI / 2);
