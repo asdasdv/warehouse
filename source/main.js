@@ -32,7 +32,7 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 $('#app').innerHTML = `<main>
  <div id="scene"></div>
  <div class="ph-topbar">
-  <div class="ph-account"><button class="ph-gear" aria-label="View menu">${icon('gear')}</button></div>
+  <div class="ph-account"><button class="ph-gear" aria-label="View menu" aria-haspopup="menu" aria-expanded="false">${icon('gear')}</button></div>
   <nav class="ph-nav" aria-label="Main navigation">
    <button class="nav active" id="warehouse" title="Warehouse" aria-label="Warehouse">${icon('grid')}</button>
    <button class="nav" id="inventory" title="Inventory" aria-label="Inventory">${icon('cube')}</button>
@@ -46,7 +46,7 @@ $('#app').innerHTML = `<main>
  <aside class="right card" id="overview"><div class="lc-scroll"></div></aside>
  <div id="toast" role="status" popover="manual"></div>
  <div id="narrow" role="note"><b>Open Porter on a wider screen</b><span>The warehouse map, panels and dialogs need a window at least 900 px wide.</span></div>
- <dialog id="dialog" autofocus></dialog>
+ <dialog id="dialog" autofocus aria-labelledby="dlgTitle"></dialog>
 </main>`;
 
 // Search fields (a magnifier + input) get a × once they hold text: it clears the text in one click.
@@ -60,9 +60,9 @@ function addClearButtons(root = document) {
   }
 }
 new MutationObserver(() => addClearButtons()).observe(document.body, {childList: true, subtree: true});
-document.addEventListener('pointerdown', e => { if (e.target.closest('.lc-clear')) e.preventDefault(); }, true); // keep focus in the field
+document.addEventListener('pointerdown', e => { if (e.target.closest('.lc-input > .lc-clear, .ph-search > .lc-clear')) e.preventDefault(); }, true); // keep focus in the field
 document.addEventListener('click', e => {
-  const b = e.target.closest('.lc-clear'); if (!b) return;
+  const b = e.target.closest('.lc-input > .lc-clear, .ph-search > .lc-clear'); if (!b) return;
   const input = b.parentElement.querySelector('input'); input.value = ''; input.dispatchEvent(new Event('input', {bubbles: true})); input.focus();
 });
 // Instant tooltips for anything with data-tip (zone bar segments); shown above the element, inside dialogs too.
@@ -224,7 +224,7 @@ function tableDialog(html, sort) {
 function dialogFrame({title, back, body, onBack, onSubmit}) {
   const d = $('#dialog');
   d.className = '';
-  d.innerHTML = `<form class="lc-dialog">${back ? `<div class="lc-dlg-top"><button type="button" class="lc-back" id="dlgBack"><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2>` : `<div class="lc-dlg-head"><h2>${esc(title)}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div>`}${body}<p class="lc-error" id="error"></p></form>`;
+  d.innerHTML = `<form class="lc-dialog">${back ? `<div class="lc-dlg-top"><button type="button" class="lc-back" id="dlgBack"><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div><h2 id="dlgTitle">${esc(title)}</h2>` : `<div class="lc-dlg-head"><h2 id="dlgTitle">${esc(title)}</h2><button type="button" class="icon" id="closeDialog" aria-label="Close">${icon('close')}</button></div>`}${body}<p class="lc-error" id="error"></p></form>`;
   $('#closeDialog').onclick = () => d.close();
   if (back) $('#dlgBack').onclick = onBack;
   const form = d.querySelector('form');
@@ -402,7 +402,8 @@ function receivePhoenix(preset = {}) {
     }});
   const render = () => {
     const p = isNew ? '__new__' : product;
-    if (choice && !cellRoom(state, choice.rack, choice.loc, p)) choice = null;
+    // A chosen cell that no longer fits is dropped as a user choice too, so the next amount change re-plans.
+    if (choice && !cellRoom(state, choice.rack, choice.loc, p)) { choice = null; picked = false; }
     const options = p ? receiveOptions(p, qty) : [];
     if (!choice && options[0]) choice = {rack: options[0].rack, loc: options[0].loc};
     // Before a product is picked the field is still there, empty, like an unfilled input.
@@ -431,7 +432,7 @@ function receivePhoenix(preset = {}) {
 function shipDialog(preset = {}) {
   let product = preset.product || '', qty = preset.qty || 1, station = preset.station || sim.dispatchStations()[0];
   const form = dialogFrame({title: 'Ship',
-    body: `<div class="lc-field"><span>Product</span>${productInput('Search product or SKU')}</div><div class="lc-field"><span>Boxes</span>${stepper(qty, 1, true)}</div><label class="lc-field"><span>Take to</span><div class="lc-input"><select id="station">${sim.dispatchStations().map(s => `<option ${s === station ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></label><button class="primary" type="submit" id="submitBtn"></button>`,
+    body: `<div class="lc-field"><span>Product</span>${productInput('Search product or SKU')}</div><div class="lc-field"><span>Boxes</span>${stepper(qty, 1, true)}<p class="lc-hint" id="shipHint" hidden></p></div><label class="lc-field"><span>Take to</span><div class="lc-input"><select id="station">${sim.dispatchStations().map(s => `<option ${s === station ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div></label><button class="primary" type="submit" id="submitBtn"></button>`,
     onSubmit: () => {
       if (!product) throw fieldErrorOf('#productInput', 'Choose a product to ship.');
       sim.ship(product, qty, station);
@@ -443,7 +444,9 @@ function shipDialog(preset = {}) {
     // Stock sits in the Boxes field: «1 / 184».
     form.querySelector('#qtyOf').textContent = product ? `/ ${fmt(n)}` : '';
     input.style.width = `${String(input.value).length + .6}ch`;
-    form.querySelector('#submitBtn').textContent = `Ship ${plural(qty, 'box', 'boxes')}`;
+    // Every box of the product is promised to a robot or in work: it stays in the list, but nothing can be shipped.
+    const none = !!product && !n, hint = form.querySelector('#shipHint'); hint.hidden = !none; hint.textContent = none ? 'All boxes of this product are reserved or in work' : '';
+    const submit = form.querySelector('#submitBtn'); submit.disabled = none; submit.textContent = `Ship ${plural(qty, 'box', 'boxes')}`;
   };
   productField(form, {value: product, list: () => sim.products().sort(), count: () => new Map(sim.products().map(p => [p, sim.inStock(p)])), onPick: p => { if (p) clearFieldError(form, '#productInput'); if (p !== product) { product = p; render(); } }});
   bindStepper(form, n => { qty = n; render(); });
@@ -597,6 +600,8 @@ $('.ph-nav').addEventListener('click', e => { const b = e.target.closest('.nav, 
 
 const viewMenu = $('#viewMenu');
 $('.ph-gear').addEventListener('click', e => { e.stopPropagation(); viewMenu.hidden = !viewMenu.hidden; });
+// The menu is hidden from several places (Escape, a click outside, a row): aria-expanded follows its hidden attribute.
+new MutationObserver(() => $('.ph-gear').setAttribute('aria-expanded', String(!viewMenu.hidden))).observe(viewMenu, {attributes: true, attributeFilter: ['hidden']});
 viewMenu.addEventListener('click', e => {
   const b = e.target.closest('[data-vm]');
   if (!b) return;

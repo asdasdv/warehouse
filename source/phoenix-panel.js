@@ -5,7 +5,9 @@ const fmt=n=>n.toLocaleString('en-US');
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const chev='<img src="/assets/fg/chevron-right.svg" alt="">';
 // Capacity is counted in boxes: every cell holds CELL_CAPACITY boxes.
-export function stock(state,racks=state.racks){const ids=new Set(racks.map(r=>r.id)),stored=state.boxes.filter(b=>ids.has(b.rack)).length,total=racks.reduce((n,r)=>n+rackCapacity(r),0);return {stored,total,free:total-stored,pct:total?Math.round(stored/total*100):0};}
+// Boxes per rack, counted once per render: stock() is asked for every rack of a zone, and the panel redraws twice a second.
+export function countByRack(state){const m=new Map();for(const b of state.boxes)m.set(b.rack,(m.get(b.rack)||0)+1);return m;}
+export function stock(state,racks=state.racks,counts=countByRack(state)){let stored=0,total=0;for(const r of racks){stored+=counts.get(r.id)||0;total+=rackCapacity(r);}return {stored,total,free:total-stored,pct:total?Math.round(stored/total*100):0};}
 const pctDelta=(now,before)=>{if(!before)return '';const d=Math.round((now-before)/before*100);return d>0?`+${d}%`:d<0?`−${-d}%`:'0%';};
 const absDelta=(now,before)=>before==null?'':now-before>0?`+${now-before}`:now-before<0?`−${before-now}`:'0';
 export const zoneOf=(state,rid)=>state.zones.find(z=>z.id===state.racks.find(r=>r.id===rid)?.zone);
@@ -18,20 +20,20 @@ const head=(left,right)=>`<div class="lc-list-head"><span>${left}</span><span>${
 function row(name,value,type,id,color,sub=''){return `<button class="lc-row" data-pick="${type}" data-id="${esc(id)}"><i style="background:${color}"></i><span>${esc(name)}${sub?`<small>${esc(sub)}</small>`:''}</span><em>${value}</em></button>`;}
 // Each zone segment is a zone row in small: a tooltip on hover, and a click opens the zone like its row.
 function zoneBar(state,zones,free){return `<div class="lc-zonebar">${zones.map(z=>`<span style="flex:${z.s.stored||.001};background:${z.color}" data-pick="zone" data-id="${esc(z.id)}" data-tip="${esc(z.name)} · ${fmt(z.s.stored)} / ${fmt(z.s.total)}" aria-label="${esc(z.name)}"></span>`).join('')}<span class="free" style="flex:${free||.001}" data-tip="Free · ${fmt(free)}"></span></div>`;}
-export function zonesByFill(state){return state.zones.map(z=>({...z,s:stock(state,state.racks.filter(r=>r.zone===z.id))})).sort((a,b)=>b.s.stored/(b.s.total||1)-a.s.stored/(a.s.total||1));}
+export function zonesByFill(state,counts=countByRack(state)){return state.zones.map(z=>({...z,s:stock(state,state.racks.filter(r=>r.zone===z.id),counts)})).sort((a,b)=>b.s.stored/(b.s.total||1)-a.s.stored/(a.s.total||1));}
 // sel: null (warehouse) | zone | rack | shelf ("A-01|S3") | location ("A-01|S3-P2")
 export function overviewHTML(state,sel){
  if(sel&&!['zone','rack','shelf','location'].includes(sel.type))return null;
  if(!sel){
-  const s=stock(state),zones=zonesByFill(state),t=state.today,y=state.yesterday||{};
+  const counts=countByRack(state),s=stock(state,state.racks,counts),zones=zonesByFill(state,counts),t=state.today,y=state.yesterday||{};
   const stats=[['Received today',t.received,pctDelta(t.received,y.received),'Received'],['Put away today',t.putAway||0,pctDelta(t.putAway||0,y.putAway),'Put away'],['Moved today',t.moved||0,absDelta(t.moved||0,y.moved),'Moved'],['Shipped today',t.shipped,pctDelta(t.shipped,y.shipped),'Shipped']];
   return `${hero(s)}<div class="lc-stats">${stats.map(([label,n,d,type])=>`<div class="lc-stat"><span>${label}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div><div class="lc-group">${head('Fullest zones','Stored / capacity')}${zoneBar(state,zones,s.free)}<div class="lc-rows">${zones.slice(0,5).map(z=>row(z.name,`${fmt(z.s.stored)} / ${fmt(z.s.total)}`,'zone',z.id,z.color)).join('')}<button class="lc-outline" id="allZones">See all ${zones.length} zones</button></div></div>`;
  }
  const [rid,part]=sel.type==='zone'?[null,null]:sel.id.split('|'),rack=state.racks.find(r=>r.id===rid);
  const z=sel.type==='zone'?state.zones.find(z=>z.id===sel.id):zoneOf(state,rid),color=z?.color||'var(--accent-primary)';
  if(sel.type==='zone'){
-  const racks=state.racks.filter(r=>r.zone===sel.id).map(r=>({r,s:stock(state,[r])})).sort((a,b)=>b.s.stored-a.s.stored);
-  return `${crumb([{label:'Warehouse',root:true},{label:z?.name||sel.id}])}${hero(stock(state,racks.map(x=>x.r)))}<div class="lc-group">${head(`Racks · ${racks.length}`,'Stored / capacity')}<div class="lc-rows">${racks.slice(0,5).map(({r,s})=>row(r.id,`${s.stored} / ${s.total}`,'rack',r.id,color)).join('')}${racks.length>5?`<button class="lc-outline" id="allRacks">See all ${racks.length} racks</button>`:''}</div></div>`;
+  const counts=countByRack(state),racks=state.racks.filter(r=>r.zone===sel.id).map(r=>({r,s:stock(state,[r],counts)})).sort((a,b)=>b.s.stored-a.s.stored);
+  return `${crumb([{label:'Warehouse',root:true},{label:z?.name||sel.id}])}${hero(stock(state,racks.map(x=>x.r),counts))}<div class="lc-group">${head(`Racks · ${racks.length}`,'Stored / capacity')}<div class="lc-rows">${racks.slice(0,5).map(({r,s})=>row(r.id,`${s.stored} / ${s.total}`,'rack',r.id,color)).join('')}${racks.length>5?`<button class="lc-outline" id="allRacks">See all ${racks.length} racks</button>`:''}</div></div>`;
  }
  if(!rack)return null;
  const at=state.boxes.filter(b=>b.rack===rack.id),trail=[{label:'Warehouse',root:true},{label:z?.name||'',type:'zone',id:z?.id||''}];
@@ -52,10 +54,10 @@ const tableValue=(x,k)=>k==='name'?x.name:k==='count'?x.count:k==='stored'?x.s.s
 function table(items,first,firstLabel,sort){return `<table class="lc-table"><colgroup><col style="width:190px"><col style="width:80px"><col style="width:150px"><col style="width:200px"><col style="width:90px"><col style="width:122px"></colgroup><thead><tr>${sortHead(firstLabel,'name',sort,'','asc')}${sortHead(first,'count',sort)}${sortHead('Stored / capacity','stored',sort)}${sortHead('Fill','fill',sort)}${sortHead('Free','free',sort)}${sortHead('Today','today',sort)}</tr></thead><tbody>${sortRows(items,sort,tableValue).map(tableRow).join('')}</tbody></table>`;}
 function tableRow(x){return `<tr data-pick="${x.type}" data-id="${esc(x.id)}"><td><span class="lc-name"><i style="background:${x.color}"></i>${esc(x.name)}</span></td><td class="muted">${x.count}</td><td>${fmt(x.s.stored)} / ${fmt(x.s.total)}</td><td><span class="lc-fillcell">${bar(x.s.pct,x.color,'sm')}${x.s.pct}%</span></td><td class="muted">${fmt(x.s.free)}</td><td class="muted">+${x.f.in} / −${x.f.out}</td></tr>`;}
 export function allZonesHTML(state,sort={key:'fill',dir:'desc'}){
- const s=stock(state),zones=zonesByFill(state);
- return `<div class="lc-modal-head"><h2>All zones <small>${zones.length}</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p>${zoneBar(state,zones,s.free)}</div>${table(zones.map(z=>{const racks=state.racks.filter(r=>r.zone===z.id);return {type:'zone',id:z.id,name:z.name,color:z.color,count:racks.length,s:z.s,f:flowOf(state,racks)};}),'Racks','Zone',sort)}`;
+ const counts=countByRack(state),s=stock(state,state.racks,counts),zones=zonesByFill(state,counts);
+ return `<div class="lc-modal-head"><h2 id="dlgTitle">All zones <small>${zones.length}</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p>${zoneBar(state,zones,s.free)}</div>${table(zones.map(z=>{const racks=state.racks.filter(r=>r.zone===z.id);return {type:'zone',id:z.id,name:z.name,color:z.color,count:racks.length,s:z.s,f:flowOf(state,racks)};}),'Racks','Zone',sort)}`;
 }
 export function allRacksHTML(state,zoneId,sort={key:'stored',dir:'desc'}){
- const z=state.zones.find(z=>z.id===zoneId),racks=state.racks.filter(r=>r.zone===zoneId).map(r=>({r,s:stock(state,[r])})).sort((a,b)=>b.s.stored-a.s.stored),s=stock(state,racks.map(x=>x.r));
- return `<div class="lc-modal-head"><h2>${esc(z?.name||zoneId)} <small>${racks.length} racks</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p></div>${table(racks.map(({r,s})=>({type:'rack',id:r.id,name:r.id,color:z?.color,count:r.shelves,s,f:flowOf(state,[r])})),'Shelves','Rack',sort)}`;
+ const counts=countByRack(state),z=state.zones.find(z=>z.id===zoneId),racks=state.racks.filter(r=>r.zone===zoneId).map(r=>({r,s:stock(state,[r],counts)})).sort((a,b)=>b.s.stored-a.s.stored),s=stock(state,racks.map(x=>x.r),counts);
+ return `<div class="lc-modal-head"><h2 id="dlgTitle">${esc(z?.name||zoneId)} <small>${racks.length} racks</small></h2><button type="button" class="lc-close" data-close aria-label="Close"><img class="fg-ic" src="/assets/fg/close.svg" alt=""></button></div><div class="lc-summary"><p>${fmt(s.stored)} of ${fmt(s.total)} boxes used · ${fmt(s.free)} free</p></div>${table(racks.map(({r,s})=>({type:'rack',id:r.id,name:r.id,color:z?.color,count:r.shelves,s,f:flowOf(state,[r])})),'Shelves','Rack',sort)}`;
 }
