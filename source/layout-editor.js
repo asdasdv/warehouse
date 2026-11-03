@@ -1,8 +1,8 @@
 import {ed} from './editor-icons.js';
-import {zonePoints, contains, polygonZone, zoneArea, snapRack, fitsZone, MIN_ZONE_SIDE, ZONE_SIZE_MESSAGE} from './zone-shape.js';
+import {zonePoints, contains, polygonZone, zoneArea, snapRack, MIN_ZONE_SIDE, ZONE_SIZE_MESSAGE} from './zone-shape.js';
 import {applyLayoutEdit, rowPositions, createSessionLog, deleteRacks, deleteZone} from './layout-edit.js';
 import {validateLayoutAccess, inaccessibleRacks, createAccessCheck} from './layout-access.js';
-import {addZone, addRack, colors, log, checkZoneName, freeZoneName} from './model.js';
+import {addZone, addRack, colors, checkZoneName, freeZoneName} from './model.js';
 import {config, locations} from './storage.js';
 import {docksOf, dockRect, dockPort, snapDock, validateDocks, onSpine, spineRects} from './docks.js';
 
@@ -151,7 +151,6 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     }
     const mv = drag?.kind === 'move' ? drag : null;
     for (const r of s.racks) {
-      const z = s.zones.find(z => z.id === r.zone);
       if (hidden.has(r.zone)) continue;
       const moving = mv && selIds.has(r.id), dx = moving ? mv.dx : 0, dz = moving ? mv.dz : 0;
       const bad = showAccess && report.blocked.has(r.id) || moving && !mv.valid;
@@ -160,7 +159,6 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
         stroke: bad ? 'var(--status-danger)' : selIds.has(r.id) ? 'var(--accent-primary)' : 'rgba(0,0,0,.3)', 'stroke-width': (selIds.has(r.id) || bad ? 1.5 : .75) * k, 'data-rack': r.id}, svg);
       if (selIds.has(r.id) && selIds.size === 1 && !moving)
         for (const [hx, hz] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) el('rect', {x: r.x + hx * r.width / 2 - 2.5 * k, y: r.z + hz * r.depth / 2 - 2.5 * k, width: 5 * k, height: 5 * k, fill: '#fff', stroke: 'var(--accent-primary)', 'stroke-width': k}, svg);
-      void z;
     }
     // The conveyor spine and its buildings (bridges leave gaps where robots cross).
     for (const r of spineRects(s.spine)) el('rect', {x: r.x - r.width / 2, y: r.z - r.depth / 2, width: r.width, height: r.depth, rx: .8 * k, fill: '#cfd5d7', stroke: 'rgba(0,0,0,.3)', 'stroke-width': .75 * k}, svg);
@@ -316,7 +314,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       }
       return head(`${racks.length} racks`, zones, actions) + section('Info', prop('Locations', `${locs} · ${filled(racks)} filled`)) + banner();
     }
-    const r = report || accessReport();
+    const r = report ||= accessReport();
     return head('Layout', 'Nothing selected') + section('Warehouse', prop('Zones', s.zones.length) + prop('Racks', s.racks.length) + prop('Locations', fmt(s.racks.reduce((n, r) => n + r.shelves * r.places, 0))))
       + section('Robot access', prop('Aisles', r.problems.length ? `${r.problems.length} ${r.problems.length === 1 ? 'problem' : 'problems'}` : 'All passable')) + banner();
   }
@@ -352,7 +350,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       const r = s.racks.find(r => sel.ids.has(r.id));
       const o = zoneOrigin(r);
       if (name === 'x' || name === 'z') return apply(() => { const v = num(value, name === 'x' ? 'X' : 'Y'); applyLayoutEdit(s, {type: 'move', ids: [r.id], dx: name === 'x' ? v + o.x - r.x : 0, dz: name === 'z' ? v + o.z - r.z : 0}); });
-      if (name === 'rot') { const turns = ((n / 90) - (r.rotation || 0) + 4) % 4; return apply(() => { for (let i = 0; i < turns; i++) applyLayoutEdit(s, {type: 'rotate', ids: [r.id]}); }); }
+      if (name === 'rot') { const turns = ((n / 90) - (r.rotation || 0) + 4) % 4; return apply(() => { if (turns) applyLayoutEdit(s, {type: 'rotate', ids: [r.id], turns}); }); }
     }
   }
   function openColor(btn) {
@@ -462,7 +460,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     newColor = colors.find(c => !s.zones.some(z => z.color === c)) || colors[s.zones.length % colors.length];
   }
   function setTool(t) {
-    if (t === 'points' && sel?.type !== 'zone') { const z = getState().zones[0]; if (z) sel = {type: 'zone', id: z.id}; }
+    if (t === 'points' && sel?.type !== 'zone') { const z = getState().zones[0]; if (!z) { error = 'Draw a zone first.'; $('#edFlyout').hidden = true; return render(); } sel = {type: 'zone', id: z.id}; }
     tool = t; pending = t === 'rect' || t === 'polygon' ? pending : null; poly = t === 'polygon' ? poly : null;
     rowPreview = null; ruler = null; pointIndex = null; error = '';
     if (t === 'rect' || t === 'polygon') { if (!pending) nextZoneDefaults(); }
@@ -563,7 +561,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     const d = drag, r = accessCheck.check(key, fn, (late, k) => { if (drag === d && d.key === k) { d.valid = late.valid; d.why = late.why; drawPlan(); } });
     d.valid = r.valid; d.why = r.why;
   }
-  svg.addEventListener('pointerup', () => {
+  function endDrag() {
     const d = drag; drag = null;
     if (!d) return;
     const s = getState();
@@ -573,7 +571,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
       if (qs.length) apply(() => { for (const q of qs) addRack(s, s.zones.find(z => contains(z, q))?.id, q.x, q.z, rackDraft()); });
       return render();
     }
-    if (d.kind === 'point') { apply(() => applyLayoutEdit(s, {type: 'zone', id: sel.id, points: d.next})); return; }
+    if (d.kind === 'point') { if (d.next.some((q, i) => q.x !== d.ps[i].x || q.z !== d.ps[i].z)) apply(() => applyLayoutEdit(s, {type: 'zone', id: sel.id, points: d.next})); else render(); return; }
     if (d.kind === 'marquee' && d.end) {
       const x0 = Math.min(d.p.x, d.end.x), x1 = Math.max(d.p.x, d.end.x), z0 = Math.min(d.p.z, d.end.z), z1 = Math.max(d.p.z, d.end.z);
       const ids = new Set([...(sel?.type === 'racks' ? sel.ids : []), ...s.racks.filter(r => !hidden.has(r.zone) && r.x >= x0 && r.x <= x1 && r.z >= z0 && r.z <= z1).map(r => r.id)]);
@@ -587,7 +585,10 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     }
     if (d.kind === 'move' && (d.dx || d.dz)) { if (!d.valid) { error = d.why; return render(); } apply(() => applyLayoutEdit(s, {type: 'move', ids: [...sel.ids], dx: d.dx, dz: d.dz})); return; }
     render();
-  });
+  }
+  svg.addEventListener('pointerup', endDrag);
+  // A cancelled pointer (touch taken over by the browser, capture lost) ends the drag the same way as a release.
+  svg.addEventListener('pointercancel', endDrag);
   svg.addEventListener('dblclick', e => {
     if (tool !== 'points' || sel?.type !== 'zone') return;
     const p = toWorld(e), ps = zonePoints(getState().zones.find(z => z.id === sel.id)).map(q => ({...q}));
@@ -618,7 +619,8 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (keys[k]) setTool(keys[k]);
   });
   document.addEventListener('keyup', e => { if (e.key === ' ') space = false; });
-  window.addEventListener('resize', () => { if (open) render(); });
+  window.addEventListener('blur', () => { space = false; });
+  window.addEventListener('resize', () => { if (!open) return; const box = svg.getBoundingClientRect(); if (vb && box.width && box.height) vb.h = vb.w * box.height / box.width; render(); });
   document.addEventListener('pointerdown', e => {
     if (!open) return;
     if (!e.target.closest('#edColor, [data-color]')) $('#edColor').hidden = true;
@@ -649,7 +651,7 @@ export function installLayoutEditor({getState, scene, builderTools, rackDraft, o
     if (saved && (c.zones.length || c.racks.length || c.docks)) toast('Layout saved', [c.zones.length && `Zones: ${c.zones}`, c.racks.length && `Racks: ${c.racks}`, c.docks && `Docks: ${c.docks}`].filter(Boolean).join(' · '));
   }
   return {
-    open() { open = true; root.hidden = false; baseline = snapshot(); sessionLog.clear(); undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
+    open() { open = true; root.hidden = false; baseline = snapshot(); sessionLog.clear(); undo = []; redo = []; error = ''; sel = null; tool = 'select'; view = '2D'; vb = null; report = null; hidden.clear(); expanded.clear(); builderTools.setEnabled(false); fit(); render(); requestAnimationFrame(() => { fit(); render(); }); },
     apply, render,
     get isOpen() { return open; },
     // Selections made in the 3D scene.
