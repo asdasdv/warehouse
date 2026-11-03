@@ -539,7 +539,7 @@ dialog>.lc-dialog::before,dialog>.lc-dialog::after{margin-inline:-24px -18px}
 /* Inventory and History: the pager row sticks to the bottom of the page, so pages switch without scrolling down.
    The page keeps no bottom padding (a sticky row stops at the padding edge); the row holds it instead. */
 #historyPage,#inventoryPage.lc-inv{padding-bottom:0}
-#historyPage .ph-history-foot,#inventoryPage .ph-history-foot{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:16px 0;background:var(--surface-elevated);backdrop-filter:blur(12px);box-shadow:0 -1px 0 var(--content-quaternary)}
+#historyPage .ph-history-foot,#inventoryPage .ph-history-foot{position:sticky;bottom:0;z-index:3;margin-top:auto;padding:16px 0;background:var(--surface-elevated);backdrop-filter:blur(12px)}
 /* Product card (Inventory row → right panel). */
 .lc-product-name{font-size:32px;line-height:32px;font-weight:600;letter-spacing:-.8px;margin:0}
 .lc-list-head .lc-text-btn{font-size:12px;line-height:16px}
