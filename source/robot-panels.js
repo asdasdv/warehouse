@@ -7,7 +7,7 @@ export function installRobotPanels(scene,beforeOpen,getState=()=>null,onMove=()=
  const body=document.createElement('div');body.className='lc-scroll';el.append(body);
  const esc=x=>String(x).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const icon=n=>`<img class="fg-ic" src="/assets/fg/${n}.svg" alt="">`,chev='<img src="/assets/fg/chevron-right.svg" alt="">';
- const when=t=>new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false}).replace(',',' ·');
+ const when=t=>new Date(t).toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).replace(',',' ·');
  function open(name,robot){if(name!=='Product')beforeOpen();page=name==='Box'||name==='Product'?name:'Fleet';document.body.classList.toggle('product-open',page==='Product');if(robot){id=robot;reveal=true;}document.body.classList.add('robot-mode');el.hidden=false;lightNav();// Opening Fleet keeps the view where it is; only picking a robot moves the camera.
  if(robot)scene.followRobot(robot);last='';render();}
  function close(){scene.followRobot(null);page=null;document.body.classList.remove('product-open');el.hidden=true;document.body.classList.remove('robot-mode');lightNav();}

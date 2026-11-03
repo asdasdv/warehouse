@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {polygonZone,zoneArea,MIN_ZONE_SIDE,MIN_ZONE_AREA} from './zone-shape.js';
+import {polygonZone,zoneArea,zonePoints,MIN_ZONE_SIDE,MIN_ZONE_AREA} from './zone-shape.js';
 import {addZone} from './model.js';
 import {applyLayoutEdit} from './layout-edit.js';
 
@@ -44,4 +44,13 @@ test('one minimum zone size everywhere: 12 m sides and 144 m²',()=>{
  // Reshaping an existing zone follows the same rule.
  assert.throws(()=>applyLayoutEdit(s,{type:'zone',id,points:rect(12,10)}),/12 m/);
  assert.doesNotThrow(()=>applyLayoutEdit(s,{type:'zone',id,points:rect(20,12)}));
+});
+test('a rectangle given its own corners stays a rectangle and is unchanged',()=>{
+ const s={zones:[],racks:[],boxes:[],history:[]},id=addZone(s,{x:0,z:0,w:30,d:20}),before=JSON.stringify(s.zones);
+ // Edit points: a click on a corner that goes nowhere, or «Reset», hands the zone its own four corners.
+ applyLayoutEdit(s,{type:'zone',id,points:zonePoints(s.zones[0]).map(p=>({...p}))});
+ assert.equal(s.zones[0].points,undefined);assert.equal(JSON.stringify(s.zones),before);
+ // A real reshape still records the corners.
+ applyLayoutEdit(s,{type:'zone',id,points:[{x:0,z:0},{x:30,z:0},{x:30,z:20},{x:15,z:20},{x:15,z:12},{x:0,z:12}]});
+ assert.equal(s.zones[0].points.length,6);assert.equal(zoneArea(s.zones[0]),30*12+15*8);
 });

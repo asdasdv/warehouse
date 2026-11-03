@@ -12,6 +12,9 @@ export function inventorySnapshot(state,sim){
 }
 const DAY=86400e3;
 const age=b=>{const t=Date.parse(b.receivedAt||0),start=new Date().setHours(0,0,0,0);return t>=start?'Today':t>=start-6*DAY?'Last 7 days':'Older';};
+// Live patching copies row contents by index, so the rows must still be the same products in the same order:
+// after a re-sort a copied row would open (and highlight) another product than the one it shows.
+export const rowsAligned=(was,now)=>was.length===now.length&&was.every((r,i)=>r.dataset.product===now[i].dataset.product);
 // Filters: Zone, Rack, Shelf, Product, SKU, Received date. Each keeps a set of chosen values.
 const KEYS=['Zone','Rack','Shelf','Product','SKU','Received date'];
 export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,onLocation,onProduct,chosen=()=>null}){
@@ -22,7 +25,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
  function value(st,b,key){const stored=b.kind===undefined||b.kind==='stored';if(key==='Zone')return stored?zoneOfRack(st,b.rack)?.id:null;if(key==='Rack')return stored?b.rack:null;if(key==='Shelf')return stored?b.location.split('-')[0]:null;if(key==='Product')return b.product;if(key==='SKU')return itemOf(b.product)?.sku||null;return age(b);}
  const matches=(st,b,skip)=>[...filters].every(([k,set])=>k===skip||!set.size||set.has(value(st,b,k)));
  const label=(st,key,v)=>key==='Zone'?(st.zones.find(z=>z.id===v)?.name||v):v;
- function token(st,key,set){const vals=[...set],z=key==='Zone'&&vals.length===1?st.zones.find(x=>x.id===vals[0]):null;return `<span class="lc-token"><button data-open="${key}">${key}</button><span>is</span><button data-open="${key}">${z?`<i style="background:${z.color}"></i>${esc(z.id)}`:vals.length===1?esc(vals[0]):`${vals.length} values`}</button><button class="x" data-remove="${key}" aria-label="Remove filter">${icon('close')}</button></span>`;}
+ function token(st,key,set){const vals=[...set],z=key==='Zone'&&vals.length===1?st.zones.find(x=>x.id===vals[0]):null;return `<span class="lc-token"><button data-open="${key}">${key}</button><span>is</span><button data-open="${key}">${z?`<i style="background:${z.color}"></i>${esc(label(st,key,z.id))}`:vals.length===1?esc(vals[0]):`${vals.length} values`}</button><button class="x" data-remove="${key}" aria-label="Remove filter">${icon('close')}</button></span>`;}
  function popHTML(st,boxes){
   if(!popover)return '';
   if(popover==='add'){const keys=KEYS.filter(k=>!filters.has(k)&&k.toLowerCase().includes(popQuery));return `<div class="lc-pop" id="invPop"><div class="lc-pop-search">${icon('search')}<input id="popSearch" placeholder="Filter by…" value="${esc(popQuery)}"></div>${keys.map(k=>`<button data-add="${k}">${k}</button>`).join('')||'<p class="lc-empty">No more filters.</p>'}</div>`;}
@@ -55,7 +58,7 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   others.length=0;
   const st0=page*size;
   const html=`<div class="ph-history-head"><h1>Inventory</h1></div><div class="lc-inv-metrics">${metrics.map(([t,n,d],i)=>`<div class="lc-stat"><span>${t}</span><div><b>${fmt(n)}</b><small>${d}</small></div></div>`).join('')}</div>
-  <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(typed)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
+  <div class="lc-filters"><div class="lc-input lc-inv-search">${icon('search')}<input id="invSearch" placeholder="Search product, SKU or box…" value="${esc(typed)}" aria-label="Search inventory"></div>${[...filters].map(([k,s])=>s.size?token(st,k,s):`<span class="lc-token"><button data-open="${k}">${k}</button><span>is</span><button data-open="${k}">any</button><button class="x" data-remove="${k}" aria-label="Remove filter">${icon('close')}</button></span>`).join('')}<button class="lc-add${filters.size?' icon-only':''}" data-open="add" aria-label="Add filter">${icon('plus')}${filters.size?'':'<span>Filter</span>'}</button>${filters.size>1?'<button class="lc-clear-filters" id="invClear">Clear</button>':''}${popHTML(st,boxes)}</div>
   <table class="ph-history-table lc-inv-table"><colgroup><col style="width:160px"><col><col style="width:80px"><col style="width:390px"></colgroup><thead><tr>${sortHead('SKU','sku',sort,'','asc')}${sortHead('Product','product',sort,'','asc')}${sortHead('Boxes','boxes',sort,'num')}${sortHead('Location','location',sort)}</tr></thead><tbody>${rows.slice(st0,st0+size).map(([p,bs])=>`<tr data-product="${esc(p)}" tabindex="0"><td class="sub">${esc(itemOf(p)?.sku||'—')}</td><td>${esc(p)}</td><td class="num">${fmt(bs.length)}</td><td class="lc-locs">${locCell(bs)}</td></tr>`).join('')||'<tr class="lc-empty-row"><td colspan="4">No matching stock<small>Try another search or remove a filter</small></td></tr>'}</tbody></table>
   ${pages>1?`<div class="ph-history-foot"><span>Showing ${st0+1}–${Math.min(st0+size,rows.length)} of ${fmt(rows.length)} products</span><div><button id="invPrev" ${page===0?'disabled':''}>‹</button>${pageButtons(page,pages)}<button id="invNext" ${page>=pages-1?'disabled':''}>›</button></div></div>`:''}`;
   if(inPlace&&patch(html))return;
@@ -116,12 +119,14 @@ export function installInventoryPage({getState,sim,onShip,onReceive,onHistory,on
   const markup=n=>{if(!n)return '';const c=n.cloneNode(true);c.querySelectorAll('.lc-clear').forEach(x=>x.remove());return c.outerHTML;};
   const same=sel=>markup(el.querySelector(sel))===markup(t.querySelector(sel));
   if(!same('.lc-filters')||!same('.ph-history-foot'))return false;
-  const was=[...el.querySelectorAll('tbody tr')],now=[...t.querySelectorAll('tbody tr')];if(was.length!==now.length)return false;
+  const was=[...el.querySelectorAll('tbody tr')],now=[...t.querySelectorAll('tbody tr')];if(!rowsAligned(was,now))return false;
   const m=el.querySelector('.lc-inv-metrics'),n=t.querySelector('.lc-inv-metrics');if(m&&n&&m.innerHTML!==n.innerHTML)m.innerHTML=n.innerHTML;
   was.forEach((r,i)=>{if(r.innerHTML!==now[i].innerHTML)r.innerHTML=now[i].innerHTML;});
   bindRows();return true;
  }
  document.addEventListener('click',e=>{if(active&&popover&&!e.target.closest('#invPop')){popover=null;render();}});
+ // Escape closes the filters popover (like the «+N places» list) and puts focus back on the token that opened it.
+ el.addEventListener('keydown',e=>{if(e.key==='Escape'&&popover){const k=popover;popover=null;render();[...el.querySelectorAll(`[data-open="${k}"]`)].pop()?.focus();}});
  function close(){active=false;popover=null;tip.hidden=true;hovering=false;el.hidden=true;document.body.classList.remove('inventory-mode');}
  setInterval(()=>{if(active&&!hovering&&!popover&&!el.contains(document.activeElement))render(true);},1500);
  return {markChosen,close,open(q){if(q!==undefined){typed=q;query=q.trim().toLowerCase();page=0;}active=true;el.hidden=false;document.body.classList.add('inventory-mode');document.querySelectorAll('.ph-nav .nav').forEach(b=>b.classList.toggle('active',b.id==='inventory'));render();}};

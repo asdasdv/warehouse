@@ -1,11 +1,12 @@
 import {placement} from './storage.js';
-import {log} from './model.js';
-import {contains,polygonZone,zonesOverlap,fitsZone} from './zone-shape.js';
+import {log,HISTORY_LIMIT} from './model.js';
+import {contains,polygonZone,zonesOverlap,fitsZone,zonePoints} from './zone-shape.js';
 export function applyLayoutEdit(s,a){
  const ids=new Set(a.ids||[]);
  if(a.type==='zone'){
   const old=s.zones.find(z=>z.id===a.id);if(!old)throw Error('Select a zone.');
-  const next={...old,...polygonZone(a.points)};
+  const shape=polygonZone(a.points),next={...old,...shape};
+  if(!old.points&&shape.points.length===4&&zonePoints(shape).every((p,i)=>p.x===shape.points[i].x&&p.z===shape.points[i].z))delete next.points;
   if(s.zones.some(z=>z.id!==old.id&&zonesOverlap(z,next)))throw Error('Zone overlaps another zone.');
   const outside=s.racks.filter(r=>r.zone===old.id&&!fitsZone(next,r.x,r.z,r));
   if(outside.length)throw Error('Outside new boundary: '+outside.map(r=>r.id).join(', '));
@@ -17,7 +18,7 @@ export function applyLayoutEdit(s,a){
  }
  const racks=s.racks.filter(r=>ids.has(r.id));if(!racks.length)throw Error('Select racks first.');
  const cx=(Math.min(...racks.map(r=>r.x))+Math.max(...racks.map(r=>r.x)))/2,cz=(Math.min(...racks.map(r=>r.z))+Math.max(...racks.map(r=>r.z)))/2;
- const candidates=racks.map(r=>{const n={...r};if(a.type==='rotate'){n.x=cx-(r.z-cz);n.z=cz+(r.x-cx);n.width=r.depth;n.depth=r.width;n.rotation=((r.rotation||0)+1)%4;}else{n.x+=a.dx||0;n.z+=a.dz||0;}const zone=s.zones.find(z=>fitsZone(z,n.x,n.z,n));if(!zone)throw Error('Keep every rack inside a zone.');n.zone=zone.id;return n;});
+ const candidates=racks.map(r=>{const n={...r};if(a.type==='rotate'){const t=((a.turns??1)%4+4)%4;let x=r.x,z=r.z;for(let i=0;i<t;i++)[x,z]=[cx-(z-cz),cz+(x-cx)];n.x=x;n.z=z;if(t%2){n.width=r.depth;n.depth=r.width;}n.rotation=((r.rotation||0)+t)%4;}else{n.x+=a.dx||0;n.z+=a.dz||0;}const zone=s.zones.find(z=>fitsZone(z,n.x,n.z,n));if(!zone)throw Error('Keep every rack inside a zone.');n.zone=zone.id;return n;});
  const others=s.racks.filter(r=>a.type==='copy'||!ids.has(r.id));
  for(const n of candidates){placement({...s,racks:others},n.zone,n.x,n.z,n);if(a.type==='copy'){let i=1;while([...others,...s.racks].some(r=>r.id===`${n.zone}-${String(i).padStart(2,'0')}`))i++;n.id=`${n.zone}-${String(i).padStart(2,'0')}`;}others.push(n);}
  if(a.type==='copy')s.racks.push(...candidates);else s.racks=s.racks.map(r=>candidates.find(n=>n.id===r.id)||r);
@@ -46,7 +47,7 @@ export function createSessionLog(getState){
   take(top){const entries=since(top);for(const e of entries)live.add(e);return entries;},
   forget(top){drop(since(top));},
   drop,
-  put(entries){if(!entries.length)return;const s=getState();s.history=[...entries,...s.history].slice(0,300);for(const e of entries)live.add(e);},
+  put(entries){if(!entries.length)return;const s=getState();s.history=[...entries,...s.history].slice(0,HISTORY_LIMIT);for(const e of entries)live.add(e);},
   discard(){drop([...live]);},
  };
 }
