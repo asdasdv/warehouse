@@ -1,6 +1,6 @@
 import * as T from 'three';
 import {locations, boxLayout, CELL_CAPACITY} from './storage.js';
-import {products as catalog} from './model.js';
+import {products as catalog, HISTORY_LIMIT} from './model.js';
 import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
 import {loadModel, fitted} from './warehouse-models.js';
@@ -41,7 +41,6 @@ const EMPTY_METRES = 12;     // put-away: an empty cell is worth this much more 
 const SCANNER_Z = BELT_START + 1.35 * BELT_TOP / .65, FLASH = 1.2;
 // Demand is tuned for the 24-zone spine warehouse (~40 robots); arrivals and orders come every few seconds.
 const ARRIVAL_EVERY = {low: 1.8, normal: 2.6, high: 4.5}, ORDER_EVERY = 2.2, PENDING = {low: 15, normal: 30, high: 50};
-const HISTORY_LIMIT = 3000;
 const KEEP_COMPLETED_ORDERS = 20;
 
 const addressKey = (rack, loc) => rack + '|' + loc;
@@ -134,11 +133,14 @@ export function addWarehouseRobots(scene, getState) {
   const boxesOf = product => index().byProduct.get(product) || [];
 
   // ---------- address occupancy (kept up to date as robots pick and drop) ----------
-  let addressMap = null;
+  // Rebuilt on the same terms as the box index, so the two can never disagree.
+  let addressMap = null, addressedArray = null, addressedLength = -1;
   function addresses() {
-    if (!addressMap) {
+    const s = getState();
+    if (!addressMap || addressedArray !== s.boxes || addressedLength !== s.boxes.length) {
       addressMap = new Map();
-      for (const b of getState().boxes) addressAdd(b);
+      for (const b of s.boxes) addressAdd(b);
+      addressedArray = s.boxes; addressedLength = s.boxes.length;
     }
     return addressMap;
   }
@@ -334,22 +336,27 @@ export function addWarehouseRobots(scene, getState) {
   // Blender models replace the simple shapes once they load (see public/assets/models/README.md).
   loadModel('robot').then(model => {
     if (!model) return;
+    // Merged once (one mesh per material instead of sixteen parts), then cloned: every robot shares the merged
+    // geometry, so the fleet costs one copy of the model on the GPU, not seventy.
+    const base = model.clone(true); base.scale.setScalar(ROBOT_SCALE);
+    // The LEDs get their own materials before the merge, so they stay apart from the shell. The model faces +z;
+    // facing that way +x is the robot's left.
+    const ledBase = {main: null, left: null, right: null};
+    base.traverse(o => {
+      if (!o.isMesh || !/LED/.test(o.name)) return;
+      const key = /front.rear/.test(o.name) ? 'main' : o.position.x > 0 ? 'left' : 'right';
+      ledBase[key] ||= o.material.clone();
+      o.material = ledBase[key];
+    });
+    base.traverse(o => { if (o.isMesh) recolour(o.material); });
+    for (const mesh of mergeByMaterial(base)) if (Object.values(ledBase).includes(mesh.material)) mesh.castShadow = false;
     for (const r of robots) {
       r.body.clear();
-      const m = model.clone(true); m.scale.setScalar(ROBOT_SCALE); r.body.add(m);
+      const m = base.clone(true); r.body.add(m);
       // Each robot drives its own LEDs: front/rear show what it is doing, the sides are turn signals.
-      // The model faces +z; facing that way +x is the robot's left.
       const leds = {main: null, left: null, right: null};
-      m.traverse(o => {
-        if (!o.isMesh || !/LED/.test(o.name)) return;
-        const key = /front.rear/.test(o.name) ? 'main' : o.position.x > 0 ? 'left' : 'right';
-        leds[key] ||= o.material.clone();
-        o.material = leds[key];
-      });
+      m.traverse(o => { if (!o.isMesh) return; for (const key in ledBase) if (ledBase[key] && o.material === ledBase[key]) o.material = leds[key] = ledBase[key].clone(); });
       r.leds = leds.main ? leds : null;
-      m.traverse(o => { if (o.isMesh) recolour(o.material); });
-      // One mesh per material instead of sixteen parts.
-      for (const mesh of mergeByMaterial(m)) if (Object.values(leds).includes(mesh.material)) mesh.castShadow = false;
     }
   });
   loadModel('conveyor').then(model => {
@@ -766,8 +773,9 @@ export function addWarehouseRobots(scene, getState) {
   // Opaque, so crossing lines do not add up where they overlap.
   // Drawn a little above the zone plinths and pulled towards the camera in depth: at a distance the two surfaces
   // are too close for the depth buffer and the lines flickered.
+  // Light style: an even mid grey (opaque, so crossings don't darken) reads on the pale floor and on coloured zones.
   // Lanes write depth, so the dotted floor grid (drawn later, transparent) stays under them.
-  const laneMat = new T.MeshBasicMaterial({color: '#f7f8fa', depthWrite: true, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
+  const laneMat = new T.MeshBasicMaterial({color: '#a9b0b8', depthWrite: true, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4});
   const bayMat = laneMat;
   const flat = new T.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
   const arrowGeo = new T.ShapeGeometry(new T.Shape([new T.Vector2(.55, 0), new T.Vector2(-.35, .45), new T.Vector2(-.35, -.45)])).rotateX(-Math.PI / 2);
@@ -807,8 +815,8 @@ export function addWarehouseRobots(scene, getState) {
   }
   if (worker) {
     worker.onmessage = e => {
+      if (e.data.id !== networkId) return; // an answer, or a failure, for a layout already replaced
       if (e.data.error) return workerFailed(e);
-      if (e.data.id !== networkId) return;
       clearTimeout(workerTimer);
       try { router.setNetwork(e.data.network); networkReady(e.data.segments); } catch (err) { workerFailed(err); }
     };
@@ -847,6 +855,8 @@ export function addWarehouseRobots(scene, getState) {
     for (const spot of [...spots, ...bays]) router.connect(spot);
     drawLanes(router.segments(), [...spots, ...bays]);
     networkPending = false;
+    // Robots replanned while the network was being built (a layout change) routed over open floor: back onto the lanes.
+    for (const r of robots) if (r.task) route(r);
   }
   // A cheap fingerprint of the racks: the layout editor replaces `state.racks` or edits rack objects in place,
   // so every rack's id and geometry go into a running hash (no strings built, ~0.1 ms for 1200 racks).
@@ -910,7 +920,7 @@ export function addWarehouseRobots(scene, getState) {
     if (t.target) {
       const rack = s.racks.find(x => x.id === t.target.id);
       unclaim(t.target, t.slot);
-      const dest = rack && locations(rack).includes(t.slot) ? {rack, loc: t.slot} : place(t.box);
+      const dest = rack && locations(rack).includes(t.slot) ? {rack, loc: t.slot} : place(t.box, rack ? {rack: rack.id} : null);
       if (!dest) { if (!loaded) return cancel(r); r.routeBlocked = true; return; }
       t.target = dest.rack; t.slot = dest.loc;
       t.drop = shelfDrop(dest.rack, dest.loc, t.box, t.pickup);
@@ -956,7 +966,7 @@ export function addWarehouseRobots(scene, getState) {
     if (t.transfer) t.transfer.status = 'Queued';
     if (t.queueItem) t.queueItem.taken = false;
     if (t.output) { t.outStation.g.remove(t.output.mesh); t.outStation.queue.splice(t.outStation.queue.indexOf(t.output), 1); }
-    r.task = null; r.cargo.visible = false; r.path = []; r.routeBlocked = false; r.yieldFor = null;
+    r.task = null; r.stage = null; r.cargo.visible = false; r.path = []; r.routeBlocked = false; r.yieldFor = null;
   }
 
   // ---------- task assignment ----------
@@ -1371,10 +1381,10 @@ export function addWarehouseRobots(scene, getState) {
   function pickUp(r) {
     const t = r.task, s = getState();
     if (t.source) {
-      index();
+      index(); addresses();
       const i = s.boxes.indexOf(t.box);
-      if (i >= 0) { s.boxes.splice(i, 1); indexRemove(t.box); indexedLength = s.boxes.length; }
-      addresses(); addressRemove(t.box); countFlow(t.box.rack, 'out');
+      if (i >= 0) { s.boxes.splice(i, 1); indexRemove(t.box); indexedLength = addressedLength = s.boxes.length; }
+      addressRemove(t.box); countFlow(t.box.rack, 'out');
       reserved.delete(t.box.id);
       inventoryChanged(t.box.rack);
     } else {
@@ -1398,16 +1408,16 @@ export function addWarehouseRobots(scene, getState) {
       unclaim(t.target, t.slot);
       const from = t.sourceStation ? t.sourceStation.id : `${t.box.rack} / ${t.box.location}`;
       t.box.rack = t.target.id; t.box.location = t.slot;
-      index(); s.boxes.push(t.box); indexAdd(t.box); indexedLength = s.boxes.length; held.delete(t.box.id);
-      addresses(); addressAdd(t.box); countFlow(t.target.id, 'in');
+      index(); addresses(); s.boxes.push(t.box); indexAdd(t.box); addressAdd(t.box); indexedLength = addressedLength = s.boxes.length; held.delete(t.box.id);
+      countFlow(t.target.id, 'in');
       if (t.sourceStation) stored++;
       if (t.transfer || t.queueItem?.user) finished.push({kind: t.transfer ? 'Move' : 'Receive', box: t.box, place: `${t.target.id} · ${t.slot}`, robot: r.id});
-      if (t.transfer) t.transfer.status = 'Done';
+      if (t.transfer) { t.transfer.status = 'Done'; transfers.splice(transfers.indexOf(t.transfer), 1); }
       history(t.sourceStation ? 'Put away' : 'Moved', t.box, from, `${t.target.id} / ${t.slot}`);
       inventoryChanged(t.target.id);
     }
     note(`${t.box.id} delivered · ${r.to}`);
-    r.cycles++; delivered++; r.task = null; r.cargo.visible = false;
+    r.cycles++; delivered++; r.task = null; r.stage = null; r.cargo.visible = false;
     r.retry = HANDOFF_SECONDS; // stand at the drop point for a moment before the next job
     if (r.chargeNext || r.battery < LOW) { r.charging = true; r.chargeNext = false; }
   }
@@ -1517,6 +1527,8 @@ export function addWarehouseRobots(scene, getState) {
       actionable: !!shelf && !reserved.has(id) && !transfer && !order};
   }
   return {
+    // For tests: the lane router and whether a network is still being built.
+    get router() { return router; }, get networkPending() { return networkPending; },
     robots, stations, events, book, update,
     get hits() { return hits.filter(h => robots.find(r => r.id === h.userData.id)?.active); },
     get revision() { return revision; },
@@ -1664,7 +1676,7 @@ export function addWarehouseRobots(scene, getState) {
       const waiting = backlog.findIndex(q => q.user && q.id === id);
       if (waiting >= 0) { backlog.splice(waiting, 1); note(`Receipt cancelled · ${id}`); return; }
       for (const st of stations) {
-        const q = st.queue.find(q => q.box.id === id && q.user);
+        const q = st.queue.find(q => (q.box.id === id || q.id === id) && q.user);
         if (!q) continue;
         q.mesh.parent?.remove(q.mesh); st.queue.splice(st.queue.indexOf(q), 1); held.delete(id); s.today.received--;
         history('Receipt cancelled', q.box, st.id, 'Supplier');

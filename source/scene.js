@@ -1,4 +1,7 @@
 import {validateLayoutAccess,createAccessCheck} from './layout-access.js';
+import {lightStyle} from './light-style.js';
+// Light style pass: new materials (models load late, cargo is rebuilt) are softened every 30 frames.
+let styleTick=0;
 import {sceneOperations} from './scene-operations.js';
 import {zonePoints,contains,snapRack,polygonZone} from './zone-shape.js';
 import {rackLevels,shelfBase} from './rack-levels.js';
@@ -14,7 +17,7 @@ import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
 export function createScene(container,getBaseState,onPick,onDraw){
 const getState=getBaseState;
 // Studio look: a calm grey ground, light objects, soft light and soft shadows.
-const GROUND='#eceef1';
+const GROUND='#f3f4f6';
 const scene=new T.Scene();scene.background=new T.Color(GROUND);scene.fog=new T.Fog(GROUND,900,2200);
 // The home view, fog and zoom limits follow the size of the layout (360 m for the small one).
 const extent=(()=>{const z=getBaseState().zones;if(!z.length)return {cx:0,cz:0,size:360};const x0=Math.min(...z.map(a=>a.x)),x1=Math.max(...z.map(a=>a.x+a.w)),z0=Math.min(...z.map(a=>a.z)),z1=Math.max(...z.map(a=>a.z+a.d));return {cx:(x0+x1)/2,cz:(z0+z1)/2,size:Math.ceil(Math.max(360,x1-x0,z1-z0)/4)*4};})();
@@ -68,10 +71,10 @@ loadModel('box').then(model=>{if(!model)return;const wrap=fitted(model,{w:1,h:1,
  wrap.traverse(o=>{if(!o.isMesh)return;const g=o.geometry.clone().applyMatrix4(o.matrixWorld);g.translate(0,-.5,0);parts.push({geometry:g,material:o.material,cardboard:/cardboard/i.test(o.material.name)});});
  for(const part of parts){sharedMaterials.add(part.material);sharedGeometries.add(part.geometry);}cartonParts=parts;for(const z of zoneCargo.values())dropNear(z);select(current,false);});
 // A box keeps its shade for life: picked from its id, not from where it sits in the list (that shifted on every move).
-const shades=['#ffffff','#f3ece2','#e8dccb','#f7f1e8'].map(c=>new T.Color(c)),fallbackShades=['#cba67a','#c09a6c','#d6b88f','#c8a274'].map(c=>new T.Color(c));
+const shades=['#ffffff']/* light style: one even tone, no per-box variation */.map(c=>new T.Color(c)),fallbackShades=['#ffffff'].map(c=>new T.Color(c));
 const shadeOf=(id,list)=>{let h=0;for(let i=0;i<id.length;i++)h=h*31+id.charCodeAt(i)|0;return list[Math.abs(h)%list.length];};
 // The sticker goes on the face that looks into the aisle, whichever way the rack is turned.
-const labelPlane=new T.PlaneGeometry(1,1);
+const labelPlane=new T.PlaneGeometry(1,1);sharedGeometries.add(labelPlane);
 function frontOf(rack){const t=((rack?.rotation||0)%4+4)%4;return t===0?{nx:0,nz:1,angle:0}:t===1?{nx:-1,nz:0,angle:-Math.PI/2}:t===2?{nx:0,nz:-1,angle:Math.PI}:{nx:1,nz:0,angle:Math.PI/2};}
 function cargoMeshes(layout,group,selectedId=null,selectedLoc=null,closeUp=false,simple=false){let obj=new T.Object3D(),racks=new Map(getState().racks.map(r=>[r.id,r])),out={};
  const parts=!simple&&cartonParts||[{geometry:closeUp?cartonGeometry:geometry,material:materials.box,cardboard:true}];
@@ -90,7 +93,9 @@ function cargoMeshes(layout,group,selectedId=null,selectedLoc=null,closeUp=false
 // rebuild never disposes one and the shaders are never recompiled.
 const zoneParts=new Map(),zoneFloorMaterials=new Map();let rackHits=null;
 const rackKeyOf=r=>[r.id,r.x,r.z,r.width,r.depth,r.height,r.shelves,r.places,r.rotation||0].join(',');
-function zoneFloorMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshStandardMaterial({color:new T.Color('#f3f4f6').lerp(new T.Color(color),.62),roughness:.9});zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
+// Zone floors: the zone colour, a little see-through, so the floor grid and lanes show through and the
+// colours stay soft on the light ground.
+function zoneFloorMaterial(color){let m=zoneFloorMaterials.get(color);if(!m){m=new T.MeshStandardMaterial({color,roughness:.9,transparent:true,opacity:.45,depthWrite:false});m.userData.keepColour=true;zoneFloorMaterials.set(color,m);sharedMaterials.add(m);}return m;}
 function buildZoneParts(a,racks,zoneId){const meshes=[],dummy=new T.Object3D();
  if(a){let shape=new T.Shape(zonePoints(a).map(p=>new T.Vector2(p.x,-p.z)));let o=new T.Mesh(new T.ShapeGeometry(shape),zoneFloorMaterial(a.color));o.rotation.x=-Math.PI/2;o.position.y=.01;o.userData={type:'zone',id:a.id};o.receiveShadow=true;meshes.push(o);}
  if(!racks.length){zoneBlocks.delete(zoneId);return meshes;}
@@ -289,13 +294,13 @@ function refreshAfterRebuild(all,zones){const touched=z=>z!=null&&!!zones?.has(z
  if(panelSel&&(all||panelSel.type==='box')){outlinePart(panelSel);return;}
  if(hoverKey&&(all||touched(hoverZone))){clearHover();if(lastPointer)showHover(lastPointer);}}
 const sceneHidden=()=>document.body.classList.contains('inventory-mode')||document.body.classList.contains('history-mode');
-renderer.setAnimationLoop(time=>{step(performance.now());const change=robotics.consumeVisualChange();if(change)rebuildCargo(change);const rebuilt=rebuildDirtyZones(4);if(sceneHidden())return;if(change?.all||rebuilt)refreshAfterRebuild(change?.all,rebuilt);updateCargoDetail();const ip=inspectedId?robotics.boxPose(inspectedId):null;inspection.visible=!!ip;if(ip)inspection.box.setFromCenterAndSize(new T.Vector3(ip.x,ip.y,ip.z),new T.Vector3(ip.w+.15,ip.h+.15,ip.d+.15));if(anim){let v=Math.min(1,(performance.now()-anim.start)/850),t=1-Math.pow(1-v,3);camera.position.lerpVectors(anim.p,anim.end,t);controls.target.lerpVectors(anim.t,anim.target,t);if(v===1)anim=null;}// A picked box is followed wherever it goes: at the dock, on a robot, onto its shelf. Dragging the view stops it.
+renderer.setAnimationLoop(time=>{step(performance.now());if(styleTick++%30===0)lightStyle(scene);const change=robotics.consumeVisualChange();if(change)rebuildCargo(change);const rebuilt=rebuildDirtyZones(4);if(sceneHidden())return;if(change?.all||rebuilt)refreshAfterRebuild(change?.all,rebuilt);updateCargoDetail();const ip=inspectedId?robotics.boxPose(inspectedId):null;inspection.visible=!!ip;if(ip)inspection.box.setFromCenterAndSize(new T.Vector3(ip.x,ip.y,ip.z),new T.Vector3(ip.w+.15,ip.h+.15,ip.d+.15));if(anim){let v=Math.min(1,(performance.now()-anim.start)/850),t=1-Math.pow(1-v,3);camera.position.lerpVectors(anim.p,anim.end,t);controls.target.lerpVectors(anim.t,anim.target,t);if(v===1)anim=null;}// A picked box is followed wherever it goes: at the dock, on a robot, onto its shelf. Dragging the view stops it.
 if(followedBox&&!anim){const p=robotics.boxPose(followedBox);if(p){const target=controls.target.clone().lerp(new T.Vector3(p.x,p.y,p.z),.2),delta=target.clone().sub(controls.target);camera.position.add(delta);controls.target.copy(target);}else followedBox=null;}
 if(following&&!anim){const robot=robotics.robots.find(r=>r.id===following);if(robot){const target=robot.g.position.clone().add(new T.Vector3(10,2,-6)),delta=target.clone().sub(controls.target);camera.position.add(delta);controls.target.copy(target);}else following=null;}before.cam.copy(camera.position);before.target.copy(controls.target);controls.update();orbitAboutPivot();keepAboveFloor();operations.update(.016);const distance=camera.position.distanceTo(controls.target);for(const o of [...world.children,...cargoGroup.children]){if(o.userData.fineDetail)o.visible=distance<140;if(o.userData.partKind){const lvl=zoneLevel.get(o.userData.zone)??0,k=o.userData.partKind;o.visible=lvl<2&&(k==='hardware'?lvl===0&&distance<100:k==='brace'?distance<260:k==='beam'?distance<380:true);}if(o.userData.rackBlock)o.visible=(zoneLevel.get(o.userData.zone)??0)===2;if(o.userData.label)o.visible=layers.labels&&distance<300;if(o.userData.type==='zone'||o.userData.zoneOutline)o.visible=layers.zones;}robotics.updateDetail(camera.position,layers.robots);for(const r of robotics.robots){r.g.visible=layers.robots;for(const child of r.g.children)if(child.isSprite)child.visible=false;}placeTags();adaptResolution(time??performance.now());renderer.render(scene,camera);});
 return {setOccupancy(v){operations.setOccupancy(v);},layer(name){return layers[name];},setLayer(name,on){layers[name]=on;if(name==='lanes')robotics.setLanesVisible(on);},showOrder(id){operations.setOrder(id);robotics.select(null);if(id){const o=robotics.book.orders.find(o=>o.id===id),ps=o?.allocated.map(id=>robotics.boxPose(id)).filter(Boolean)||[];if(ps.length){const b=new T.Box3();ps.forEach(p=>b.expandByPoint(new T.Vector3(p.x,p.y,p.z)));const center=b.getCenter(new T.Vector3()),size=Math.max(30,b.getSize(new T.Vector3()).length());fly(center,new T.Vector3(size*.5,size,size*.7));}}},focusIssue(id){const st=robotics.stations.find(s=>s.id===id);if(st)fly(st.g.position.clone(),new T.Vector3(20,30,24));else{robotics.select(id);fly(robotics.focus(id),new T.Vector3(20,30,24));}},builderContext:{canvas:renderer.domElement,camera,ground,controls,scene,hit,identity,pick:onPick,mode:()=>mode,rackConfig:()=>rackConfig,setMode:m=>{mode=m;controls.mouseButtons.LEFT=null;clearHover();ghost.visible=false;}},robotics,finishZone,focusBox(id){following=null;inspectedId=id;followedBox=id;robotics.select(null);const p=robotics.boxPose(id);if(p)fly(new T.Vector3(p.x,p.y,p.z),new T.Vector3(12,15,18));},get following(){return following;},followRobot(id){inspectedId=null;followedBox=null;following=id;if(id){robotics.select(id);fly(robotics.focus(id).add(new T.Vector3(10,2,-6)),new T.Vector3(20,38,28));}},focusRobot(id){inspectedId=null;followedBox=null;following=null;robotics.select(id);fly(robotics.focus(id).add(new T.Vector3(10,0,-6)),id?new T.Vector3(28,34,42):new T.Vector3(48,60,74));},rebuild,select,preview:outlinePart,showRacks,clearMarks:()=>clear(marks),home,setRackConfig(c){rackConfig=config(c);updateGhost();ghost.visible=false;},
 setBuilding(value){operations.setOrder(null);operations.setOccupancy(false);following=null;building=value;robotics.setBuilding(value);clearHover();if(value){clear(detail);targets=targets.filter(t=>!t.userData.detail);} },
 topView(){let distance=camera.position.distanceTo(controls.target);fly(controls.target.clone(),new T.Vector3(0,distance,.01));},
-setMode(m){mode=m;corners=[];drawCorners();start=null;down=null;preview.visible=false;ghost.visible=false;clearHover();controls.enabled=true;controls.mouseButtons.LEFT=m==='browse'?T.MOUSE.ROTATE:null;controls.mouseButtons.RIGHT=T.MOUSE.PAN;container.style.cursor=m==='browse'?'grab':'crosshair';},
+setMode(m){mode=m;corners=[];drawCorners();start=null;down=null;preview.visible=false;ghost.visible=false;clearHover();controls.enabled=true;controls.mouseButtons.LEFT=m==='browse'?T.MOUSE.ROTATE:null;controls.touches.ONE=m==='browse'?T.TOUCH.ROTATE:null;controls.mouseButtons.RIGHT=T.MOUSE.PAN;container.style.cursor=m==='browse'?'grab':'crosshair';},
 zoom(n){camera.position.sub(controls.target).multiplyScalar(n).add(controls.target);}};
 }
 // Pure (no three/DOM) so it can be tested: feed it frame timestamps, it answers the pixel ratio to use.

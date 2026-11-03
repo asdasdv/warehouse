@@ -15,7 +15,7 @@ export function placeChooser({dialog,state,product,qty=1,exclude,backLabel,onPic
  const free=racks=>racks.reduce((n,r)=>n+rackCapacity(r)-(used.get(r.id)||0),0);
  const zoneOf=zid=>state.zones.find(z=>z.id===zid),color=zid=>zoneOf(zid)?.color||'var(--accent-primary)';
  let step=startRack?'cell':'zone',zone=startRack?state.racks.find(r=>r.id===startRack)?.zone:null,rack=startRack,choice=null,query='';
- const frame=(back,title,body)=>`<div class="lc-dialog"><div class="lc-dlg-top"><button type="button" class="lc-back" data-back><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" data-close aria-label="Close">${icon('close')}</button></div><h2>${esc(title)}</h2>${body}</div>`;
+ const frame=(back,title,body)=>`<div class="lc-dialog"><div class="lc-dlg-top"><button type="button" class="lc-back" data-back><img class="fg-ic" src="/assets/fg/arrow-left.svg" alt="">${esc(back)}</button><button type="button" class="icon" data-close aria-label="Close">${icon('close')}</button></div><h2 id="dlgTitle">${esc(title)}</h2>${body}</div>`;
  const option=(attr,name,value,c)=>`<button type="button" class="lc-option" ${attr}><i style="background:${c}"></i><span>${esc(name)}</span><em>${value}</em><img src="/assets/fg/chevron-right.svg" alt=""></button>`;
  // Search: racks by id, or a full address (“A-04 S5-P3”) straight to its cell.
  function results(){const q=query.trim().toUpperCase().replace(/\s*[·|]\s*/,' ');const addr=/^([A-Z]+-\d+)\s+(S\d+-P\d+)$/.exec(q),out=[];

@@ -1,0 +1,26 @@
+# Tests and the production build on every push and pull request.
+name: CI
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: source
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: source/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      # The committed deploy bundle must be the build of this very commit.
+      - name: Deploy bundle is up to date
+        run: |
+          diff <(cd ../locus-cloudflare && find . -type f | sort) <(cd dist && find . -type f | sort)
+          for f in $(cd dist && find . -type f); do cmp -s "dist/$f" "../locus-cloudflare/$f" || { echo "stale: $f"; exit 1; }; done
