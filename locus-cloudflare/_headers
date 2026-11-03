@@ -1,0 +1,8 @@
+# Cloudflare Workers static assets. Vite names the bundle by its content (index-<hash>.js), so those files can be
+# cached for a year; models and icons keep their names, so they get a day.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+/assets/models/*
+  Cache-Control: public, max-age=86400
+/assets/fg/*
+  Cache-Control: public, max-age=86400
