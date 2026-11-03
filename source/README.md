@@ -31,7 +31,7 @@ npm run dev     # http://127.0.0.1:5173
 npm test        # логика склада и роботов
 npm run build   # сборка в dist/
 ```
-Папка `../locus-cloudflare` — содержимое `dist/` для деплоя на Cloudflare.
+Папка `../porter-cloudflare` — содержимое `dist/` для деплоя на Cloudflare.
 Лендинг Porter живёт отдельно: репозиторий [asdasdv/porter-landing](https://github.com/asdasdv/porter-landing).
 
 Главные файлы: `main.js` (интерфейс и окна), `phoenix-panel.js` (правая панель), `tasks-panel.js`, `locus.css` (токены из Figma), `layout-editor.js` (редактор планировки), `warehouse-robots.js` (симуляция — единственный источник
@@ -39,6 +39,6 @@ npm run build   # сборка в dist/
 
 ### Cloudflare Workers Builds
 
-The repository root contains `wrangler.jsonc` for the existing Worker `warehouse`. It serves the committed `locus-cloudflare/` directory. Set the Workers Builds root directory to the repository root; the deployment command is `npx wrangler deploy`. No build command is required when deploying the committed bundle. The configured preview-branch command is `npx wrangler preview`; it requires the top-level `previews: {}` block in `wrangler.jsonc`. Assets and compatibility settings remain at the top level.
+The repository root contains `wrangler.jsonc` for the existing Worker `warehouse`. It serves the committed `porter-cloudflare/` directory. Set the Workers Builds root directory to the repository root; the deployment command is `npx wrangler deploy`. No build command is required when deploying the committed bundle. The configured preview-branch command is `npx wrangler preview`; it requires the top-level `previews: {}` block in `wrangler.jsonc`. Assets and compatibility settings remain at the top level.
 
 Validate the deployment configuration from the repository root with `npx wrangler deploy --dry-run`. This checks packaging without publishing. If a Cloudflare check fails before a build log is produced, inspect the account/build settings in the Cloudflare dashboard; local application tests cannot validate those settings.
