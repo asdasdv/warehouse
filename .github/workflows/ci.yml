@@ -22,5 +22,5 @@ jobs:
       # The committed deploy bundle must be the build of this very commit.
       - name: Deploy bundle is up to date
         run: |
-          diff <(cd ../locus-cloudflare && find . -type f | sort) <(cd dist && find . -type f | sort)
-          for f in $(cd dist && find . -type f); do cmp -s "dist/$f" "../locus-cloudflare/$f" || { echo "stale: $f"; exit 1; }; done
+          diff <(cd ../porter-cloudflare && find . -type f | sort) <(cd dist && find . -type f | sort)
+          for f in $(cd dist && find . -type f); do cmp -s "dist/$f" "../porter-cloudflare/$f" || { echo "stale: $f"; exit 1; }; done
