@@ -16,8 +16,9 @@ export function rackParts(r){
     // The channel's flanges point into the rack; the anchor plate and its bolts sit centred under the whole upright.
     const inward=x<0?1:-1,cx=x+inward*.03;
     add('frame',x,h/2,z,.10,h,.16);
-    add('frame',x+inward*.075,h/2,z-.065,.07,h,.03);
-    add('frame',x+inward*.075,h/2,z+.065,.07,h,.03);
+    // Flanges start where the web ends rather than overlapping it: overlapping faces in one plane flicker (z-fighting).
+    add('frame',x+inward*.085,h/2,z-.065,.07,h,.03);
+    add('frame',x+inward*.085,h/2,z+.065,.07,h,.03);
     add('frame',cx,.035,z,.32,.07,.34);
     for(const dx of [-.105,.105])for(const dz of [-.11,.11])add('hardware',cx+dx,.083,z+dz,.035,.025,.035);
     for(let s=0;s<r.shelves;s++){
@@ -43,6 +44,7 @@ export function rackParts(r){
     let low=.2+j*(h-.4)/segments,high=.2+(j+1)*(h-.4)/segments;
     brace([x,low,-d/2],[x,high,d/2]);brace([x,low,d/2],[x,high,-d/2]);
   }
-  for(const x of [-w/2,w/2])add('beam',x,h-.05,0,.09,.10,d);
+  // The top tie sits 2 cm below the upright tops, so their top faces don't share a plane.
+  for(const x of [-w/2,w/2])add('beam',x,h-.07,0,.09,.10,d);
   return parts;
 }
