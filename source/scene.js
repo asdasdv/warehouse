@@ -9,7 +9,7 @@ import {loadModel,fitted} from './warehouse-models.js';
 import {docksOf,layoutObstacles} from './docks.js';
 import {RoundedBoxGeometry} from 'three/addons/geometries/RoundedBoxGeometry.js';
 import {RoomEnvironment} from 'three/addons/environments/RoomEnvironment.js';
-import {createAmbientOcclusion} from './ambient-occlusion.js';
+import {contactShadowMaterial,contactShadowGeometry,CORE} from './contact-shadow.js';
 import {rackParts} from './rack-geometry.js';
 import {config,locations,occupancy,boxLayout,placement} from './storage.js';
 import {OrbitControls} from 'three/addons/controls/OrbitControls.js';
@@ -111,7 +111,10 @@ function buildZoneParts(a,racks,zoneId){const meshes=[],dummy=new T.Object3D();
   // Only uprights and decks cast shadows: bolts, beams and braces add most of the triangles and little to the shadow.
   inst.castShadow=kind==='frame'||kind==='deck';inst.receiveShadow=true;inst.userData.partKind=kind;inst.userData.zone=zoneId;meshes.push(inst);}
  const block=new T.InstancedMesh(geometry,blockMaterial,racks.length);dummy.quaternion.identity();racks.forEach((r,i)=>{dummy.position.set(r.x,r.height/2,r.z);dummy.scale.set(r.width,r.height,r.depth);dummy.updateMatrix();block.setMatrixAt(i,dummy.matrix);block.setColorAt(i,blockEmpty);});
- block.castShadow=true;block.receiveShadow=true;block.userData={rackBlock:true,zone:zoneId};block.visible=false;meshes.push(block);zoneBlocks.set(zoneId,{mesh:block,racks:racks.map(r=>r.id)});
+ block.castShadow=true;block.receiveShadow=true;block.userData={rackBlock:true,zone:zoneId};block.visible=false;meshes.push(block);
+ // A soft shadow on the floor under each rack, a little wider than its footprint (see contact-shadow.js).
+ const contact=new T.InstancedMesh(contactShadowGeometry,contactShadowMaterial(),racks.length);racks.forEach((r,i)=>{const turned=(r.rotation||0)%2,w=turned?r.depth:r.width,d=turned?r.width:r.depth;dummy.position.set(r.x,.015,r.z);dummy.scale.set((w+.5)/CORE,1,(d+.5)/CORE);dummy.updateMatrix();contact.setMatrixAt(i,dummy.matrix);});
+ contact.raycast=()=>{};contact.renderOrder=-1;sharedGeometries.add(contactShadowGeometry);sharedMaterials.add(contact.material);meshes.push(contact);zoneBlocks.set(zoneId,{mesh:block,racks:racks.map(r=>r.id)});
  return meshes;}
 function rebuild(){clearHover();clear(detail);clear(selection);placeAccess.reset();const s=getState();updateLighting(s);
  const byZone=new Map(s.zones.map(a=>[a.id,[]]));for(const r of s.racks){if(!byZone.has(r.zone))byZone.set(r.zone,[]);byZone.get(r.zone).push(r);}
@@ -268,8 +271,7 @@ function orbitAboutPivot(){if(!pivot||anim||following)return;const a=before.cam.
  // As a turn about the vertical, then a tilt about the horizontal axis: no roll, so the pivot stays put on screen.
  orbitTurn.setFromAxisAngle(new T.Vector3(Math.cos(sb.theta),0,-Math.sin(sb.theta)),sb.phi-sa.phi).multiply(new T.Quaternion().setFromAxisAngle(new T.Vector3(0,1,0),sb.theta-sa.theta));camera.position.copy(before.cam).sub(pivot).applyQuaternion(orbitTurn).add(pivot);const t=before.target.clone().sub(pivot).applyQuaternion(orbitTurn).add(pivot);
  const dir=t.clone().sub(camera.position).normalize(),hitT=new T.Vector3();if(dir.y<-1e-3&&new T.Ray(camera.position,dir).intersectPlane(floorPlane,hitT))controls.target.copy(hitT);else controls.target.copy(t);camera.lookAt(controls.target);}
-const ao=createAmbientOcclusion(renderer,scene,camera);
-new ResizeObserver(()=>{let w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);ao.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(container);
+new ResizeObserver(()=>{let w=container.clientWidth,h=container.clientHeight;renderer.setSize(w,h);camera.aspect=w/h;camera.updateProjectionMatrix();}).observe(container);
 // The simulation runs on wall-clock time, not frames: it catches up in 0.1 s steps (capped at 30 s), and keeps going from a timer while the tab is hidden and rAF is paused.
 let simTime=performance.now();function step(now){let dt=Math.min(30,(now-simTime)/1000);simTime=now;while(dt>1e-6){const h=Math.min(.1,dt);robotics.update(h);dt-=h;}}
 setInterval(()=>{if(document.hidden)step(performance.now());},1000);
@@ -292,8 +294,7 @@ function placeTags(){syncTags();const w=renderer.domElement.clientWidth,h=render
 // up once frames have kept close to the display's refresh for a few windows. The refresh interval is the shortest
 // frame seen (rAF times are vsync-aligned). A step up that is soon undone doubles the wait before the next one.
 const resolution=createResolutionGovernor();
-// Slow frames give up the contact shadows first; only then does the resolution step down.
-function adaptResolution(time){const r=resolution.frame(time,renderer.getPixelRatio(),MAX_RATIO);if(r===renderer.getPixelRatio())return;if(r<renderer.getPixelRatio()&&ao.enabled){ao.enabled=false;return;}renderer.setPixelRatio(r);ao.setSize(container.clientWidth,container.clientHeight);}
+function adaptResolution(time){const r=resolution.frame(time,renderer.getPixelRatio(),MAX_RATIO);if(r!==renderer.getPixelRatio())renderer.setPixelRatio(r);}
 // After cargo is rebuilt only what stood on a rebuilt zone is redrawn: the selected rack's close-up (or a box
 // selection in transit), a hovered shelf box (its batch instance changed) and a panel-outlined box.
 function refreshAfterRebuild(all,zones){const touched=z=>z!=null&&!!zones?.has(z);
@@ -304,7 +305,7 @@ const sceneHidden=()=>document.body.classList.contains('inventory-mode')||docume
 let steelTick=0;
 renderer.setAnimationLoop(time=>{step(performance.now());if(steelTick++%30===0)reflectSteel();const change=robotics.consumeVisualChange();if(change)rebuildCargo(change);const rebuilt=rebuildDirtyZones(4);if(sceneHidden())return;if(change?.all||rebuilt)refreshAfterRebuild(change?.all,rebuilt);updateCargoDetail();const ip=inspectedId?robotics.boxPose(inspectedId):null;inspection.visible=!!ip;if(ip)inspection.box.setFromCenterAndSize(new T.Vector3(ip.x,ip.y,ip.z),new T.Vector3(ip.w+.15,ip.h+.15,ip.d+.15));if(anim){let v=Math.min(1,(performance.now()-anim.start)/850),t=1-Math.pow(1-v,3);camera.position.lerpVectors(anim.p,anim.end,t);controls.target.lerpVectors(anim.t,anim.target,t);if(v===1)anim=null;}// A picked box is followed wherever it goes: at the dock, on a robot, onto its shelf. Dragging the view stops it.
 if(followedBox&&!anim){const p=robotics.boxPose(followedBox);if(p){const target=controls.target.clone().lerp(new T.Vector3(p.x,p.y,p.z),.2),delta=target.clone().sub(controls.target);camera.position.add(delta);controls.target.copy(target);}else followedBox=null;}
-if(following&&!anim){const robot=robotics.robots.find(r=>r.id===following);if(robot){const target=robot.g.position.clone().add(new T.Vector3(10,2,-6)),delta=target.clone().sub(controls.target);camera.position.add(delta);controls.target.copy(target);}else following=null;}before.cam.copy(camera.position);before.target.copy(controls.target);controls.update();orbitAboutPivot();keepAboveFloor();operations.update(.016);const distance=camera.position.distanceTo(controls.target);for(const o of [...world.children,...cargoGroup.children]){if(o.userData.fineDetail)o.visible=distance<140;if(o.userData.partKind){const lvl=zoneLevel.get(o.userData.zone)??0,k=o.userData.partKind;o.visible=lvl<2&&(k==='hardware'?lvl===0&&distance<100:k==='brace'?distance<260:k==='beam'?distance<380:true);}if(o.userData.rackBlock)o.visible=(zoneLevel.get(o.userData.zone)??0)===2;if(o.userData.label)o.visible=layers.labels&&distance<300;if(o.userData.type==='zone'||o.userData.zoneOutline)o.visible=layers.zones;}robotics.updateDetail(camera.position,layers.robots);for(const r of robotics.robots){r.g.visible=layers.robots;for(const child of r.g.children)if(child.isSprite)child.visible=false;}placeTags();adaptResolution(time??performance.now());ao.render();});
+if(following&&!anim){const robot=robotics.robots.find(r=>r.id===following);if(robot){const target=robot.g.position.clone().add(new T.Vector3(10,2,-6)),delta=target.clone().sub(controls.target);camera.position.add(delta);controls.target.copy(target);}else following=null;}before.cam.copy(camera.position);before.target.copy(controls.target);controls.update();orbitAboutPivot();keepAboveFloor();operations.update(.016);const distance=camera.position.distanceTo(controls.target);for(const o of [...world.children,...cargoGroup.children]){if(o.userData.fineDetail)o.visible=distance<140;if(o.userData.partKind){const lvl=zoneLevel.get(o.userData.zone)??0,k=o.userData.partKind;o.visible=lvl<2&&(k==='hardware'?lvl===0&&distance<100:k==='brace'?distance<260:k==='beam'?distance<380:true);}if(o.userData.rackBlock)o.visible=(zoneLevel.get(o.userData.zone)??0)===2;if(o.userData.label)o.visible=layers.labels&&distance<300;if(o.userData.type==='zone'||o.userData.zoneOutline)o.visible=layers.zones;}robotics.updateDetail(camera.position,layers.robots);for(const r of robotics.robots){r.g.visible=layers.robots;for(const child of r.g.children)if(child.isSprite)child.visible=false;}placeTags();adaptResolution(time??performance.now());renderer.render(scene,camera);});
 // The loading screen (index.html) stays until the models are in, the shaders are compiled and a frame is drawn,
 // so the warehouse appears whole instead of popping in. Eight seconds at most, whatever happens.
 {const boot=document.getElementById('boot');if(boot){const hide=()=>{if(boot.classList.contains('done'))return;boot.classList.add('done');boot.addEventListener('transitionend',()=>boot.remove(),{once:true});setTimeout(()=>boot.remove(),1000);};

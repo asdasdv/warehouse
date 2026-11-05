@@ -3,6 +3,7 @@ import {locations, boxLayout, CELL_CAPACITY} from './storage.js';
 import {products as catalog, HISTORY_LIMIT} from './model.js';
 import {createOrderBook} from './order-book.js';
 import {createRouter} from './robot-routing.js';
+import {contactShadowMaterial, contactShadowGeometry, CORE} from './contact-shadow.js';
 import {loadModel, fitted} from './warehouse-models.js';
 import {mergeByMaterial} from './merge-meshes.js';
 import {BELT_TOP, BELT_START, BELT_END, BELT_HALF, BRIDGE_LIFT, BRIDGE_HALF, BUILDING, UPPER, docksOf, dockPort, dockReach, chargingDepots, depotStops, POST, layoutObstacles, spineLift, spineBreaks, lineSpan} from './docks.js';
@@ -283,6 +284,9 @@ export function addWarehouseRobots(scene, getState) {
     const g = new T.Group(), id = `AMR-${String(i + 1).padStart(2, '0')}`;
     const body = new T.Group();
     group.add(g); g.add(body);
+    // A soft shadow under the robot that travels with it (see contact-shadow.js).
+    const contact = new T.Mesh(contactShadowGeometry, contactShadowMaterial());
+    contact.scale.set(3 / CORE, 1, 3.4 / CORE); contact.position.y = .02; contact.raycast = () => {}; contact.renderOrder = -1; g.add(contact);
     box(body, 0, .7, 0, 2.6, 1.1, 3.4, yellow); box(body, 0, 1.35, 0, 2.3, .22, 2.8, black);
     for (const x of [-1.2, 1.2]) for (const z of [-1, 1]) box(body, x, .35, z, .35, .65, .8, black);
     box(body, 0, 1.58, 1.35, .6, .25, .35, green); box(body, 0, 3, -1.1, .25, 5.2, .3, silver);
