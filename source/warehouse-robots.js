@@ -306,14 +306,18 @@ export function addWarehouseRobots(scene, getState) {
   // One palette for every model (racks use the same in scene.js): white and light matte metal, dark belts
   // and robot tops, one safety yellow. Blender models are recoloured to it by material name.
   const PALETTE = {white: '#f3f4f6', metal: '#c3c9cf', steel: '#d5d9dd', dark: '#3b4248', belt: '#6b7378', rubber: '#4a5055', yellow: '#f2c230'};
-  const frameMat = new T.MeshStandardMaterial({color: PALETTE.metal, roughness: .5, metalness: .25});
+  const frameMat = new T.MeshStandardMaterial({color: PALETTE.metal, roughness: .32, metalness: .8});
   const MODEL_COLOURS = [[/brushed steel/, 'steel'], [/ceramic/, 'yellow'], [/silver enclosure|tunnel/, 'white'], [/blue grey frame/, 'metal'], [/rubber|tyre/, 'rubber'], [/graphite/, 'dark'], [/safety yellow/, 'yellow']];
   const recoloured = new WeakSet();
   function recolour(material) {
     if (!material || recoloured.has(material)) return;
     recoloured.add(material);
     const hit = MODEL_COLOURS.find(([re]) => re.test(material.name || ''));
-    if (hit) { material.color.set(PALETTE[hit[1]]); material.metalness = Math.min(material.metalness ?? 0, .3); }
+    if (!hit) return;
+    material.color.set(PALETTE[hit[1]]);
+    // Steel parts reflect the environment; painted shells (the robots' yellow) get a soft satin sheen.
+    if (hit[1] === 'steel' || hit[1] === 'metal') { material.metalness = .85; material.roughness = .3; }
+    else { material.metalness = Math.min(material.metalness ?? 0, .1); material.roughness = Math.min(material.roughness ?? 1, .45); }
   }
   const tunnelMat = new T.MeshStandardMaterial({color: '#e9ecef', roughness: .8});
   for (const {id, kind} of docksOf(getState())) {
@@ -506,7 +510,7 @@ export function addWarehouseRobots(scene, getState) {
   // Pop-up rollers turn about the line's own axis (x), so they push a box sideways (z) onto the dock belt.
   const crossRoller = new T.CylinderGeometry(.07, .07, 2.6, 10).rotateZ(Math.PI / 2);
   const bridgeRoller = new T.CylinderGeometry(.07, .07, 2.2, 10).rotateZ(Math.PI / 2);
-  const rollerMat = new T.MeshStandardMaterial({color: '#b8c1c4', roughness: .35, metalness: .6});
+  const rollerMat = new T.MeshStandardMaterial({color: '#b8c1c4', roughness: .25, metalness: .9});
   const plateMat = new T.MeshStandardMaterial({color: '#2a3033', roughness: .8});
   const LAST_ROLLER = 7.75; // conveyor.glb: the last roller, station-local z
   const sharedTransferGeo = new Set([geo, crossRoller, bridgeRoller]);
