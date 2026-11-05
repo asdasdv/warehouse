@@ -305,9 +305,9 @@ export function addWarehouseRobots(scene, getState) {
   }
   // One palette for every model (racks use the same in scene.js): white and light matte metal, dark belts
   // and robot tops, one safety yellow. Blender models are recoloured to it by material name.
-  const PALETTE = {white: '#f3f4f6', metal: '#c3c9cf', steel: '#d5d9dd', dark: '#3b4248', belt: '#6b7378', rubber: '#4a5055', yellow: '#e9c84a'};
+  const PALETTE = {white: '#f3f4f6', metal: '#c3c9cf', steel: '#d5d9dd', dark: '#3b4248', belt: '#6b7378', rubber: '#4a5055', yellow: '#f2c230'};
   const frameMat = new T.MeshStandardMaterial({color: PALETTE.metal, roughness: .5, metalness: .25});
-  const MODEL_COLOURS = [[/brushed steel/, 'steel'], [/silver enclosure|tunnel|ceramic/, 'white'], [/blue grey frame/, 'metal'], [/rubber|tyre/, 'rubber'], [/graphite/, 'dark'], [/safety yellow/, 'yellow']];
+  const MODEL_COLOURS = [[/brushed steel/, 'steel'], [/ceramic/, 'yellow'], [/silver enclosure|tunnel/, 'white'], [/blue grey frame/, 'metal'], [/rubber|tyre/, 'rubber'], [/graphite/, 'dark'], [/safety yellow/, 'yellow']];
   const recoloured = new WeakSet();
   function recolour(material) {
     if (!material || recoloured.has(material)) return;
@@ -348,6 +348,9 @@ export function addWarehouseRobots(scene, getState) {
       ledBase[key] ||= o.material.clone();
       o.material = ledBase[key];
     });
+    // The top platform shares the bumpers' graphite in the model; here it takes the shell's yellow, so the robot reads as yellow from above.
+    let deck = null;
+    base.traverse(o => { if (o.isMesh && /платформа/.test(o.name)) { deck ||= o.material.clone(); deck.name = 'Robot • ceramic deck'; o.material = deck; } });
     base.traverse(o => { if (o.isMesh) recolour(o.material); });
     for (const mesh of mergeByMaterial(base)) if (Object.values(ledBase).includes(mesh.material)) mesh.castShadow = false;
     for (const r of robots) {
@@ -402,7 +405,7 @@ export function addWarehouseRobots(scene, getState) {
   const ROBOT_NEAR = 150;
   // Beyond DOCK_NEAR a dock drops its parts smaller than DOCK_FINE (bounding radius, metres).
   const DOCK_NEAR = 220, DOCK_FINE = 1.5;
-  const proxyBody = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: PALETTE.dark, roughness: .6}), ROBOTS);
+  const proxyBody = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: PALETTE.yellow, roughness: .55}), ROBOTS);
   const proxyLoad = new T.InstancedMesh(geo, new T.MeshStandardMaterial({color: '#c9a274', roughness: .9}), ROBOTS);
   const proxyObj = new T.Object3D();
   for (const m of [proxyBody, proxyLoad]) { m.count = 0; m.frustumCulled = false; m.raycast = () => {}; group.add(m); }
